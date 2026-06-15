@@ -1,0 +1,16 @@
+{
+  "name": "quadbio-cell-type-annotation",
+  "owner": {
+    "name": "quadbio"
+  },
+  "metadata": {
+    "description": "quadbio Claude Code plugins. Currently hosts the cell-type-annotation skill."
+  },
+  "plugins": [
+    {
+      "name": "cell-type-annotation",
+      "source": "./",
+      "description": "Evidence-driven, project-agnostic cell-type annotation of pre-clustered single-cell and spatial transcriptomics data."
+    }
+  ]
+}

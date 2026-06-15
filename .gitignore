@@ -1,0 +1,21 @@
+# Per-run working directories created by the skill (durable artifacts live in the
+# user's project, NOT in this plugin repo).
+runs/
+*-annotation-run/
+
+# The dedicated uv venv the skill manages lives in a per-user cache, never here.
+.venv/
+__pycache__/
+*.pyc
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Data must never be committed
+*.h5ad
+*.zarr/
+*.loom
+data/

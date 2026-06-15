@@ -1,0 +1,19 @@
+{
+  "name": "cell-type-annotation",
+  "version": "0.1.0",
+  "description": "Evidence-driven, project-agnostic cell-type annotation of pre-clustered single-cell and spatial transcriptomics data. CPU/scVerse-first; Claude is the annotator.",
+  "author": {
+    "name": "quadbio"
+  },
+  "homepage": "https://github.com/quadbio/cell-type-annotation",
+  "license": "MIT",
+  "keywords": [
+    "single-cell",
+    "spatial-transcriptomics",
+    "cell-type-annotation",
+    "scverse",
+    "scanpy",
+    "anndata",
+    "bioinformatics"
+  ]
+}

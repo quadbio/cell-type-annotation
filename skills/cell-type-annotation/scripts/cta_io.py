@@ -1,0 +1,267 @@
+"""Shared helpers for the cell-type-annotation scripts.
+
+Keep this dependency-light (scanpy/anndata/pandas/numpy). Every script imports from
+here so the artifact conventions (working dir, table output, layer resolution,
+panel-gating) stay consistent and the run remains resumable and auditable.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+import anndata as ad
+import numpy as np
+import pandas as pd
+
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+
+def load_adata(path: str, backed: str | None = None, prefer_slim: bool = True) -> ad.AnnData:
+    """Load an AnnData.
+
+    `backed="r"` reads without materializing X (use it when you only need obs/obsm).
+    `prefer_slim` (default) transparently uses a fresh `<stem>_cta.h5ad` slim sidecar
+    written by prep_slim.py — so large objects aren't re-deserialized in full by every
+    script. The sidecar is used only if it is newer-or-equal to the original; set
+    `CTA_NO_SLIM=1` to disable. Scripts that MUST see the full object or write it back
+    (write_back.py, prep_slim.py) pass `prefer_slim=False`.
+    """
+    p = Path(path).expanduser()
+    if not p.exists():
+        raise SystemExit(f"ERROR: AnnData not found: {p}")
+    if prefer_slim and not os.environ.get("CTA_NO_SLIM"):
+        slim = p.with_name(p.stem + "_cta.h5ad")
+        if slim.exists() and slim != p and slim.stat().st_mtime >= p.stat().st_mtime:
+            eprint(f"   using slim cache {slim.name} (set CTA_NO_SLIM=1 to disable)")
+            p = slim
+    return ad.read_h5ad(p, backed=backed) if backed else ad.read_h5ad(p)
+
+
+def safe_cluster_id(cid) -> str:
+    """Sanitize a cluster id for safe use in a filename / HTML id.
+
+    Cluster ids can contain '/' (e.g. a merged-then-subclustered id like '24/25_0'),
+    which would break file paths. Replace path-hostile characters with '_'. The real
+    id is always preserved verbatim in tables and card bodies — this is for filenames
+    and cross-references only. Centralized here so every script sanitizes identically.
+    """
+    s = str(cid)
+    for ch in "/\\ :":
+        s = s.replace(ch, "_")
+    return s
+
+
+def split_csv(s: str | None) -> list[str]:
+    """Parse a comma-separated CLI argument into a clean list of tokens.
+
+    Centralized so every script splits identically (empty tokens dropped, whitespace
+    trimmed). `split_csv("a, b ,,c") -> ['a', 'b', 'c']`; `split_csv(None) -> []`.
+    """
+    return [t.strip() for t in (s or "").split(",") if t.strip()]
+
+
+# --- label ordering + colours (shared by build_report.py and write_back.py) ----------
+# Centralized here so the palette the user reviews in the HTML report is the SAME one
+# written into adata.uns by write_back.py — the colour<->cell-type relationship is
+# preserved end to end.
+
+UNKNOWN_GREY = (0.7, 0.7, 0.7)
+
+
+def is_unknown_label(label) -> bool:
+    """Sentinel 'no real identity' labels that always render neutral grey, regardless
+    of palette — Unknown, Unassigned, NA, ambiguous, the empty group."""
+    s = str(label).strip().lower()
+    return s.startswith("unknown") or s in {
+        "", "—", "na", "nan", "none", "unassigned", "ambiguous", "doublet", "low quality"}
+
+
+def similarity_order(centroids) -> list[int]:
+    """Order labels so similar ones are adjacent (so they get adjacent colours/numbers).
+
+    Hierarchical-clustering leaf order over per-label centroids; identity order on
+    failure or when centroids are unavailable. Fully data-driven — no dataset-specific
+    assumptions.
+    """
+    if centroids is None:
+        return []
+    n = len(centroids)
+    if n <= 2:
+        return list(range(n))
+    try:
+        from scipy.cluster.hierarchy import leaves_list, linkage
+        from scipy.spatial.distance import pdist
+        Z = linkage(pdist(np.asarray(centroids)), method="ward", optimal_ordering=True)
+        return list(leaves_list(Z))
+    except Exception:  # noqa: BLE001
+        return list(range(n))
+
+
+def ordered_colors(n: int) -> list:
+    """n gentle, perceptually-balanced RGB colours, applied in similarity order so
+    similar cell types get neighbouring colours.
+      - n <= 28: scanpy's muted `zeileis_28` (no neon clash).
+      - n  > 28: HSLuv (husl) hue ramp + lightness zigzag — scales to any n.
+    Never uses scanpy's harsh >28 default (godsnot_102)."""
+    if n <= 0:
+        return []
+    from matplotlib.colors import to_rgb
+    if n <= 28:
+        try:
+            from scanpy.plotting.palettes import zeileis_28
+            return [to_rgb(zeileis_28[i]) for i in range(n)]
+        except Exception:  # noqa: BLE001
+            from matplotlib import colormaps
+            base = list(colormaps["tab20"].colors)
+            return [base[i % len(base)] for i in range(n)]
+    import colorsys
+    try:
+        import seaborn as sns
+        base = list(sns.husl_palette(n, s=0.62, l=0.65))
+    except Exception:  # noqa: BLE001
+        base = [colorsys.hsv_to_rgb(i / n, 0.5, 0.9) for i in range(n)]
+    out = []
+    for i, c in enumerate(base):
+        h, _, s = colorsys.rgb_to_hls(*c)
+        out.append(colorsys.hls_to_rgb(h, 0.55 if i % 2 else 0.74, s))
+    return out
+
+
+def label_color_map(cats: list, centroids):
+    """Map each category to an RGB colour, similarity-ordered.
+
+    `cats`: category labels (list). `centroids`: per-category vectors aligned to `cats`
+    (e.g. median embedding coordinate), or None for identity order. Returns
+    `(order, color_of)` where `order` is the similarity-ordered list of category indices
+    and `color_of[i]` is the RGB tuple for `cats[i]`. Unknown-type labels always map to
+    grey and are excluded from the palette (so no hue is wasted on them)."""
+    order = similarity_order(centroids) or list(range(len(cats)))
+    known = [ci for ci in order if not is_unknown_label(cats[ci])]
+    palette = ordered_colors(len(known))
+    color_of, ki = {}, 0
+    for ci in order:
+        if is_unknown_label(cats[ci]):
+            color_of[ci] = UNKNOWN_GREY
+        else:
+            color_of[ci] = palette[ki]
+            ki += 1
+    return order, color_of
+
+
+def check_hierarchy_nesting(level_maps: list) -> list[str]:
+    """Verify a label hierarchy is strictly nested: every finer-level label maps to
+    exactly ONE coarser-level label. A user-requested hierarchy must nest by design —
+    e.g. if L1 splits NPC vs Neuron, an L2 label cannot span both.
+
+    `level_maps`: list of (level_name, {cluster_id: label}) in order broad -> fine.
+    Returns a list of human-readable violation strings (empty if consistent).
+    """
+    violations = []
+    for (pl, pmap), (cl, cmap) in zip(level_maps, level_maps[1:]):
+        by_child: dict[str, set] = {}
+        for clu, child in cmap.items():
+            parent = pmap.get(str(clu), pmap.get(clu))
+            if parent is None:
+                continue
+            by_child.setdefault(str(child), set()).add(str(parent))
+        for child, parents in by_child.items():
+            if len(parents) > 1:
+                violations.append(
+                    f"{cl} label '{child}' has multiple {pl} parents: {sorted(parents)} "
+                    f"(a finer label must refine exactly one coarser label)")
+    return violations
+
+
+def resolve_workdir(workdir: str) -> Path:
+    """Working directory lives in the user's project, never in the plugin repo."""
+    wd = Path(workdir).expanduser().resolve()
+    for sub in ("tables", "evidence", "plots", "reports", "labels"):
+        (wd / sub).mkdir(parents=True, exist_ok=True)
+    return wd
+
+
+def save_table(df: pd.DataFrame, workdir: Path, name: str, index: bool = False) -> Path:
+    out = resolve_workdir(str(workdir)) / "tables" / name
+    df.to_csv(out, index=index)
+    eprint(f"   wrote {out}  ({df.shape[0]} rows x {df.shape[1]} cols)")
+    return out
+
+
+def require_obs(adata: ad.AnnData, key: str, what: str = "column") -> None:
+    if key not in adata.obs:
+        raise SystemExit(
+            f"ERROR: {what} '{key}' not found in adata.obs. "
+            f"Available: {list(adata.obs.columns)}"
+        )
+
+
+def resolve_expression(adata: ad.AnnData, layer: str | None):
+    """Return the matrix to use for log-normalized analyses.
+
+    `layer=None` uses adata.X. Marker/scoring jobs (Job A) must run on
+    log-normalized data — verify with the user which layer that is. We sanity-check
+    that the values look log-scaled (max is modest, non-negative) and WARN otherwise
+    rather than guessing.
+    """
+    if layer is not None and layer not in (adata.layers or {}):
+        raise SystemExit(
+            f"ERROR: layer '{layer}' not found. Available layers: "
+            f"{list(adata.layers.keys())}"
+        )
+    X = adata.layers[layer] if layer is not None else adata.X
+    src = f"layers['{layer}']" if layer is not None else "X"
+    xmax = float(X.max())
+    xmin = float(X.min())
+    if xmin < 0:
+        eprint(f"   WARN: {src} has negative values (max={xmax:.2f}); looks scaled, "
+               "not log-normalized. Marker stats expect log1p data.")
+    elif xmax > 50:
+        eprint(f"   WARN: {src} max={xmax:.1f} looks like raw counts, not log1p. "
+               "Point at the log-normalized layer.")
+    else:
+        eprint(f"   using {src} for expression (min={xmin:.2f}, max={xmax:.2f})")
+    return X
+
+
+def panel_gate(markers: dict[str, list[str]], var_names) -> tuple[dict, dict]:
+    """Intersect each marker set with the genes present (the panel).
+
+    Returns (kept, dropped). NEVER treat a dropped (off-panel) gene as negative
+    evidence — it is unmeasured, not absent.
+    """
+    present = set(map(str, var_names))
+    kept, dropped = {}, {}
+    for ct, genes in markers.items():
+        g = [str(x) for x in genes]
+        k = [x for x in g if x in present]
+        d = [x for x in g if x not in present]
+        kept[ct] = k
+        if d:
+            dropped[ct] = d
+    return kept, dropped
+
+
+def load_run_state(workdir: Path) -> dict:
+    f = resolve_workdir(str(workdir)) / "run_state.json"
+    if f.exists():
+        return json.loads(f.read_text())
+    return {}
+
+
+def write_run_state(workdir: Path, state: dict) -> Path:
+    f = resolve_workdir(str(workdir)) / "run_state.json"
+    f.write_text(json.dumps(state, indent=2))
+    eprint(f"   checkpoint -> {f}")
+    return f
+
+
+def read_markers_json(path: str) -> dict[str, list[str]]:
+    """Marker sets as {cell_type: [genes]} from a JSON file."""
+    data = json.loads(Path(path).expanduser().read_text())
+    if not isinstance(data, dict):
+        raise SystemExit("ERROR: markers JSON must be an object {type: [genes]}")
+    return {str(k): list(map(str, v)) for k, v in data.items()}
