@@ -61,45 +61,78 @@ def _read_evidence(path: Path) -> pd.DataFrame | None:
     return df
 
 
-# Human-readable gloss + value-column meaning per known evidence source. Keyed by a
-# substring of the source/table name (lower-cased). Keeps the "Evidence used" block
-# legible instead of dumping bare column names a reader has to decode.
+# Human-readable gloss per known evidence source (keyed by a substring of the table name,
+# lower-cased). `is_pct` = render values as percentages. Keeps the "Evidence used" block
+# legible — a short labelled line, not a bare column dump or a bulky table.
 _EVIDENCE_GLOSS = {
-    "panel_pct": ("Curated marker panel — fraction of cells in this cluster expressing each gene "
-                  "(0–1). Shows which canonical markers are ON here.", "frac. expressing"),
-    "panel_mean": ("Curated marker panel — mean log-normalized expression per gene in this cluster.",
-                   "mean expr."),
-    "cosg": ("COSG specificity of this cluster's top marker (0–1; higher = more exclusive to "
-             "this cluster).", "specificity"),
-    "crosscheck": ("Cross-method agreement: how many scoring methods (overlap/AUCell/UCell) "
-                   "picked the same top type.", "value"),
-    "scores_aucell": ("AUCell signature enrichment (z-scored across clusters).", "AUCell z"),
-    "celltypist": ("CellTypist model prediction — majority-vote label over the cluster's cells "
-                   "(a cross-check hypothesis, not ground truth).", None),
+    "panel_pct": ("curated marker panel, % of cells expressing", True),
+    "panel_mean": ("curated marker panel, mean log-norm expression", False),
+    "crosscheck": ("cross-method agreement (overlap/AUCell/UCell picking the same type)", False),
+    "scores_aucell": ("AUCell signature enrichment, z-scored across clusters", False),
 }
 _DROP_COLS = {"rank", "index", "level_0"}  # carry no interpretive value in a per-cluster card
 
 
-def _gloss_for(label: str) -> tuple[str, str]:
+def _gloss_for(label: str) -> tuple[str, bool]:
     key = str(label).lower()
-    for sub, (expl, unit) in _EVIDENCE_GLOSS.items():
+    for sub, (expl, is_pct) in _EVIDENCE_GLOSS.items():
         if sub in key:
-            return expl, (unit or "value")
-    return "", "value"
+            return expl, is_pct
+    return "", False
 
 
-def _evidence_section(sources: list[tuple[str, pd.DataFrame]], cid: str, top: int = 16) -> str:
-    """The actual per-cluster numbers behind the call — rows from the evidence tables the
-    annotator scored on (e.g. curated marker-fraction tables). Each source gets a one-line
-    plain-language explanation, then its strongest values as a compact table so a reader can
-    see *what* the numbers mean. The full row stays in the table on disk."""
+def _celltypist_phrase(val, total: int | None = None) -> str | None:
+    """Turn a CellTypist per-cell vote distribution (e.g. {'123 DMH Nkx2-4 Glut': 292,
+    '095 DMH Prdm13 Gaba': 61, ...}) into one human sentence with the TOP label's real
+    fraction of the cluster + the runners-up. `total` is the cluster's cell count; the dict
+    holds only the top-3, so we must divide by `total`, not by the dict's sum (which would
+    inflate the %). Falls back to the dict sum if no total is supplied."""
+    import ast
+    try:
+        d = ast.literal_eval(val) if isinstance(val, str) else val
+    except (ValueError, SyntaxError):
+        return None
+    if not isinstance(d, dict) or not d:
+        return None
+    items = sorted(d.items(), key=lambda kv: -int(kv[1]))
+    denom = int(total) if total else sum(int(v) for _, v in items)
+    top_lab, top_n = items[0][0], int(items[0][1])
+    pct = f", {top_n / denom * 100:.0f}% of cells" if denom else ""
+    runners = [f"{lab} ({int(n)})" for lab, n in items[1:] if int(n) > 0][:2]
+    nxt = f"; next: {', '.join(runners)}" if runners else ""
+    return f"top per-cell prediction **{top_lab}** ({top_n}/{denom} cells{pct}){nxt}"
+
+
+def _evidence_section(sources: list[tuple[str, pd.DataFrame]], cid: str, top: int = 8) -> str:
+    """Compact, human-readable view of the numbers behind the call — ONE short labelled line
+    per source, not a bulky table. Fractions render as %, the CellTypist prediction renders as
+    a sentence (not a raw dict), and sources already shown elsewhere (COSG) are skipped."""
     blocks = []
     for label, df in sources:
         rows = _rows_for(df, cid)
         if rows.empty:
             continue
         r = rows.iloc[0]
-        expl, unit = _gloss_for(label)
+        key = str(label).lower()
+        if "celltypist" in key:
+            # cluster total (for the real %) comes from an n_cells-style column if present
+            total = None
+            for c in rows.columns:
+                if str(c).lower() in ("n_cells", "n", "total", "cells"):
+                    try:
+                        total = int(float(r[c]))
+                    except (TypeError, ValueError):
+                        pass
+            phrase = next((_celltypist_phrase(r[c], total) for c in rows.columns
+                           if str(c).lower() not in ("cluster", "n_cells", "n", "total", "cells")
+                           and _celltypist_phrase(r[c], total) is not None), None)
+            if phrase:
+                blocks.append(f"**CellTypist cross-check** _(model hypothesis, not ground "
+                              f"truth)_: {phrase}")
+            continue
+        if key.startswith("cosg"):
+            continue  # COSG specificity is already in the Marker-evidence section above
+        expl, is_pct = _gloss_for(label)
         _meta = {"cluster", "n", "n_cells", "cells", "size", "count", "total", "index"}
         nums = {}
         for c in rows.columns:
@@ -112,13 +145,13 @@ def _evidence_section(sources: list[tuple[str, pd.DataFrame]], cid: str, top: in
         head = f"**{label}**" + (f" — _{expl}_" if expl else "")
         if nums:
             items = sorted(nums.items(), key=lambda kv: -kv[1])[:top]
-            tbl = [f"| {unit.capitalize()} | Value |", "| --- | --- |"]
-            tbl += [f"| `{k}` | {v:.2f} |" for k, v in items]
-            note = (f"\n\n_(top {len(items)} of {len(nums)} shown)_" if len(nums) > len(items) else "")
-            blocks.append(f"{head}\n\n" + "\n".join(tbl) + note)
+            fmt = (lambda k, v: f"{k} {v * 100:.0f}%") if is_pct else (lambda k, v: f"{k} {v:.2f}")
+            body = " · ".join(fmt(k, v) for k, v in items)
+            more = f" _(top {len(items)} of {len(nums)})_" if len(nums) > len(items) else ""
+            blocks.append(f"{head}: {body}{more}")
         else:
             body = " · ".join(f"`{c}` = {r[c]}" for c in rows.columns if c != "cluster")
-            blocks.append(f"{head}\n\n{body}")
+            blocks.append(f"{head}: {body}")
     return "\n\n".join(blocks) if blocks else ""
 
 

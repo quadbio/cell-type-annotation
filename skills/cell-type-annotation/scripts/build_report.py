@@ -101,8 +101,8 @@ cross-checks behind the call.</p>
 <details class="plotbox"><summary>How to read an evidence card</summary>
 <ul>
 <li><b>Marker evidence</b> — the cluster's own top markers. <b>COSG</b> = specificity (0–1, higher = more exclusive to this cluster); <b>Wilcoxon</b> ranks differential genes (<b>logFC</b> = log2 fold-change vs all other cells, <b>pct</b> = fraction of the cluster expressing it).</li>
-<li><b>Evidence used</b> — the actual numbers the call rests on, one table per source, each with a one-line explanation of what its values mean (e.g. fraction-expressing for the marker panel, specificity for COSG). Values are the cluster's strongest, sorted descending.</li>
-<li><b>Automated cross-check</b> — an independent model/method's prediction, used as a hypothesis to agree or disagree with — never as ground truth.</li>
+<li><b>Evidence used</b> — the numbers the call rests on, one short labelled line per source (e.g. which curated markers are on, as % of cells). The CellTypist line is the model's majority-vote prediction in plain words — a cross-check hypothesis, not ground truth.</li>
+<li><b>Automated cross-check</b> — an independent method's prediction (per-cluster scoring agreement / reference mapping), used as a hypothesis to agree or disagree with — never as ground truth.</li>
 <li><b>Rationale</b> — why this label was chosen from the evidence above. <b>Rejected / alternatives</b> — other identities considered and why they were ruled out.</li>
 <li><b>Confidence</b> — the badge; low-confidence or flagged clusters float to the top and open by default.</li>
 </ul>

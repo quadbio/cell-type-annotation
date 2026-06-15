@@ -49,19 +49,34 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
     dh = float(np.ptp(emb[:, 1])) or 1.0
     scatter_w = 7.0
     scatter_h = max(2.5, scatter_w * dh / dw)
-    # Wrap the legend into multiple columns once it gets long, so a 60+ entry legend
-    # stays readable (and doesn't force a very tall figure). ~28 rows per column.
-    ROWS_PER_COL = 28
-    n_cols = max(1, int(np.ceil(N / ROWS_PER_COL)))
-    rows_per_col = int(np.ceil(N / n_cols))
-    legend_h = 0.26 * rows_per_col + 0.6
-    leg_w = 3.0 * n_cols
+    # Legend: spell every label out IN FULL — wrap a long label onto extra lines rather
+    # than truncating it — and pack entries tightly (each entry's height follows its own
+    # line count, so there's no fixed row pitch wasting vertical space). Balance entries
+    # across 1–3 columns once the list gets long.
+    import textwrap
+    n_cols = 1 if N <= 22 else (2 if N <= 48 else 3)
+    wrap_chars = 46 if n_cols == 1 else (34 if n_cols == 2 else 26)
+    wrapped = [textwrap.wrap(cats[ci], wrap_chars) or [cats[ci] or ""] for ci in order]
+    GAP = 0.6                                   # blank-line fraction between entries
+    units = [len(w) + GAP for w in wrapped]     # vertical "lines" each entry consumes
+    # greedy balanced fill: keep similarity order, start a new column near the per-column target
+    target = (sum(units) / n_cols) if n_cols else sum(units)
+    cols, acc = [[]], 0.0
+    for i, u in enumerate(units):
+        if cols[-1] and acc + u > target and len(cols) < n_cols:
+            cols.append([]); acc = 0.0
+        cols[-1].append(i); acc += u
+    max_lines = max((sum(units[i] for i in c) for c in cols), default=1)
+
+    line_in = 0.135                             # inches per text line
+    legend_h = line_in * max_lines + 0.4
+    leg_w = (3.4 if n_cols == 1 else 3.1) * n_cols
     fig, (ax, axl) = plt.subplots(
         1, 2, figsize=(scatter_w + leg_w, max(scatter_h, legend_h)),
         gridspec_kw={"width_ratios": [scatter_w, leg_w]})
     ax.scatter(emb[:, 0], emb[:, 1], c=[color_of[c] for c in codes], s=2.2,
                linewidths=0, rasterized=True)
-    ax.set_aspect("equal")                    # <- preserve UMAP geometry, no stretch
+    ax.set_aspect("equal")                      # <- preserve UMAP geometry, no stretch
     for i in range(N):
         if np.isnan(cen2d[i, 0]):
             continue
@@ -69,25 +84,28 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
                 ha="center", va="center", color="black",
                 path_effects=[pe.withStroke(linewidth=2.4, foreground="white")])
     ax.axis("off")
-    # numbered legend column
     axl.axis("off")
     legend = []
-    # max label chars scale down a little as columns multiply (less width each)
-    max_chars = 42 if n_cols == 1 else (30 if n_cols == 2 else 22)
+    line_h = 1.0 / max_lines                    # axes-fraction per text line
     col_w = 1.0 / n_cols
-    for pos, ci in enumerate(order):
-        col = pos // rows_per_col
-        row = pos % rows_per_col
-        x0 = col * col_w
-        y = 1 - (row + 0.5) / rows_per_col
-        axl.scatter(x0 + 0.02 * col_w + 0.01, y, s=60, marker="s", color=color_of[ci],
-                    transform=axl.transAxes, clip_on=False)
-        lab = cats[ci]
-        txt = lab if len(lab) <= max_chars else lab[:max_chars - 1] + "…"
-        axl.text(x0 + 0.06 * col_w + 0.03, y, f"{pos+1}. {txt}", va="center", ha="left",
-                 fontsize=7.0 if n_cols > 1 else 7.5, transform=axl.transAxes)
-        legend.append((pos + 1, lab, to_hex(color_of[ci])))
-    fig.subplots_adjust(left=0.01, right=0.99, top=0.95, bottom=0.02, wspace=0.02)
+    fs = 7.6 if n_cols == 1 else (7.0 if n_cols == 2 else 6.4)
+    for c_idx, idxs in enumerate(cols):
+        x0 = c_idx * col_w
+        y = 1.0
+        for i in idxs:
+            ci = order[i]
+            lines = wrapped[i]
+            y_top = y - 0.5 * line_h            # vertical center of this entry's first line
+            axl.scatter(x0 + 0.012, y_top, s=44, marker="s", color=color_of[ci],
+                        transform=axl.transAxes, clip_on=False)
+            axl.text(x0 + 0.05, y_top, f"{i+1}. {lines[0]}", va="center", ha="left",
+                     fontsize=fs, transform=axl.transAxes)
+            for k, ln in enumerate(lines[1:], start=1):
+                axl.text(x0 + 0.05, y_top - k * line_h, f"     {ln}", va="center",
+                         ha="left", fontsize=fs, transform=axl.transAxes)
+            legend.append((i + 1, cats[ci], to_hex(color_of[ci])))
+            y -= units[i] * line_h
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.97, bottom=0.02, wspace=0.03)
     fig.savefig(out_path, dpi=130, bbox_inches="tight")
     plt.close(fig)
     return legend

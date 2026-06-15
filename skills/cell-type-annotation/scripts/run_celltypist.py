@@ -120,11 +120,16 @@ def cmd_predict(args):
     res.insert(1, "cluster", adata.obs[args.cluster_key].astype(str).values)
     save_table(res, wd, f"celltypist_pred_{args.level}.csv")
 
-    # cluster -> majority-voted label crosstab (the cluster-level hypothesis)
-    label_col = "majority_voting" if "majority_voting" in res else "predicted_labels"
-    ct = (pd.crosstab(res["cluster"], res[label_col])
+    # cluster -> predicted-label distribution. Summarize the RAW per-cell predictions, NOT
+    # the `majority_voting` column: majority voting (over_clustering=cluster_key) forces every
+    # cell in a cluster to one label, so a majority-voting crosstab is tautologically 100% per
+    # cluster and says nothing about how confident/homogeneous the call is. The raw
+    # `predicted_labels` distribution (top label's fraction + runners-up) is the real signal.
+    ct = (pd.crosstab(res["cluster"], res["predicted_labels"])
           .apply(lambda r: r.sort_values(ascending=False).head(3).to_dict(), axis=1))
-    summary = pd.DataFrame({"cluster": ct.index, "top_predicted": ct.values})
+    totals = res.groupby("cluster").size()
+    summary = pd.DataFrame({"cluster": ct.index, "top_predicted": ct.values,
+                            "n_cells": totals.reindex(ct.index).values})
     save_table(summary, wd, f"celltypist_cluster_summary_{args.level}.csv")
     eprint(">> done")
 
