@@ -262,7 +262,13 @@ first, so a deep recursion never leaves the user lost.
    **Run it with `--strict`: this is the level-completeness gate** — it refuses to pass
    (exit 1) unless every cluster has a non-blank label AND a filled (non-TODO) rationale,
    the report exists, and the assumptions gate is signed. That is what stops a level from
-   *looking* finished while its reasoning was silently skipped; clear it before you descend.
+   *looking* finished while its reasoning was silently skipped. **Render the report ONCE
+   (with `--adata`).** The first `--strict` run before sign-off is *expected* to exit 1
+   (gate unsigned) — the report is still written for you to review. After you record the
+   sign-off in `run_state.json`, **clear the gate with `build_report.py --check-only --strict`,
+   which re-checks read-only and writes nothing — do NOT re-run the renderer to flip the gate**
+   (a rebuild that omits `--adata` would needlessly reload the data; figures themselves are
+   embedded from the durable PNGs in `plots/`, so they survive such a rebuild either way).
    Then update `run_state.json`. **Present the report and pause:** point the user at the
    flagged clusters, and let them approve descending or request revisions — don't begin the
    next level in the same turn unless they've said to proceed (or pre-authorized auto-proceed
@@ -319,5 +325,5 @@ exact arguments.
 | `scripts/profile_clusters.py` | QC medians + user-named categorical crosstabs + optional spatial — investigate before `Unknown`. |
 | `scripts/cluster_confidence.py` | Advisory: per-cluster confidence proxy from COSG specificity margin + cross-check agreement — calibrate hand-set confidences against it. |
 | `scripts/scaffold_cards.py` | Render per-cluster evidence cards FROM the labels CSV (`rationale`/`rejected`/`label`/`confidence` columns = single source of truth, so re-scaffold never wipes reasoning); `--evidence <tables>` embeds the ACTUAL numbers behind the call. Sanitizes `/` in ids. |
-| `scripts/build_report.py` | Per-level HTML report from tables + cards; embeds the numbered cell-map + marker dotplot + one composition panel per `--split-by` covariate. `--strict` = the level-completeness gate (labels + filled rationale + signed assumptions gate) before descending. |
+| `scripts/build_report.py` | Per-level HTML report from tables + cards; (re)generates the numbered cell-map + marker dotplot + one composition panel per `--split-by` covariate **only with `--adata`**, but always embeds whatever PNGs are in `plots/` (so a no-`--adata` rebuild keeps the figures). `--strict` = the level-completeness gate (labels + filled rationale + signed assumptions gate) before descending; add `--check-only` to re-evaluate the gate read-only (no render, no write) after a sign-off. |
 | `scripts/write_back.py` | Final step (gated): write the per-level labels into `obs` in-place (`--dry-run` first). |
