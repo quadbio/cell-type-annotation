@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cta_io import eprint, label_color_map, split_csv
+from cta_io import eprint, is_unknown_label, label_color_map, split_csv
 
 
 def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title):
@@ -42,6 +42,12 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
     # Similarity order + palette (Unknown -> grey) — SAME helper write_back.py uses to
     # colour adata.uns, so the saved object matches this report.
     order, color_of = label_color_map(cats, cenHD)
+    # Push Unknown/unassigned labels to the END of the numbering — the SAME reordering
+    # write_back.order_label_column applies before saving adata.uns colours/categories, so the
+    # report's centroid numbers + legend stay in lock-step with the saved object's order (not
+    # just its colours). Without this they diverge whenever any Unknown label is present.
+    order = ([ci for ci in order if not is_unknown_label(cats[ci])]
+             + [ci for ci in order if is_unknown_label(cats[ci])])
     num_of = {ci: pos + 1 for pos, ci in enumerate(order)}
 
     # size the figure to the data's true aspect so the embedding is not stretched

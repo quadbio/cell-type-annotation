@@ -34,7 +34,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cta_io import eprint, resolve_workdir, safe_cluster_id
+from cta_io import eprint, is_unknown_label, resolve_workdir, safe_cluster_id
 from report_plots import make_plots
 
 try:
@@ -90,9 +90,10 @@ TEMPLATE = """<!doctype html><html><head><meta charset="utf-8">
 </table>
 <p class="figcap">Clusters are <b>flagged for review</b> when they are Unknown, refuted, need sub-clustering, or have
 confidence &lt; 0.6; flagged clusters float to the top and their evidence cards open by default.
-<b>Confidence</b> is a 0–1 score set by judgement and calibrated against a COSG-margin + cross-check-agreement
-proxy. Each label is backed by a per-cluster <b>evidence card</b> below showing the exact markers and
-cross-checks behind the call.</p>
+<b>Confidence</b> is a 0–1 value <b>set by the annotator's judgement</b> — subjective, not a computed
+quantity. (The advisory <code>cluster_confidence.py</code> can compare it to a COSG-margin proxy, but that
+comparison is not shown in this report.) Each label is backed by a per-cluster <b>evidence card</b> below
+showing the exact markers and cross-checks behind the call.</p>
 </details>
 {rollup}
 {plots}
@@ -101,7 +102,7 @@ cross-checks behind the call.</p>
 <details class="plotbox"><summary>How to read an evidence card</summary>
 <ul>
 <li><b>Marker evidence</b> — the cluster's own top markers. <b>COSG</b> = specificity (0–1, higher = more exclusive to this cluster); <b>Wilcoxon</b> ranks differential genes (<b>logFC</b> = log2 fold-change vs all other cells, <b>pct</b> = fraction of the cluster expressing it).</li>
-<li><b>Evidence used</b> — the numbers the call rests on, one short labelled line per source (e.g. which curated markers are on, as % of cells). The CellTypist line is the model's majority-vote prediction in plain words — a cross-check hypothesis, not ground truth.</li>
+<li><b>Evidence used</b> — the numbers the call rests on, one short labelled line per source (e.g. which curated markers are on, as % of cells). The CellTypist line is the model's <b>top per-cell prediction</b> — the most common per-cell label with its share of the cluster's cells (often well under 50%, since fine reference models split votes across related subtypes) — a cross-check hypothesis, not ground truth.</li>
 <li><b>Automated cross-check</b> — an independent method's prediction (per-cluster scoring agreement / reference mapping), used as a hypothesis to agree or disagree with — never as ground truth.</li>
 <li><b>Rationale</b> — why this label was chosen from the evidence above. <b>Rejected / alternatives</b> — other identities considered and why they were ruled out.</li>
 <li><b>Confidence</b> — the badge; low-confidence or flagged clusters float to the top and open by default.</li>
@@ -217,8 +218,13 @@ def main():
         card_files = sorted(cards_dir.glob(f"{args.level}_*.md"))
 
     def is_flagged(row) -> bool:
+        # An explicit status (if the labels CSV carries one) OR an Unknown label always flags —
+        # don't rely on the optional `status` column alone, or an Unknown/refuted call with
+        # confidence >= 0.6 would silently pass review.
         st = str(row.get("status", "")).lower()
         if st in ("unknown", "refuted", "needs_subcluster"):
+            return True
+        if is_unknown_label(str(row.get("label", ""))):
             return True
         try:
             return float(row.get("confidence", 1)) < 0.6
@@ -377,6 +383,23 @@ def _level_completeness(wd, level, labels, card_files):
     if todo_cards:
         problems.append(f"{len(todo_cards)} card(s) still contain a TODO rationale: "
                         f"{', '.join(todo_cards[:8])}")
+    # (3c) staleness: cards are snapshots of the tables. If a table was regenerated AFTER the
+    # cards were last scaffolded (e.g. a fixed cross-check table), the cards silently show the
+    # old numbers — exactly the failure where a corrected CellTypist table left stale cards.
+    # Warn (don't block) so the annotator re-scaffolds; heuristic, so advisory only.
+    try:
+        cards = list(card_files or [])
+        tdir = wd / "tables"
+        tbls = list(tdir.glob("*.csv")) if tdir.exists() else []
+        if cards and tbls:
+            newest_tbl = max(t.stat().st_mtime for t in tbls)
+            stale = [p.name for p in cards if p.stat().st_mtime < newest_tbl - 1]
+            if stale:
+                warnings.append(f"{len(stale)} card(s) are OLDER than the newest table in "
+                                f"tables/ — they may show stale numbers; re-run "
+                                f"scaffold_cards.py --overwrite (e.g. {', '.join(stale[:5])})")
+    except OSError:
+        pass
     # (4) gate signed for this level (advisory — timing of sign-off varies)
     rs = wd / "run_state.json"
     if rs.exists():

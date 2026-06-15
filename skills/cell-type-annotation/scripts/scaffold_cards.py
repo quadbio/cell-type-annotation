@@ -191,10 +191,13 @@ def _wilcoxon_section(rows: pd.DataFrame) -> str:
 
 # One concise line per source type (these tables repeat in every card, so keep terse).
 _CC_LEGEND = {
-    "crosscheck": "_Cluster scored against the candidate marker sets (`markers_<level>.json`) "
-                  "by 3 independent methods: `overlap_top` = set with most top-DE genes in it, "
-                  "`aucell_top` = top AUCell, `aucell_z_top` = top cross-cluster z-scored AUCell; "
-                  "`agree` = how many of the 3 concur. On targeted panels, weight overlap/z over raw AUCell._",
+    "crosscheck": "_Cluster scored against the candidate marker sets (`markers_<level>.json`) by "
+                  "independent methods: `overlap_top` = set with most top-DE genes in it, "
+                  "`aucell_top` = top raw AUCell (biased — shown for reference only), "
+                  "`aucell_z_top` = top cross-cluster z-scored AUCell, `ucell_top` = top pyUCell. "
+                  "`agree` = how many of {`overlap_top`, `aucell_z_top`, `ucell_top`} concur "
+                  "(raw `aucell_top` is excluded as biased). On targeted panels, weight overlap/z "
+                  "over raw AUCell._",
     "panel_gating": "_Per candidate set: on-panel vs dropped (off-panel) markers; "
                     "`uncallable` = too few on-panel markers to score._",
     "refmap": "_kNN label transfer from the reference dataset (CellMapper): the cluster's "
