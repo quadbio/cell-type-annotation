@@ -122,7 +122,20 @@ For each level of the hierarchy, and within each parent group, repeat:
 ## 4. Evidence cards
 
 One per cluster per level, written as a durable artifact (so a critic subagent that
-cannot see the chat or the `AnnData` can review it). A card records:
+cannot see the chat or the `AnnData` can review it).
+
+**Where the reasoning lives — the labels CSV, not the markdown.** The per-level labels
+table `labels/annotation_<level>.csv` is the single source of truth: it carries
+`label,cl_id,confidence,rationale,rejected` columns, and `scaffold_cards.py` *renders* the
+cards from it. This is a deliberate design choice — authoring rationale directly into N
+markdown files is token-heavy, trivially skipped, and destroyed by a re-scaffold, which is
+exactly how a run ends up "finished" with empty TODO cards. Filling the CSV columns instead
+makes the reasoning (a) durable across re-scaffolds, (b) recoverable on resume from one
+file, and (c) machine-checkable: `build_report.py --strict` blocks descent until every
+cluster has a label and a non-blank rationale (§ the level-completeness gate). Fill the CSV,
+re-scaffold, then build the report with `--strict`.
+
+A card records:
 
 - cluster id, n cells, parent assignment, hierarchy level;
 - top DE / COSG markers (with pct-expressing and effect sizes);

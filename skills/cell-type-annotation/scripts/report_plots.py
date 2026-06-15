@@ -49,8 +49,13 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
     dh = float(np.ptp(emb[:, 1])) or 1.0
     scatter_w = 7.0
     scatter_h = max(2.5, scatter_w * dh / dw)
-    legend_h = 0.26 * N + 0.6
-    leg_w = 3.0
+    # Wrap the legend into multiple columns once it gets long, so a 60+ entry legend
+    # stays readable (and doesn't force a very tall figure). ~28 rows per column.
+    ROWS_PER_COL = 28
+    n_cols = max(1, int(np.ceil(N / ROWS_PER_COL)))
+    rows_per_col = int(np.ceil(N / n_cols))
+    legend_h = 0.26 * rows_per_col + 0.6
+    leg_w = 3.0 * n_cols
     fig, (ax, axl) = plt.subplots(
         1, 2, figsize=(scatter_w + leg_w, max(scatter_h, legend_h)),
         gridspec_kw={"width_ratios": [scatter_w, leg_w]})
@@ -67,14 +72,20 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
     # numbered legend column
     axl.axis("off")
     legend = []
+    # max label chars scale down a little as columns multiply (less width each)
+    max_chars = 42 if n_cols == 1 else (30 if n_cols == 2 else 22)
+    col_w = 1.0 / n_cols
     for pos, ci in enumerate(order):
-        y = 1 - (pos + 0.5) / N
-        axl.scatter(0.03, y, s=70, marker="s", color=color_of[ci],
+        col = pos // rows_per_col
+        row = pos % rows_per_col
+        x0 = col * col_w
+        y = 1 - (row + 0.5) / rows_per_col
+        axl.scatter(x0 + 0.02 * col_w + 0.01, y, s=60, marker="s", color=color_of[ci],
                     transform=axl.transAxes, clip_on=False)
         lab = cats[ci]
-        txt = lab if len(lab) <= 42 else lab[:40] + "…"
-        axl.text(0.10, y, f"{pos+1}. {txt}", va="center", ha="left", fontsize=7.5,
-                 transform=axl.transAxes)
+        txt = lab if len(lab) <= max_chars else lab[:max_chars - 1] + "…"
+        axl.text(x0 + 0.06 * col_w + 0.03, y, f"{pos+1}. {txt}", va="center", ha="left",
+                 fontsize=7.0 if n_cols > 1 else 7.5, transform=axl.transAxes)
         legend.append((pos + 1, lab, to_hex(color_of[ci])))
     fig.subplots_adjust(left=0.01, right=0.99, top=0.95, bottom=0.02, wspace=0.02)
     fig.savefig(out_path, dpi=130, bbox_inches="tight")

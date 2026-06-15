@@ -61,33 +61,64 @@ def _read_evidence(path: Path) -> pd.DataFrame | None:
     return df
 
 
+# Human-readable gloss + value-column meaning per known evidence source. Keyed by a
+# substring of the source/table name (lower-cased). Keeps the "Evidence used" block
+# legible instead of dumping bare column names a reader has to decode.
+_EVIDENCE_GLOSS = {
+    "panel_pct": ("Curated marker panel — fraction of cells in this cluster expressing each gene "
+                  "(0–1). Shows which canonical markers are ON here.", "frac. expressing"),
+    "panel_mean": ("Curated marker panel — mean log-normalized expression per gene in this cluster.",
+                   "mean expr."),
+    "cosg": ("COSG specificity of this cluster's top marker (0–1; higher = more exclusive to "
+             "this cluster).", "specificity"),
+    "crosscheck": ("Cross-method agreement: how many scoring methods (overlap/AUCell/UCell) "
+                   "picked the same top type.", "value"),
+    "scores_aucell": ("AUCell signature enrichment (z-scored across clusters).", "AUCell z"),
+    "celltypist": ("CellTypist model prediction — majority-vote label over the cluster's cells "
+                   "(a cross-check hypothesis, not ground truth).", None),
+}
+_DROP_COLS = {"rank", "index", "level_0"}  # carry no interpretive value in a per-cluster card
+
+
+def _gloss_for(label: str) -> tuple[str, str]:
+    key = str(label).lower()
+    for sub, (expl, unit) in _EVIDENCE_GLOSS.items():
+        if sub in key:
+            return expl, (unit or "value")
+    return "", "value"
+
+
 def _evidence_section(sources: list[tuple[str, pd.DataFrame]], cid: str, top: int = 16) -> str:
     """The actual per-cluster numbers behind the call — rows from the evidence tables the
-    annotator scored on (e.g. curated marker-fraction tables). Wide tables are summarized
-    as the cluster's strongest values (descending) so the salient markers surface; the full
-    row stays in the table on disk."""
+    annotator scored on (e.g. curated marker-fraction tables). Each source gets a one-line
+    plain-language explanation, then its strongest values as a compact table so a reader can
+    see *what* the numbers mean. The full row stays in the table on disk."""
     blocks = []
     for label, df in sources:
         rows = _rows_for(df, cid)
         if rows.empty:
             continue
         r = rows.iloc[0]
+        expl, unit = _gloss_for(label)
         _meta = {"cluster", "n", "n_cells", "cells", "size", "count", "total", "index"}
         nums = {}
         for c in rows.columns:
-            if str(c).lower() in _meta:
+            if str(c).lower() in _meta or str(c).lower() in _DROP_COLS:
                 continue
             try:
                 nums[c] = float(r[c])
             except (TypeError, ValueError):
                 pass
+        head = f"**{label}**" + (f" — _{expl}_" if expl else "")
         if nums:
             items = sorted(nums.items(), key=lambda kv: -kv[1])[:top]
-            body = " · ".join(f"`{k}` {v:.2f}" for k, v in items)
-            blocks.append(f"**{label}** — strongest {len(items)} of {len(nums)} values:\n\n{body}")
+            tbl = [f"| {unit.capitalize()} | Value |", "| --- | --- |"]
+            tbl += [f"| `{k}` | {v:.2f} |" for k, v in items]
+            note = (f"\n\n_(top {len(items)} of {len(nums)} shown)_" if len(nums) > len(items) else "")
+            blocks.append(f"{head}\n\n" + "\n".join(tbl) + note)
         else:
-            body = " · ".join(f"`{c}` {r[c]}" for c in rows.columns if c != "cluster")
-            blocks.append(f"**{label}**:\n\n{body}")
+            body = " · ".join(f"`{c}` = {r[c]}" for c in rows.columns if c != "cluster")
+            blocks.append(f"{head}\n\n{body}")
     return "\n\n".join(blocks) if blocks else ""
 
 
@@ -159,6 +190,33 @@ def _crosscheck_section(sources: list[tuple[str, pd.DataFrame]], cid: str) -> st
     return "\n\n".join(blocks)
 
 
+def _labels_map(workdir: Path, level: str, explicit: str | None) -> dict[str, dict]:
+    """Per-cluster label metadata from the labels CSV — the SINGLE SOURCE OF TRUTH for the
+    call and its reasoning. Carrying `rationale`/`rejected`/`confidence`/`label`/`cl_id` in
+    the CSV (not hand-edited into N markdown files) is what makes the reasoning durable: a
+    re-scaffold re-renders the cards FROM the CSV instead of wiping a TODO the annotator
+    already filled. Returns {} if no labels CSV exists yet (cards fall back to TODO stubs)."""
+    path = Path(explicit) if explicit else workdir / "labels" / f"annotation_{level}.csv"
+    df = _read_csv(path)
+    if df is None or "cluster" not in df.columns:
+        return {}
+    out: dict[str, dict] = {}
+    for _, r in df.iterrows():
+        cid = str(r["cluster"]).strip()
+        rec = {}
+        for col in ("label", "cl_id", "confidence", "rationale", "rejected"):
+            if col in df.columns and pd.notna(r.get(col)):
+                rec[col] = r[col]
+        out[cid] = rec
+    return out
+
+
+def _section_or_todo(rec: dict, key: str, placeholder: str) -> str:
+    """Render a reasoning section from the labels CSV, or a TODO stub if absent/blank."""
+    val = str(rec.get(key, "")).strip()
+    return val if val else placeholder
+
+
 def _sizes_map(workdir: Path, level: str) -> dict[str, int]:
     """Best-effort n-cells per cluster from a sizes table, if one exists."""
     for name in (f"sizes_{level}.csv", f"cluster_sizes_{level}.csv", "sizes.csv"):
@@ -190,6 +248,12 @@ def main():
                          "scored on). Names are resolved under <workdir>/tables/ (a .csv "
                          "suffix is optional) or given as absolute paths. Each cluster's row is "
                          "shown, wide tables summarized as the strongest values.")
+    ap.add_argument("--labels", default=None,
+                    help="labels CSV to source the per-cluster call + reasoning from "
+                         "(default: <workdir>/labels/annotation_<level>.csv). Columns "
+                         "`label`,`confidence`,`cl_id`,`rationale`,`rejected` are rendered into "
+                         "each card; this is the single source of truth, so re-scaffolding "
+                         "after you fill the CSV refreshes the cards without losing reasoning.")
     args = ap.parse_args()
 
     wd = resolve_workdir(args.workdir)
@@ -231,11 +295,12 @@ def main():
             eprint(f"   WARN: --evidence table not found: {path}")
 
     sizes = _sizes_map(wd, level)
+    labels = _labels_map(wd, level, args.labels)
 
     # Preserve first-seen order of clusters as they appear in cosg.
     clusters = list(dict.fromkeys(cosg["cluster"].tolist()))
 
-    written, skipped = 0, 0
+    written, skipped, missing_rationale = 0, 0, []
     for cid in clusters:
         safe = safe_cluster_id(cid)
         out = evidence / f"L{level.lstrip('L')}_cluster{safe}.md"
@@ -248,11 +313,29 @@ def main():
         n_cells = sizes.get(str(cid))
         size_str = f" — n={n_cells} cells" if n_cells is not None else ""
 
+        rec = labels.get(str(cid), {})
+        call_bits = []
+        if rec.get("label"):
+            call_bits.append(f"**Call:** {rec['label']}")
+        if rec.get("cl_id"):
+            call_bits.append(f"`{rec['cl_id']}`")
+        if rec.get("confidence") not in (None, ""):
+            try:
+                call_bits.append(f"confidence {float(rec['confidence']):.2f}")
+            except (TypeError, ValueError):
+                pass
+        call_line = (" · ".join(call_bits) + "\n\n") if call_bits else ""
+        rationale = _section_or_todo(rec, "rationale", "_TODO: Claude fills this in._")
+        rejected = _section_or_todo(rec, "rejected", "_TODO._")
+        if rationale.startswith("_TODO"):
+            missing_rationale.append(str(cid))
+
         ev = _evidence_section(evidence_sources, str(cid))
         ev_block = f"## Evidence used\n\n{ev}\n\n" if ev else ""
         card = (
             f"# Cluster {cid}{size_str}\n\n"
-            f"_Level {level} evidence card (stub — auto-generated)._\n\n"
+            f"{call_line}"
+            f"_Level {level} evidence card._\n\n"
             f"## Marker evidence\n\n"
             f"_`cosg` = specificity score, 0–1 (higher = more cluster-specific); "
             f"`logFC` = log2 fold-change of this cluster vs all others; "
@@ -265,16 +348,27 @@ def main():
             f"## Automated cross-check\n\n"
             f"{_crosscheck_section(crosscheck_sources, str(cid))}\n\n"
             f"## Rationale\n\n"
-            f"_TODO: Claude fills this in._\n\n"
+            f"{rationale}\n\n"
             f"## Rejected / alternatives\n\n"
-            f"_TODO._\n"
+            f"{rejected}\n"
         )
         out.write_text(card)
         written += 1
 
     eprint(f">> scaffolded {written} card(s), skipped {skipped} existing "
            f"(of {len(clusters)} clusters) in {evidence}")
-    print(f"written={written} skipped={skipped} total={len(clusters)}")
+    if labels and missing_rationale:
+        eprint(f"   NOTE: {len(missing_rationale)} card(s) still have a TODO rationale "
+               f"(no `rationale` in the labels CSV): {', '.join(missing_rationale[:12])}"
+               + (" …" if len(missing_rationale) > 12 else "")
+               + "\n   Fill the `rationale`/`rejected` columns in the labels CSV and re-run; "
+                 "build_report.py --strict will block descent until they're filled.")
+    elif not labels:
+        eprint("   NOTE: no labels CSV found — cards carry TODO rationale stubs. Write "
+               f"labels/annotation_{level}.csv (with `rationale`/`rejected` columns) and "
+               "re-scaffold to render the reasoning into the cards.")
+    print(f"written={written} skipped={skipped} total={len(clusters)} "
+          f"missing_rationale={len(missing_rationale)}")
 
 
 if __name__ == "__main__":
