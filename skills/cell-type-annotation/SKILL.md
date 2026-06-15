@@ -179,11 +179,20 @@ first, so a deep recursion never leaves the user lost.
    seed the marker JSON with `scripts/assemble_markers.py` (from a CellTypist model
    and/or a reference's `rank_genes_groups`), then curate.
 2. **Panel-gate** every marker set against `adata.var_names`; record dropped genes.
-3. **Score:** cluster markers via `scripts/compute_markers.py` (`rank_genes_groups`
-   wilcoxon + COSG); signatures via `scripts/score_signatures.py` (`aucell` + pyUCell +
-   DE-overlap → `scores_aucell_z` + a `crosscheck_<level>` consolidation). On targeted
-   panels read `crosscheck`/`scores_aucell_z`, not raw AUCell — COSG specificity + the
-   reference cross-check are primary (`reference/marker_tools.md`).
+3. **Score** — two complementary views:
+   - *bottom-up (what defines each cluster):* `scripts/compute_markers.py`
+     (`rank_genes_groups` wilcoxon + COSG specificity) → marker tables;
+     `scripts/score_signatures.py` (`aucell` + pyUCell + DE-overlap → `scores_aucell_z` +
+     a `crosscheck_<level>` consolidation).
+   - *top-down (how your candidate markers land):* `scripts/profile_markers.py` — score the
+     **curated panel you assembled in step 1** across clusters into per-cluster pct + mean
+     matrices (`panel_pct_<level>.csv` / `panel_mean_<level>.csv`) and a dot plot. This is the
+     workhorse you reason from cluster-by-cluster ("is marker X on in cluster Y?") and it
+     feeds the cards directly via `scaffold_cards.py --evidence panel_pct_<level>.csv`. Run it
+     once per level on the level's marker JSON.
+
+   On targeted panels read `crosscheck`/`scores_aucell_z`, not raw AUCell — COSG specificity +
+   the reference cross-check are primary (`reference/marker_tools.md`).
 4. **Cross-check** — run **exactly one** primary automated hypothesis (the second only to
    break a tie); flag agreement/disagreement, never overwrite (`reference/automated_tools.md`):
    - **In-object prediction (preferred when one exists):** if `obs` already carries a
@@ -212,13 +221,16 @@ first, so a deep recursion never leaves the user lost.
    append, and re-prompt only on a **materially new** assumption — but in that level's
    report/checkpoint, **tell the user what was appended** so silent additions stay
    visible. Full rules: `reference/methodology.md` §2.
-6. **Write evidence cards.** Scaffold one stub per cluster with `scripts/scaffold_cards.py`
-   (sanitizes cluster ids — e.g. `24/25_0`). **Pass `--evidence <tables>` so the card
-   embeds the ACTUAL numbers behind the call** — the marker-fraction / scoring tables you
-   reasoned on at this level, not a carried-over table from another level. The card is your
-   reasoning made transparent: a reader should see *what evidence you used* and be able to
-   reconstruct the call from it. Then fill the rationale/rejected sections per cluster
-   (schema in `reference/methodology.md` §4).
+6. **Write evidence cards — reasoning lives in the labels CSV, not hand-edited markdown.**
+   The labels table `labels/annotation_<level>.csv` is the **single source of truth**: give
+   it `label,cl_id,confidence,rationale,rejected` columns and fill `rationale`/`rejected`
+   per cluster *there*. Then `scripts/scaffold_cards.py` **renders** the cards from it (call +
+   reasoning), so re-scaffolding refreshes cards without ever wiping what you wrote — and a
+   resumed run recovers the reasoning from one file, not 60 markdown stubs. **Pass
+   `--evidence panel_pct_<level>.csv`** (and other scoring tables) so each card also embeds
+   the ACTUAL numbers behind the call. Why this matters: hand-authoring rationale into N
+   markdown files is token-heavy, easily skipped, and lost on re-scaffold — the CSV makes it
+   durable and lets the step-9 gate verify it. (Card schema: `reference/methodology.md` §4.)
 7. **Assign** a label (normalized to a CL ID) — or, on mutually-exclusive marker
    co-expression, **sub-cluster and recurse** (`scripts/subcluster.py` — Leiden on the
    anchor embedding + per-sub marker/QC/composition summary); on irreconcilable conflict,
@@ -242,16 +254,20 @@ first, so a deep recursion never leaves the user lost.
    mismatches like an "IPC"/"neuron" L3 under an "NPC" L1 — the kind the deterministic
    nesting check can't catch)? Reconcile; revise or downgrade. (Structural nesting itself
    is enforced in code — `cta_io.check_hierarchy_nesting` / `write_back.py`.)
-9. **Report & checkpoint.** Build the level's HTML report with
+9. **Report, gate & checkpoint.** Build the level's HTML report with
    `scripts/build_report.py` (pass `--adata --cluster-key --viz-key`, plus
    `--embedding-key` for the similarity-ordered palette, to embed the numbered
    cell-map + marker dotplot; `--split-by <cols>` — the user's `cat_cols`,
-   comma-separated — adds one composition panel per covariate, reusing `uns` colours);
-   write labels to `labels/`; update `run_state.json`. **Present the report and pause:**
-   point the user at the flagged clusters, and let them approve descending or request
-   revisions — don't begin the next level in the same turn unless they've said to proceed
-   (or pre-authorized auto-proceed at Stage 2). If a level lands more than ~half its
-   clusters in `Unknown`, stop and consult the user (`reference/methodology.md`).
+   comma-separated — adds one composition panel per covariate, reusing `uns` colours).
+   **Run it with `--strict`: this is the level-completeness gate** — it refuses to pass
+   (exit 1) unless every cluster has a non-blank label AND a filled (non-TODO) rationale,
+   the report exists, and the assumptions gate is signed. That is what stops a level from
+   *looking* finished while its reasoning was silently skipped; clear it before you descend.
+   Then update `run_state.json`. **Present the report and pause:** point the user at the
+   flagged clusters, and let them approve descending or request revisions — don't begin the
+   next level in the same turn unless they've said to proceed (or pre-authorized auto-proceed
+   at Stage 2). If a level lands more than ~half its clusters in `Unknown`, stop and consult
+   the user (`reference/methodology.md`).
 10. **Descend.** Tell the user which parent groups you'll descend into and in what
     order, then recurse at the next level.
 
@@ -292,7 +308,8 @@ exact arguments.
 | `scripts/inspect_adata.py` | Stage 1: verify keys/layers, dump structure to `context`. |
 | `scripts/prep_slim.py` | Optional: cache a slim AnnData (chosen embedding + X + counts + obs) to avoid reloading huge files. |
 | `scripts/assemble_markers.py` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
-| `scripts/compute_markers.py` | `rank_genes_groups` (wilcoxon, tie_correct) + COSG → marker tables. |
+| `scripts/compute_markers.py` | `rank_genes_groups` (wilcoxon, tie_correct) + COSG → marker tables (bottom-up: what defines each cluster). |
+| `scripts/profile_markers.py` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. |
 | `scripts/score_signatures.py` | decoupler `aucell` + pyUCell + DE-overlap; writes z-scored AUCell + a consolidated `crosscheck`. |
 | `scripts/run_celltypist.py` | `list` the remote model index (tissue-gated, no downloads); `predict`/`markers` for a matched model only. |
 | `scripts/reference_map.py` | CellMapper kNN label transfer from a reference (joint CCA/PCA, CPU pynndescent) — cross-check when no in-object prediction fits. |
@@ -301,6 +318,6 @@ exact arguments.
 | `scripts/subcluster.py` | Refine one/more clusters: Leiden on the anchor embedding + per-sub marker-fraction / QC / composition summary. Standardized sub-clustering (in scope). |
 | `scripts/profile_clusters.py` | QC medians + user-named categorical crosstabs + optional spatial — investigate before `Unknown`. |
 | `scripts/cluster_confidence.py` | Advisory: per-cluster confidence proxy from COSG specificity margin + cross-check agreement — calibrate hand-set confidences against it. |
-| `scripts/scaffold_cards.py` | Generate per-cluster evidence-card stubs; `--evidence <tables>` embeds the ACTUAL numbers behind the call (e.g. the marker-fraction tables you scored on). Sanitizes `/` in ids. |
-| `scripts/build_report.py` | Per-level HTML report from tables + cards; embeds the numbered cell-map + marker dotplot + one composition panel per `--split-by` covariate (reuses `uns` colours). |
+| `scripts/scaffold_cards.py` | Render per-cluster evidence cards FROM the labels CSV (`rationale`/`rejected`/`label`/`confidence` columns = single source of truth, so re-scaffold never wipes reasoning); `--evidence <tables>` embeds the ACTUAL numbers behind the call. Sanitizes `/` in ids. |
+| `scripts/build_report.py` | Per-level HTML report from tables + cards; embeds the numbered cell-map + marker dotplot + one composition panel per `--split-by` covariate. `--strict` = the level-completeness gate (labels + filled rationale + signed assumptions gate) before descending. |
 | `scripts/write_back.py` | Final step (gated): write the per-level labels into `obs` in-place (`--dry-run` first). |

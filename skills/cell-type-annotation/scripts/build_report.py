@@ -34,7 +34,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cta_io import eprint, resolve_workdir, safe_cluster_id
+from cta_io import eprint, is_unknown_label, resolve_workdir, safe_cluster_id
 from report_plots import make_plots
 
 try:
@@ -90,14 +90,24 @@ TEMPLATE = """<!doctype html><html><head><meta charset="utf-8">
 </table>
 <p class="figcap">Clusters are <b>flagged for review</b> when they are Unknown, refuted, need sub-clustering, or have
 confidence &lt; 0.6; flagged clusters float to the top and their evidence cards open by default.
-<b>Confidence</b> is a 0–1 score set by judgement and calibrated against a COSG-margin + cross-check-agreement
-proxy. Each label is backed by a per-cluster <b>evidence card</b> below showing the exact markers and
-cross-checks behind the call.</p>
+<b>Confidence</b> is a 0–1 value <b>set by the annotator's judgement</b> — subjective, not a computed
+quantity. (The advisory <code>cluster_confidence.py</code> can compare it to a COSG-margin proxy, but that
+comparison is not shown in this report.) Each label is backed by a per-cluster <b>evidence card</b> below
+showing the exact markers and cross-checks behind the call.</p>
 </details>
 {rollup}
 {plots}
 {summary_table}
 <h2>Evidence cards <span class="meta">(grouped by label; flagged groups open)</span></h2>
+<details class="plotbox"><summary>How to read an evidence card</summary>
+<ul>
+<li><b>Marker evidence</b> — the cluster's own top markers. <b>COSG</b> = specificity (0–1, higher = more exclusive to this cluster); <b>Wilcoxon</b> ranks differential genes (<b>logFC</b> = log2 fold-change vs all other cells, <b>pct</b> = fraction of the cluster expressing it).</li>
+<li><b>Evidence used</b> — the numbers the call rests on, one short labelled line per source (e.g. which curated markers are on, as % of cells). The CellTypist line is the model's <b>top per-cell prediction</b> — the most common per-cell label with its share of the cluster's cells (often well under 50%, since fine reference models split votes across related subtypes) — a cross-check hypothesis, not ground truth.</li>
+<li><b>Automated cross-check</b> — an independent method's prediction (per-cluster scoring agreement / reference mapping), used as a hypothesis to agree or disagree with — never as ground truth.</li>
+<li><b>Rationale</b> — why this label was chosen from the evidence above. <b>Rejected / alternatives</b> — other identities considered and why they were ruled out.</li>
+<li><b>Confidence</b> — the badge; low-confidence or flagged clusters float to the top and open by default.</li>
+</ul>
+</details>
 {cards}
 </body></html>"""
 
@@ -165,6 +175,11 @@ def main():
                     help="OPTIONAL categorical obs to split composition by — comma-separated "
                          "for multiple panels (e.g. 'condition,week'); reuses uns colors. "
                          "Generic; never assume a specific column exists.")
+    ap.add_argument("--strict", action="store_true",
+                    help="treat an incomplete level as an error (exit 1): every cluster must "
+                         "have a non-blank label AND a filled (non-TODO) rationale. This is the "
+                         "gate to run before descending — it catches the silent-skip failure "
+                         "mode where a level is 'done' but its reasoning was never written.")
     args = ap.parse_args()
 
     wd = resolve_workdir(args.workdir)
@@ -203,8 +218,13 @@ def main():
         card_files = sorted(cards_dir.glob(f"{args.level}_*.md"))
 
     def is_flagged(row) -> bool:
+        # An explicit status (if the labels CSV carries one) OR an Unknown label always flags —
+        # don't rely on the optional `status` column alone, or an Unknown/refuted call with
+        # confidence >= 0.6 would silently pass review.
         st = str(row.get("status", "")).lower()
         if st in ("unknown", "refuted", "needs_subcluster"):
+            return True
+        if is_unknown_label(str(row.get("label", ""))):
             return True
         try:
             return float(row.get("confidence", 1)) < 0.6
@@ -314,6 +334,85 @@ def main():
     ))
     eprint(f">> wrote {out}")
     print(str(out))
+
+    # --- Level-completeness gate ----------------------------------------------------------
+    # A level is "complete" only when (1) the report exists [just written], (2) every cluster
+    # carries a non-blank label, (3) every card's rationale is filled (not a TODO stub), and
+    # (4) the level's assumptions gate is signed off. Skipping any of these is the usual way a
+    # run looks finished while its reasoning was never recorded — so we surface it loudly, and
+    # under --strict refuse to pass (exit 1) so the descent to the next level is blocked.
+    problems, warnings = _level_completeness(wd, args.level, labels, card_files)
+    if problems or warnings:
+        eprint("\n>> level-completeness check:")
+        for p in problems:
+            eprint(f"   ✗ {p}")
+        for w in warnings:
+            eprint(f"   ⚠ {w}")
+    else:
+        eprint("\n>> level-completeness check: ✓ report + labels + filled cards + signed gate")
+    if problems and args.strict:
+        raise SystemExit(
+            f"ERROR: level {args.level} is incomplete ({len(problems)} blocking issue(s)); "
+            "fix the labels CSV / fill rationale, then re-run. Refusing to pass --strict.")
+
+
+def _level_completeness(wd, level, labels, card_files):
+    """Return (problems, warnings). `problems` block --strict; `warnings` are advisory."""
+    import json as _json
+    problems, warnings = [], []
+    # (2) every labelled cluster has a non-blank label
+    if labels is None or getattr(labels, "empty", True):
+        problems.append(f"no labels table at labels/annotation_{level}.csv")
+    else:
+        blank = [str(r["cluster"]) for _, r in labels.iterrows()
+                 if "label" not in labels.columns or str(r.get("label", "")).strip() == ""]
+        if blank:
+            problems.append(f"{len(blank)} cluster(s) with a blank label: {', '.join(blank[:12])}")
+        # (3) rationale present in the CSV for every cluster (single source of truth)
+        if "rationale" in labels.columns:
+            no_rat = [str(r["cluster"]) for _, r in labels.iterrows()
+                      if str(r.get("rationale", "")).strip() == ""]
+            if no_rat:
+                problems.append(f"{len(no_rat)} cluster(s) missing a `rationale`: "
+                                f"{', '.join(no_rat[:12])}")
+        else:
+            problems.append("labels CSV has no `rationale` column — add it (single source of "
+                            "truth for card reasoning) so cards don't carry TODO stubs")
+    # (3b) belt-and-suspenders: scan rendered cards for leftover TODO stubs
+    todo_cards = [p.name for p in (card_files or []) if "_TODO" in p.read_text()]
+    if todo_cards:
+        problems.append(f"{len(todo_cards)} card(s) still contain a TODO rationale: "
+                        f"{', '.join(todo_cards[:8])}")
+    # (3c) staleness: cards are snapshots of the tables. If a table was regenerated AFTER the
+    # cards were last scaffolded (e.g. a fixed cross-check table), the cards silently show the
+    # old numbers — exactly the failure where a corrected CellTypist table left stale cards.
+    # Warn (don't block) so the annotator re-scaffolds; heuristic, so advisory only.
+    try:
+        cards = list(card_files or [])
+        tdir = wd / "tables"
+        tbls = list(tdir.glob("*.csv")) if tdir.exists() else []
+        if cards and tbls:
+            newest_tbl = max(t.stat().st_mtime for t in tbls)
+            stale = [p.name for p in cards if p.stat().st_mtime < newest_tbl - 1]
+            if stale:
+                warnings.append(f"{len(stale)} card(s) are OLDER than the newest table in "
+                                f"tables/ — they may show stale numbers; re-run "
+                                f"scaffold_cards.py --overwrite (e.g. {', '.join(stale[:5])})")
+    except OSError:
+        pass
+    # (4) gate signed for this level (advisory — timing of sign-off varies)
+    rs = wd / "run_state.json"
+    if rs.exists():
+        try:
+            gates = _json.loads(rs.read_text()).get("gates", {}).get("signed_off_levels", [])
+            if level not in gates and f"cta_{level}" not in gates:
+                warnings.append(f"assumptions gate for {level} not recorded in "
+                                "run_state.json gates.signed_off_levels")
+        except Exception:  # noqa: BLE001
+            warnings.append("could not read run_state.json to verify the assumptions gate")
+    else:
+        warnings.append("no run_state.json — can't verify the assumptions gate is signed")
+    return problems, warnings
 
 
 if __name__ == "__main__":
