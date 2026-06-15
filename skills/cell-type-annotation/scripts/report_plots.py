@@ -5,9 +5,11 @@ assembly while the matplotlib/scanpy plotting lives here. Imported by build_repo
 not a standalone entry point. Heavy plotting libs are imported lazily inside the
 functions so importing this module stays cheap.
 
-`make_plots()` returns a list of (heading, caption, png_path) tuples that build_report
-embeds as base64 figures. It is best-effort: any single plot that fails is skipped with
-a note, and a total failure degrades to a text-only report.
+`make_plots()` is the producer: it writes the figure PNGs into plots/ (best-effort; any
+single plot that fails is skipped with a note) and returns the paths it wrote. The report
+embeds figures via `discover_plots()`, which reads whatever PNGs are present in plots/ —
+so the embed source is the durable files on disk, not this run's render. A rebuild without
+--adata therefore re-embeds the existing figures instead of silently dropping them.
 """
 from __future__ import annotations
 
@@ -16,6 +18,51 @@ from pathlib import Path
 import pandas as pd
 
 from cta_io import eprint, is_unknown_label, label_color_map, split_csv
+
+# Figure headings + captions, keyed by artifact kind. Single source of truth shared by
+# make_plots (writes the PNGs) and discover_plots (embeds whatever is on disk) so the report
+# reads identically regardless of whether figures were regenerated this run.
+_UMAP_HEADING = "Cell map"
+_UMAP_CAPTION = (
+    "Each point is a cell, positioned by the chosen 2-D embedding and coloured by its "
+    "assigned label. The number at each label's centroid matches the legend. Label colours "
+    "are ordered by similarity (computed from the anchor embedding) so related cell types "
+    "share a hue family; Unknown/unassigned labels are always grey.")
+_DOTPLOT_HEADING = "Marker dot plot"
+_DOTPLOT_CAPTION = (
+    "The four most specific marker genes for each label, chosen automatically from the data "
+    "— not a hand-curated list. For every cluster the skill runs a Wilcoxon test of that "
+    "cluster vs the rest, then ranks genes by COSG, a specificity score that rewards genes "
+    "which are both strongly expressed in the cluster and largely absent elsewhere; the top "
+    "hits are shown here. Dot colour = the gene's mean expression in that label, scaled 0–1 "
+    "across labels (so it shows where each gene peaks); dot size = the fraction of cells in "
+    "the label that express the gene.")
+
+
+def _composition_caption(col: str) -> str:
+    return f"For each label, the proportion of its cells falling in each {col} category."
+
+
+def discover_plots(wd, level) -> list[tuple[str, str, Path]]:
+    """Embed-ready figures discovered from the durable PNGs in plots/ — the single source of
+    truth for what appears in the report. Independent of --adata: a rebuild that did not
+    regenerate still re-embeds whatever a prior render produced, so re-checking the gate or
+    refreshing text never silently drops figures. Returns [(heading, caption, png_path)]."""
+    plots_dir = Path(wd) / "plots"
+    if not plots_dir.is_dir():
+        return []
+    items: list[tuple[str, str, Path]] = []
+    p = plots_dir / f"umap_{level}.png"
+    if p.exists():
+        items.append((_UMAP_HEADING, _UMAP_CAPTION, p))
+    p = plots_dir / f"dotplot_{level}.png"
+    if p.exists():
+        items.append((_DOTPLOT_HEADING, _DOTPLOT_CAPTION, p))
+    # composition panels: glob so every covariate is found even if --split-by wasn't repeated
+    for p in sorted(plots_dir.glob(f"composition_{level}_*.png")):
+        col = p.stem[len(f"composition_{level}_"):]
+        items.append((f"Composition by {col}", _composition_caption(col), p))
+    return items
 
 
 def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title):
@@ -118,12 +165,14 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
 
 
 def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer,
-               split_by, level, labels: pd.DataFrame, wd: Path) -> list[tuple[str, str, Path]]:
-    """Best-effort plots. Returns [(heading, caption, png_path)] — heading is a short
-    title, caption is the figure legend. Empty on any failure / no adata."""
+               split_by, level, labels: pd.DataFrame, wd: Path) -> list[Path]:
+    """Best-effort plot GENERATION. Writes the figure PNGs into plots/ and returns the paths
+    it produced (for logging). The report embeds figures via discover_plots() reading plots/,
+    NOT this return value — so captions live in the shared constants above, not here. Empty
+    on any failure / no adata."""
     if not adata_path or not cluster_key:
         return []
-    out: list[tuple[str, str, Path]] = []
+    out: list[Path] = []
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -151,14 +200,7 @@ def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer
                 plot_umap_numbered(adata, viz_key, "_label",
                                    embedding_key or viz_key, p,
                                    title=f"{level} — assigned label")
-                out.append((
-                    "Cell map",
-                    "Each point is a cell, positioned by the chosen 2-D embedding and "
-                    "coloured by its assigned label. The number at each label's centroid "
-                    "matches the legend. Label colours are ordered by similarity (computed "
-                    "from the anchor embedding) so related cell types share a hue family; "
-                    "Unknown/unassigned labels are always grey.",
-                    p))
+                out.append(p)
             except Exception as e:  # noqa: BLE001
                 eprint(f"   plots: UMAP skipped ({type(e).__name__}: {e})")
 
@@ -188,18 +230,7 @@ def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer
                                   standard_scale="var")
                     p = plots_dir / f"dotplot_{level}.png"
                     plt.savefig(p, dpi=110, bbox_inches="tight"); plt.close("all")
-                    out.append((
-                        "Marker dot plot",
-                        "The four most specific marker genes for each label, chosen "
-                        "automatically from the data — not a hand-curated list. For every "
-                        "cluster the skill runs a Wilcoxon test of that cluster vs the rest, "
-                        "then ranks genes by COSG, a specificity score that rewards genes "
-                        "which are both strongly expressed in the cluster and largely absent "
-                        "elsewhere; the top hits are shown here. Dot colour = the gene's mean "
-                        "expression in that label, scaled 0–1 across labels (so it shows "
-                        "where each gene peaks); dot size = the fraction of cells in the "
-                        "label that express the gene.",
-                        p))
+                    out.append(p)
             except Exception as e:  # noqa: BLE001
                 eprint(f"   plots: dotplot skipped ({type(e).__name__}: {e})")
 
@@ -228,11 +259,7 @@ def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer
                 ax.legend(title=col, bbox_to_anchor=(1.01, 1), loc="upper left", fontsize=7)
                 p = plots_dir / f"composition_{level}_{col}.png"
                 plt.savefig(p, dpi=110, bbox_inches="tight"); plt.close("all")
-                out.append((
-                    f"Composition by {col}",
-                    f"For each label, the proportion of its cells falling in each "
-                    f"{col} category.",
-                    p))
+                out.append(p)
             except Exception as e:  # noqa: BLE001
                 eprint(f"   plots: composition '{col}' skipped ({type(e).__name__}: {e})")
     except Exception as e:  # noqa: BLE001

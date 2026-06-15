@@ -35,7 +35,7 @@ from pathlib import Path
 import pandas as pd
 
 from cta_io import eprint, is_unknown_label, resolve_workdir, safe_cluster_id
-from report_plots import make_plots
+from report_plots import discover_plots, make_plots
 
 try:
     import markdown as _md
@@ -158,6 +158,28 @@ def _b64_img(path: Path) -> str:
     return f"data:image/png;base64,{data}"
 
 
+def _find_card_files(wd: Path, level: str) -> list[Path]:
+    """Evidence card files for a level. scaffold_cards.py writes 'L<level>_cluster<id>.md';
+    fall back to cards written without the leading 'L'."""
+    cards_dir = wd / "evidence"
+    cards = sorted(cards_dir.glob(f"L{level}_*.md"))
+    if not cards:
+        cards = sorted(cards_dir.glob(f"{level}_*.md"))
+    return cards
+
+
+def _print_gate(problems: list[str], warnings: list[str]) -> None:
+    """Render the level-completeness verdict to stderr (shared by render and --check-only)."""
+    if problems or warnings:
+        eprint("\n>> level-completeness check:")
+        for p in problems:
+            eprint(f"   ✗ {p}")
+        for w in warnings:
+            eprint(f"   ⚠ {w}")
+    else:
+        eprint("\n>> level-completeness check: ✓ report + labels + filled cards + signed gate")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--workdir", required=True)
@@ -180,6 +202,11 @@ def main():
                          "have a non-blank label AND a filled (non-TODO) rationale. This is the "
                          "gate to run before descending — it catches the silent-skip failure "
                          "mode where a level is 'done' but its reasoning was never written.")
+    ap.add_argument("--check-only", action="store_true",
+                    help="re-evaluate the completeness gate WITHOUT rendering or writing the "
+                         "report (read-only). Use this to re-check after recording a sign-off "
+                         "— never re-run the renderer just to flip the gate. With --strict it "
+                         "exits 1 when the level is incomplete; it writes nothing.")
     args = ap.parse_args()
 
     wd = resolve_workdir(args.workdir)
@@ -194,11 +221,24 @@ def main():
         labels = labels.copy()
         labels["top_markers"] = labels["cluster"].astype(str).map(top_markers)
 
-    # plots (best-effort; empty if no --adata)
-    plot_items = make_plots(
-        adata_path=args.adata, cluster_key=args.cluster_key, viz_key=args.viz_key,
-        embedding_key=args.embedding_key, lognorm_layer=args.lognorm_layer,
-        split_by=args.split_by, level=args.level, labels=labels, wd=wd)
+    # Read-only gate: re-evaluate completeness without rendering or overwriting the report.
+    # This is how you re-check after recording a sign-off — never re-run the renderer just to
+    # flip the gate (omitting --adata on such a re-run is what silently dropped the figures).
+    if args.check_only:
+        problems, warnings = _level_completeness(
+            wd, args.level, labels, _find_card_files(wd, args.level))
+        _print_gate(problems, warnings)
+        raise SystemExit(1 if (problems and args.strict) else 0)
+
+    # Figures: (re)generate PNGs only when an AnnData is supplied, but ALWAYS embed whatever is
+    # already on disk in plots/ (via discover_plots). So rebuilding without --adata reuses the
+    # existing figures instead of silently dropping them.
+    if args.adata:
+        make_plots(
+            adata_path=args.adata, cluster_key=args.cluster_key, viz_key=args.viz_key,
+            embedding_key=args.embedding_key, lognorm_layer=args.lognorm_layer,
+            split_by=args.split_by, level=args.level, labels=labels, wd=wd)
+    plot_items = discover_plots(wd, args.level)
     plots_inner = ""
     for heading, caption, p in plot_items:
         try:
@@ -210,12 +250,8 @@ def main():
     plots_html = (f'<details class="plotbox" open><summary>Figures (cell map / markers / '
                   f'composition)</summary>{plots_inner}</details>') if plots_inner else ""
 
-    # evidence cards
-    cards_dir = wd / "evidence"
-    # scaffold_cards.py writes "L<level>_cluster<id>.md" (see its docstring); match that.
-    card_files = sorted(cards_dir.glob(f"L{args.level}_*.md"))
-    if not card_files:  # fallback for cards written without the leading "L"
-        card_files = sorted(cards_dir.glob(f"{args.level}_*.md"))
+    # evidence cards (scaffold_cards.py writes "L<level>_cluster<id>.md")
+    card_files = _find_card_files(wd, args.level)
 
     def is_flagged(row) -> bool:
         # An explicit status (if the labels CSV carries one) OR an Unknown label always flags —
@@ -342,14 +378,7 @@ def main():
     # run looks finished while its reasoning was never recorded — so we surface it loudly, and
     # under --strict refuse to pass (exit 1) so the descent to the next level is blocked.
     problems, warnings = _level_completeness(wd, args.level, labels, card_files)
-    if problems or warnings:
-        eprint("\n>> level-completeness check:")
-        for p in problems:
-            eprint(f"   ✗ {p}")
-        for w in warnings:
-            eprint(f"   ⚠ {w}")
-    else:
-        eprint("\n>> level-completeness check: ✓ report + labels + filled cards + signed gate")
+    _print_gate(problems, warnings)
     if problems and args.strict:
         raise SystemExit(
             f"ERROR: level {args.level} is incomplete ({len(problems)} blocking issue(s)); "
@@ -391,27 +420,38 @@ def _level_completeness(wd, level, labels, card_files):
         cards = list(card_files or [])
         tdir = wd / "tables"
         tbls = list(tdir.glob("*.csv")) if tdir.exists() else []
-        if cards and tbls:
+        if tbls:
             newest_tbl = max(t.stat().st_mtime for t in tbls)
             stale = [p.name for p in cards if p.stat().st_mtime < newest_tbl - 1]
             if stale:
                 warnings.append(f"{len(stale)} card(s) are OLDER than the newest table in "
                                 f"tables/ — they may show stale numbers; re-run "
                                 f"scaffold_cards.py --overwrite (e.g. {', '.join(stale[:5])})")
+            # same check for the embedded figures: since the report reuses on-disk PNGs, a
+            # rebuild without --adata after the tables changed can show stale plots. Advisory.
+            pdir = wd / "plots"
+            figs = (list(pdir.glob(f"umap_{level}.png")) + list(pdir.glob(f"dotplot_{level}.png"))
+                    + list(pdir.glob(f"composition_{level}_*.png"))) if pdir.exists() else []
+            stale_f = [p.name for p in figs if p.stat().st_mtime < newest_tbl - 1]
+            if stale_f:
+                warnings.append(f"{len(stale_f)} figure(s) in plots/ are OLDER than the newest "
+                                f"table — re-run build_report.py with --adata to refresh them "
+                                f"(e.g. {', '.join(stale_f[:4])})")
     except OSError:
         pass
-    # (4) gate signed for this level (advisory — timing of sign-off varies)
+    # (4) gate signed for this level — BLOCKS --strict: labels must not be treated as final
+    # before the Gate-A assumptions sign-off is recorded (this is what Gate A is for).
     rs = wd / "run_state.json"
     if rs.exists():
         try:
             gates = _json.loads(rs.read_text()).get("gates", {}).get("signed_off_levels", [])
             if level not in gates and f"cta_{level}" not in gates:
-                warnings.append(f"assumptions gate for {level} not recorded in "
-                                "run_state.json gates.signed_off_levels")
+                problems.append(f"assumptions gate for {level} not recorded in "
+                                "run_state.json gates.signed_off_levels (sign off first)")
         except Exception:  # noqa: BLE001
-            warnings.append("could not read run_state.json to verify the assumptions gate")
+            problems.append("could not read run_state.json to verify the assumptions gate")
     else:
-        warnings.append("no run_state.json — can't verify the assumptions gate is signed")
+        problems.append("no run_state.json — can't verify the assumptions gate is signed")
     return problems, warnings
 
 
