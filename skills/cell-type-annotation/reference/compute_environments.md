@@ -1,0 +1,135 @@
+# Reference: Compute environments — detect, then plan accordingly
+
+This skill is **compute-environment aware**. It runs unchanged on a laptop, and on a
+GPU/large-memory host it additionally downloads reference atlases, trains/refines a
+reference model, and maps the query onto it. The environment is **detected early (Stage 1)
+and confirmed with the user**, and the plan (Stage 2) and cross-check choices (Stage 3)
+branch on it. **Detection only — this skill never submits jobs and never installs the GPU
+stack behind the user's back.**
+
+The design that makes this clean already exists: the skill is **artifact-centric**. Every
+heavy step is a standalone script that reads/writes durable files and holds no in-memory
+state. So the *same* script runs inline (via Bash) on a host that has the hardware, or is
+**submitted to run elsewhere** by whatever mechanism the user's environment provides —
+with no change to the script. This skill's job is to pick the right tools and write the
+plan; *how* a step is executed in a given environment is a separate concern.
+
+## The three profiles
+
+Detected by `scripts/detect_env.py` (suggested) and confirmed with the user.
+
+| Profile | What it means | Heavy-step execution | What it unlocks beyond the CPU default |
+| --- | --- | --- | --- |
+| `local_cpu` | CPU / Apple-Silicon; no CUDA GPU reachable here | inline (Bash) | nothing — **identical to the original skill** |
+| `local_gpu` | an NVIDIA CUDA GPU is reachable *in this process* | inline (Bash) on the GPU | reference-model train + scArches mapping; GPU kNN; large atlas / Census; optional foundation-model cross-check |
+| `scheduler` | a batch scheduler exists but no GPU is reachable here (e.g. a login/submit node) | **handed off** for submission elsewhere; light steps still inline | same capability set as `local_gpu`, but GPU-heavy scripts are written into the plan to be submitted, not run inline |
+
+Notes:
+- **Apple-Silicon (MPS)** is a `local_cpu` host for the CUDA-only tools (rapids-singlecell,
+  faiss-gpu don't use MPS). The one exception is **scvi-tools**, which *can* use MPS — so a
+  Mac can still train/refine a small reference model and run scArches mapping as a deeper
+  local option, just slower than CUDA. Offer it; don't assume it.
+- The `local_gpu` vs `scheduler` split is about **where the GPU is reachable from**, not how
+  big it is. `ram_gb` is a separate axis (below).
+
+## Where to build the venv (the login-node footgun)
+
+The dedicated venv is bootstrapped by `setup_env.sh` (Stage 1c). The trap on a scheduler
+cluster: a login node has **no GPU**, but pip will still install multi-GB CUDA wheels there
+— wasting quota on packages that can't run, while GPU-index-only packages
+(rapids-singlecell) silently fail to resolve. The rule is **build the env where the work
+runs**:
+
+- **`local_cpu` / `local_gpu`** — one host does everything; `setup_env.sh [--profile gpu]`
+  on that host is correct.
+- **`scheduler`** — two places:
+  1. On the **login node**, run `setup_env.sh` (CPU core). That is all detection and the
+     light inline steps need.
+  2. Inside a **GPU job**, run `setup_env.sh --profile gpu` to add the GPU extras into the
+     **same** venv. Point `$CTA_VENV` at a **shared filesystem** (so the login and compute
+     nodes see one venv), and on a cluster prefer **scratch** over a quota-limited home —
+     the CUDA wheels are large.
+
+`setup_env.sh --profile gpu` enforces this: it installs the GPU extras only when a CUDA GPU
+is visible on the current host; otherwise it skips them with a loud notice and leaves a
+working CPU core. Pre-staging from a no-GPU host (e.g. onto a shared FS) is opt-in via
+`CTA_ALLOW_GPU_BUILD_WITHOUT_GPU=1`. It also passes the NVIDIA pip index so
+rapids-singlecell resolves, and prints which GPU extras actually imported (no silent gaps).
+
+## Detection idioms (what `detect_env.py` checks)
+
+- **CUDA GPU:** `torch.cuda.is_available()` + `device_count()` + `get_device_name` +
+  `get_device_properties(i).total_memory` (VRAM). Fall back to parsing `nvidia-smi
+  --query-gpu=...`. Pitfalls: a CPU-only torch build reports no GPU even when one exists;
+  `CUDA_VISIBLE_DEVICES` hides/renumbers devices for torch (but not for nvidia-smi).
+- **MPS:** `torch.backends.mps.is_available()` (gate on this, not `is_built()`), and
+  `platform.system()=="Darwin" and platform.machine()=="arm64"`.
+- **Usable RAM:** `psutil.virtual_memory()` clamped to the cgroup cap
+  (`/sys/fs/cgroup/memory.max`) and any scheduler allocation — the node's physical RAM is
+  not what you can actually use inside a container or an allocation.
+- **Scheduler:** a submitter on `PATH` (`sbatch`/`qsub`/`bsub`) means heavy work can run on
+  a compute node this process can't see. Being **inside** an allocation (e.g. a job-id env
+  var is set) means you're already on a compute node — so what's reachable here is
+  authoritative and there's nothing to hand off.
+
+The decisive ambiguity detection can't resolve on its own: a host with a scheduler on PATH
+but no local GPU might be a **login node whose GPUs live on compute nodes**, *or* a plain
+CPU host that merely has the client tools installed. `detect_env.py` flags it; the skill
+**asks the user** (Stage 1) which it is before committing the plan.
+
+## The memory axis
+
+`ram_gb` gates RAM-hungry options independently of the GPU question:
+- **Large reference atlases / large Census slices** — lifting the laptop-scale cap in
+  `fetch_census_reference.py --max-cells` (and downloading whole curated atlases) only makes
+  sense when RAM allows loading them.
+- **SCimilarity** (`run_scimilarity.py`) needs ~64 GB RAM and a multi-GB model bundle —
+  large-memory only, and optional even there.
+
+## Which tool at which step (and what it needs)
+
+The per-tool step / GPU-requirement / profile mapping has **one home**:
+`reference/tool_registry.md`. Read it to decide what to run where. In short: most of the
+pipeline is CPU (`none`); only the reference-mapping cross-check and (optionally)
+large-query scoring touch a GPU, and only `run_scimilarity.py` is gated on RAM rather than
+a GPU. The profile decides *how* the `preferred`/`required` rows execute — inline on
+`local_gpu`, handed off on `scheduler` (next section).
+
+## The scheduler-handoff convention (stay fully generic)
+
+When the confirmed profile is `scheduler`, the GPU-heavy scripts above run **somewhere this
+process can't reach directly**. This skill therefore:
+
+1. **Writes the standalone command** for each heavy step into `plan.md` (and narrates it in
+   chat) — the exact `python <script>.py …` invocation, plus its inputs/outputs in the
+   working dir — so it can be executed by whatever job-submission mechanism the user's
+   environment provides.
+2. **Marks those steps "submit, don't run inline"** and pauses for the user to run them via
+   their own mechanism, then resumes from the durable artifacts (the run is resumable —
+   `run_state.json`).
+3. **Never embeds a submission command.** No `sbatch`/`qsub`/`bsub`, no resource flags, no
+   assumptions about a specific cluster, scheduler, module system, or companion skill.
+   Composing the actual submission for a given environment is out of scope here and is best
+   handled by a separate, environment-specific tool the user may have.
+
+Light steps (inspection, marker scoring on moderate data, reading tables) still run inline
+on the login node. Only the genuinely GPU/large-memory steps are handed off.
+
+## Reproducibility caveats (be honest about GPU non-determinism)
+
+- GPU results are **not bit-identical** to CPU, and deep models (scVI/scANVI) are
+  **stochastic** — seed them (`scvi.settings.seed = 0`; the scripts do) but still report
+  predictions as a **hypothesis**, never a verdict.
+- rapids-singlecell GPU clustering/UMAP can shift cluster boundaries vs CPU. This skill
+  annotates **pre-existing** clusters and does not re-cluster the main object, so this
+  mostly doesn't bite — but if a GPU-accelerated step ever feeds clustering, treat the
+  clusters as the same kind of input the skill already validates, not as ground truth.
+
+## The invariant that does not change with the hardware
+
+**Every automated call is a HYPOTHESIS to reconcile against the marker evidence, never a
+verdict** — a GPU reference model and a foundation model are held to exactly the same bar
+as the CPU CellMapper cross-check (`reference/automated_tools.md`,
+`reference/methodology.md` §3–4). A bigger model does not earn more authority; it earns one
+more independent opinion to weigh. Data stays on-machine, and the run stays legible and
+resumable on any profile.

@@ -78,6 +78,15 @@ tissue, fall back to `scripts/fetch_census_reference.py` to pull a capped, tissu
 subset from CELLxGENE Census and map onto *that* with `reference_map.py` — so every tissue
 still gets an automated reference cross-check (with the heterogeneous-label caveat above).
 
+**On a GPU / large-memory profile** (`reference/compute_environments.md`) two upgrades open
+up here: (1) lift the `fetch_census_reference.py --max-cells` cap / download a full curated
+atlas, since the RAM is there to hold it; and (2) prefer a **shipped reference model** —
+pull a tissue-matched scANVI model from the **scvi-tools HuggingFace hub**
+(`scvi.hub`, used by `scripts/map_query_scarches.py --hf-repo …`) and map the query onto it
+with scArches surgery — no retraining. When no shipped model fits, train one on the user's
+atlas with `scripts/train_reference_model.py`. These remain cross-check hypotheses, not
+verdicts (`reference/automated_tools.md`).
+
 ## Default knowledge stack (the order to consult)
 
 1. **Ontology-normalize** candidate labels via the CL / OLS MCP.

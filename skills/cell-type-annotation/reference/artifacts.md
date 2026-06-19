@@ -178,7 +178,17 @@ Minimal, machine-readable, the source of truth for resuming:
     "completed_levels": [],
     "assigned": {}
   },
-  "env": {"venv": "~/.cache/cell-type-annotation/venv", "python": "3.12"}
+  "compute": {
+    "profile": "local_cpu",
+    "accelerator": "mps",
+    "n_gpus": 0,
+    "vram_gb": null,
+    "ram_gb": 64.0,
+    "scheduler": null,
+    "execution_mode": "inline",
+    "venv": "~/.cache/cell-type-annotation/venv",
+    "python": "3.12"
+  }
 }
 ```
 
@@ -192,6 +202,12 @@ Minimal, machine-readable, the source of truth for resuming:
   `status ∈ {assigned, unknown, needs_subcluster, refuted}`.
 - `progress.current_step ∈ {score, cross_check, gate_a, evidence, assign, critic,
   report}` is an intra-level cursor (see the resumability contract below).
+- `compute` records the detected, user-confirmed environment (Stage 1;
+  `reference/compute_environments.md`). `profile ∈ {local_cpu, local_gpu, scheduler}`;
+  `accelerator ∈ {cpu, cuda, mps}`; `execution_mode ∈ {inline, submit}` — `submit` means
+  GPU-heavy scripts are written into `plan.md` to run via the user's own job-submission
+  mechanism, never by this skill. Seeded from `scripts/detect_env.py`. (Replaces the old
+  thin `env` block; the venv/python fields live here now.)
 
 To resume, read this file and continue from `progress.current_level` /
 `progress.current_step`.
