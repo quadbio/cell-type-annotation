@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Investigate-before-Unknown: profile clusters by QC, composition, and spatial spread.
 
 Before falling back to an "Unknown" / "ambiguous" label, profile each cluster so the
@@ -16,22 +15,16 @@ Three independent profiles, each written as its own table:
 NO-BIAS RULE: QC columns are auto-detected purely by numeric dtype (never by name);
 categorical crosstabs are built ONLY for columns the user explicitly names. Nothing
 like 'week'/'condition'/'slide'/'n_genes' is ever hardcoded as a default.
-
-Usage:
-  python profile_clusters.py --adata path.h5ad --cluster-key leiden \
-      --workdir DIR --level L1 \
-      [--qc-cols n_genes,total_counts,pct_mito] \
-      [--cat-cols sample,condition] \
-      [--spatial-key spatial]
 """
 from __future__ import annotations
 
-import argparse
+from typing import Optional
 
 import pandas as pd
+import typer
 from pandas.api.types import is_numeric_dtype
 
-from cta_io import (
+from cta.io import (
     eprint,
     load_adata,
     require_obs,
@@ -108,38 +101,36 @@ def spatial_profile(adata, cluster_key: str, spatial_key: str | None, workdir, l
     save_table(out, workdir, f"spatial_profile_{level}.csv", index=True)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--adata", required=True)
-    ap.add_argument("--cluster-key", required=True)
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--level", required=True)
-    ap.add_argument("--qc-cols", help="comma-separated numeric obs columns; auto-detected if omitted")
-    ap.add_argument("--cat-cols", help="comma-separated categorical obs columns (user-named only)")
-    ap.add_argument("--spatial-key", help="adata.obsm key holding spatial coordinates")
-    args = ap.parse_args()
+def cli(
+    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
+    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option(..., help="hierarchy level tag for filenames"),
+    qc_cols: Optional[str] = typer.Option(
+        None, help="comma-separated numeric obs columns; auto-detected if omitted"),
+    cat_cols: Optional[str] = typer.Option(
+        None, help="comma-separated categorical obs columns (user-named only)"),
+    spatial_key: Optional[str] = typer.Option(
+        None, help="adata.obsm key holding spatial coordinates"),
+) -> None:
+    """Profile clusters by QC numeric medians, categorical composition, and spatial spread."""
+    adata_obj = load_adata(adata, backed="r")  # only obs/obsm needed — don't materialize X
+    require_obs(adata_obj, cluster_key, what="cluster key")
+    workdir_path = resolve_workdir(workdir)
 
-    adata = load_adata(args.adata, backed="r")  # only obs/obsm needed — don't materialize X
-    require_obs(adata, args.cluster_key, what="cluster key")
-    workdir = resolve_workdir(args.workdir)
-
-    if args.qc_cols:
-        qc_cols = split_csv(args.qc_cols)
-        for c in qc_cols:
-            require_obs(adata, c, what="--qc-cols column")
+    if qc_cols:
+        qc_col_list = split_csv(qc_cols)
+        for c in qc_col_list:
+            require_obs(adata_obj, c, what="--qc-cols column")
     else:
-        qc_cols = _auto_qc_cols(adata, args.cluster_key)
-        eprint(f"   auto-detected {len(qc_cols)} numeric QC cols: {qc_cols}")
+        qc_col_list = _auto_qc_cols(adata_obj, cluster_key)
+        eprint(f"   auto-detected {len(qc_col_list)} numeric QC cols: {qc_col_list}")
 
-    cat_cols = split_csv(args.cat_cols)
+    cat_col_list = split_csv(cat_cols)
 
     eprint(">> QC numeric profile")
-    qc_profile(adata, args.cluster_key, qc_cols, workdir, args.level)
+    qc_profile(adata_obj, cluster_key, qc_col_list, workdir_path, level)
     eprint(">> categorical composition")
-    categorical_composition(adata, args.cluster_key, cat_cols, workdir, args.level)
+    categorical_composition(adata_obj, cluster_key, cat_col_list, workdir_path, level)
     eprint(">> spatial profile")
-    spatial_profile(adata, args.cluster_key, args.spatial_key, workdir, args.level)
-
-
-if __name__ == "__main__":
-    main()
+    spatial_profile(adata_obj, cluster_key, spatial_key, workdir_path, level)

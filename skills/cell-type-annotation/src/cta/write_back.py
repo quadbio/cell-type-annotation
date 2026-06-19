@@ -31,14 +31,15 @@ If --levels is omitted, levels are auto-discovered from the filenames matching
 """
 from __future__ import annotations
 
-import argparse
 import os
 import re
 import tempfile
+from typing import Optional
 
 import pandas as pd
+import typer
 
-from cta_io import (check_hierarchy_nesting, eprint, label_color_map, load_adata,
+from cta.io import (check_hierarchy_nesting, eprint, label_color_map, load_adata,
                     require_obs, resolve_workdir, split_csv)
 
 # CSV columns that, when present, get mirrored into companion obs columns.
@@ -94,7 +95,7 @@ def order_label_column(series: pd.Series, adata, cluster_key: str, embedding_key
     stable order (known labels as first seen, Unknown last) and colours are still
     assigned. The hex list is aligned to the returned categories for adata.uns.
     """
-    from cta_io import is_unknown_label
+    from cta.io import is_unknown_label
     from matplotlib.colors import to_hex
 
     cats = list(pd.Categorical(series).categories)
@@ -154,30 +155,34 @@ def map_level(adata, cluster_key: str, df: pd.DataFrame, prefix: str, level: str
     return cols, colors, unmapped, orphans
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--adata", required=True)
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--cluster-key", required=True)
-    ap.add_argument("--embedding-key", default=None,
-                    help="obsm key of the anchor embedding, used to order labels by "
-                         "similarity and write a matching uns palette (so saved colours "
-                         "match the reports). Falls back to --viz-key.")
-    ap.add_argument("--viz-key", default=None, help="fallback obsm key if --embedding-key absent")
-    ap.add_argument("--levels", help="comma-separated, e.g. L1,L2,L3,L4 (default: auto-discover)")
-    ap.add_argument("--col-prefix", default="cta")
-    ap.add_argument("--output", default=None,
-                    help="write the annotated object to this path instead of mutating "
-                         "--adata in place")
-    ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--allow-non-nested", action="store_true",
-                    help="override the nested-hierarchy check (NOT recommended — a requested "
-                         "hierarchy should nest; a finer label spanning two parents is a bug)")
-    args = ap.parse_args()
+def cli(
+    adata: str = typer.Option(..., help="path to the .h5ad to annotate"),
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    embedding_key: Optional[str] = typer.Option(
+        None,
+        help="obsm key of the anchor embedding, used to order labels by "
+             "similarity and write a matching uns palette (so saved colours "
+             "match the reports). Falls back to --viz-key."),
+    viz_key: Optional[str] = typer.Option(
+        None, help="fallback obsm key if --embedding-key absent"),
+    levels: Optional[str] = typer.Option(
+        None, help="comma-separated, e.g. L1,L2,L3,L4 (default: auto-discover)"),
+    col_prefix: str = typer.Option("cta", help="prefix for the written obs columns"),
+    output: Optional[str] = typer.Option(
+        None,
+        help="write the annotated object to this path instead of mutating "
+             "--adata in place"),
+    dry_run: bool = typer.Option(False, help="preview the mapping without touching the file"),
+    allow_non_nested: bool = typer.Option(
+        False,
+        help="override the nested-hierarchy check (NOT recommended — a requested "
+             "hierarchy should nest; a finer label spanning two parents is a bug)"),
+) -> None:
+    """Write per-level cluster->label annotations back into adata.obs in-place."""
+    workdir = resolve_workdir(workdir)
 
-    workdir = resolve_workdir(args.workdir)
-
-    levels = split_csv(args.levels) or discover_levels(workdir)
+    levels = split_csv(levels) or discover_levels(workdir)
     if not levels:
         raise SystemExit(
             f"ERROR: no levels to write. Provide --levels or place "
@@ -185,10 +190,10 @@ def main():
         )
     eprint(f">> levels: {', '.join(levels)}")
 
-    adata = load_adata(args.adata, prefer_slim=False)  # must write back the FULL original
-    require_obs(adata, args.cluster_key, "cluster key")
+    adata_obj = load_adata(adata, prefer_slim=False)  # must write back the FULL original
+    require_obs(adata_obj, cluster_key, "cluster key")
 
-    embedding_key = args.embedding_key or args.viz_key
+    embedding_key = embedding_key or viz_key
     if not embedding_key:
         eprint("   note: no --embedding-key/--viz-key given — label order/colours will use "
                "a stable (non-similarity) order; pass the anchor embedding to match reports")
@@ -200,8 +205,8 @@ def main():
         df = load_level_table(workdir, level)
         level_maps.append((level, dict(zip(df["cluster"].astype(str), df["label"].astype(str)))))
         cols, colors, unmapped, orphans = map_level(
-            adata, args.cluster_key, df, args.col_prefix, level, embedding_key)
-        main_col = f"{args.col_prefix}_{level}"
+            adata_obj, cluster_key, df, col_prefix, level, embedding_key)
+        main_col = f"{col_prefix}_{level}"
 
         eprint(f"\n>> {level} -> obs['{main_col}']")
         vc = cols[main_col].value_counts(dropna=False)
@@ -210,7 +215,7 @@ def main():
         for extra_col in cols:
             if extra_col != main_col:
                 eprint(f"   (+ companion column '{extra_col}')")
-        if main_col in adata.obs:
+        if main_col in adata_obj.obs:
             eprint(f"   WARN: obs['{main_col}'] already exists — it will be overwritten")
         if unmapped:
             eprint(
@@ -220,7 +225,7 @@ def main():
         if orphans:
             eprint(
                 f"   WARN: {len(orphans)} label row(s) match no cluster in obs"
-                f"['{args.cluster_key}'] (id formatting mismatch?): {orphans}"
+                f"['{cluster_key}'] (id formatting mismatch?): {orphans}"
             )
         all_cols.update(cols)
         all_colors.update(colors)
@@ -232,14 +237,14 @@ def main():
                + "\n   ".join(violations)
                + "\n   Fix the labels so each finer label has one parent (e.g. qualify by "
                  "compartment: 'Ventral telencephalic NPC' vs '… neuron').")
-        if args.allow_non_nested:
+        if allow_non_nested:
             eprint(f"\n>> WARN: {msg}\n>> --allow-non-nested set: writing anyway.")
         else:
             raise SystemExit(f"\nERROR: {msg}\n   (override with --allow-non-nested)")
     else:
         eprint(f"\n>> hierarchy nesting OK: {' ⊂ '.join(l for l, _ in reversed(level_maps))}")
 
-    if args.dry_run:
+    if dry_run:
         eprint("\n>> DRY RUN: no file written. Columns that WOULD be added:")
         for c in all_cols:
             extra = f"  (+ uns['{c}_colors'])" if c in all_colors else ""
@@ -247,32 +252,28 @@ def main():
         return
 
     for c, series in all_cols.items():
-        adata.obs[c] = series
+        adata_obj.obs[c] = series
         if c in all_colors and all_colors[c]:
             # scanpy contract: uns['<col>_colors'][i] <-> obs['<col>'].cat.categories[i]
-            adata.uns[f"{c}_colors"] = list(all_colors[c])
+            adata_obj.uns[f"{c}_colors"] = list(all_colors[c])
 
     # Write to a temp file in the same dir, then atomically replace, so a failure
     # mid-write never corrupts the destination AnnData. With --output, the original
     # --adata is left untouched.
-    dest = os.path.abspath(os.path.expanduser(args.output or args.adata))
+    dest = os.path.abspath(os.path.expanduser(output or adata))
     dest_dir = os.path.dirname(dest) or "."
     fd, tmp = tempfile.mkstemp(suffix=".h5ad", dir=dest_dir)
     os.close(fd)
     try:
-        adata.write_h5ad(tmp)
+        adata_obj.write_h5ad(tmp)
         os.replace(tmp, dest)
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)
         raise
 
-    where = dest if args.output else f"{dest} (IN-PLACE)"
+    where = dest if output else f"{dest} (IN-PLACE)"
     eprint(f"\n>> wrote {len(all_cols)} obs column(s) + {len(all_colors)} palette(s) to {where}:")
     for c in all_cols:
         extra = f"  (+ uns['{c}_colors'])" if c in all_colors else ""
         eprint(f"   - obs['{c}']{extra}")
-
-
-if __name__ == "__main__":
-    main()

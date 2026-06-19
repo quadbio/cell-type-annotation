@@ -82,7 +82,7 @@ For each level of the hierarchy, and within each parent group, repeat:
    from the knowledge stack (consult it in the order owned by `knowledge_sources.md`).
 2. **Panel-gate the markers.** Intersect every marker set with `adata.var_names`.
    **Record the dropped genes** in the evidence card. A candidate left with fewer than
-   ~2 on-panel markers is **uncallable** on this panel (`score_signatures.py` flags it)
+   ~2 on-panel markers is **uncallable** on this panel (`cta markers score` flags it)
    — it contributes to `Unknown`, never to a confident call (§6).
 3. **Score.** Run the scoring tools on the panel-gated sets:
    - per-cluster overlap: a transparent intersection of each cluster's top-DE genes
@@ -126,12 +126,12 @@ cannot see the chat or the `AnnData` can review it).
 
 **Where the reasoning lives — the labels CSV, not the markdown.** The per-level labels
 table `labels/annotation_<level>.csv` is the single source of truth: it carries
-`label,cl_id,confidence,rationale,rejected` columns, and `scaffold_cards.py` *renders* the
+`label,cl_id,confidence,rationale,rejected` columns, and `cta report scaffold-cards` *renders* the
 cards from it. This is a deliberate design choice — authoring rationale directly into N
 markdown files is token-heavy, trivially skipped, and destroyed by a re-scaffold, which is
 exactly how a run ends up "finished" with empty TODO cards. Filling the CSV columns instead
 makes the reasoning (a) durable across re-scaffolds, (b) recoverable on resume from one
-file, and (c) machine-checkable: `build_report.py --strict` blocks descent until every
+file, and (c) machine-checkable: `cta report build --strict` blocks descent until every
 cluster has a label and a non-blank rationale (§ the level-completeness gate). Fill the CSV,
 re-scaffold, then build the report with `--strict`.
 
@@ -171,7 +171,7 @@ below a usable size). If one split does not cleanly separate the competing ident
 **out of scope** (the skill alerts, it does not compute QC). So:
 
 - If a doublet score is already present in `obs` (Scrublet / scDblFinder / DoubletFinder
-  — `inspect_adata.py` surfaces such columns), use it: high-doublet sub-clusters are
+  — `cta data inspect` surfaces such columns), use it: high-doublet sub-clusters are
   artifacts, not types.
 - If **no** doublet score exists, you **cannot** rule out a doublet. Do not promote a
   mutually-exclusive co-expressing cluster to a confident "novel/transitional type" —
@@ -186,14 +186,14 @@ the sub-clusters (subject to the one-split bound above).
 Reach for `Unknown` when: no candidate scores above the noise floor; or two
 incompatible identities are equally supported and one split does not separate them
 (§5); or the only fitting candidate is **uncallable** because its defining markers are
-off-panel (`<2` on-panel markers — `score_signatures.py` flags this), making the call
+off-panel (`<2` on-panel markers — `cta markers score` flags this), making the call
 unfalsifiable; or a co-expressing cluster cannot be distinguished from a doublet for
 lack of a doublet score (§5). Document the specific conflict in the evidence card and
 flag it in the report.
 
 **Investigate before defaulting to `Unknown`.** A large or odd cluster that resists a
 clean marker call is often a real early/transitional state, not noise. Run
-`scripts/profile_clusters.py` first: QC medians (vs global), composition over any
+`cta cluster profile` first: QC medians (vs global), composition over any
 user-named categorical `obs` (e.g. a timepoint or batch — supplied at Stage 1, never
 assumed), and optional spatial spread. Good-quality cells concentrated in one
 developmental stage, with coherent (if non-canonical) markers, are a *type to name*,
@@ -232,7 +232,7 @@ hierarchy must nest, so the critic also checks each label against its **parent p
 
 - *Structural* nesting (every finer label has exactly one parent) is a deterministic
   invariant enforced in **code** — `cta_io.check_hierarchy_nesting`, run by
-  `write_back.py` (and any time via `--dry-run`). Don't rely on an LLM to never miss it;
+  `cta report write-back` (and any time via `--dry-run`). Don't rely on an LLM to never miss it;
   the critic need not re-derive it.
 - *Semantic* path-consistency is the critic's job — flag a path that **passes** the
   structural check but is biologically incoherent: a **maturation** mismatch (an L3

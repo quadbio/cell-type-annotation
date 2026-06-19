@@ -33,15 +33,13 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse
-import json
-from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
-import scanpy as sc
+import typer
 
-from cta_io import (eprint, load_adata, panel_gate, require_obs, resolve_expression,
+from cta.io import (eprint, load_adata, panel_gate, require_obs, resolve_expression,
                  resolve_workdir, save_table)
 
 # A candidate with fewer than this many on-panel positive markers cannot be
@@ -69,39 +67,45 @@ def _net_from_sets(sets: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--adata", required=True)
-    ap.add_argument("--cluster-key", required=True)
-    ap.add_argument("--markers", required=True, help="JSON {type:[genes]} or {type:{pos,neg}}")
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--level", default="L1")
-    ap.add_argument("--lognorm-layer", default=None)
-    ap.add_argument("--markers-csv", default=None,
-                    help="ranked DE table for the overlap; defaults to "
-                         "<workdir>/tables/markers_<level>.csv (reuses compute_markers.py "
-                         "output to avoid a second Wilcoxon pass).")
-    ap.add_argument("--min-targets", type=int, default=1,
-                    help="decoupler tmin: drop signatures with <= this many on-panel "
-                         "genes. Curated marker sets are small, so the default is "
-                         "permissive (1); raise it for noisy/large sets.")
-    args = ap.parse_args()
+def cli(
+    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
+    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    markers: str = typer.Option(
+        ..., help="JSON {type:[genes]} or {type:{pos,neg}}"),
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    lognorm_layer: Optional[str] = typer.Option(
+        None, help="layer with log-normalized data; default uses adata.X"),
+    markers_csv: Optional[str] = typer.Option(
+        None, help="ranked DE table for the overlap; defaults to "
+                   "<workdir>/tables/markers_<level>.csv (reuses compute_markers.py "
+                   "output to avoid a second Wilcoxon pass)."),
+    min_targets: int = typer.Option(
+        1, help="decoupler tmin: drop signatures with <= this many on-panel "
+                "genes. Curated marker sets are small, so the default is "
+                "permissive (1); raise it for noisy/large sets."),
+) -> None:
+    """Score curated marker signatures against clusters/cells."""
+    import json
+    from pathlib import Path
 
-    wd = resolve_workdir(args.workdir)
-    adata = load_adata(args.adata)
-    require_obs(adata, args.cluster_key, "cluster key")
-    X = resolve_expression(adata, args.lognorm_layer)
-    if args.lognorm_layer is not None:
-        adata = adata.copy()
-        adata.X = X
-    adata.obs[args.cluster_key] = adata.obs[args.cluster_key].astype("category")
+    import scanpy as sc
 
-    raw = json.loads(Path(args.markers).expanduser().read_text())
+    wd = resolve_workdir(workdir)
+    adata_obj = load_adata(adata)
+    require_obs(adata_obj, cluster_key, "cluster key")
+    X = resolve_expression(adata_obj, lognorm_layer)
+    if lognorm_layer is not None:
+        adata_obj = adata_obj.copy()
+        adata_obj.X = X
+    adata_obj.obs[cluster_key] = adata_obj.obs[cluster_key].astype("category")
+
+    raw = json.loads(Path(markers).expanduser().read_text())
     pos, neg = _split_pos_neg(raw)
 
     # Panel-gate.
-    pos_kept, pos_dropped = panel_gate(pos, adata.var_names)
-    _, neg_dropped = panel_gate(neg, adata.var_names)
+    pos_kept, pos_dropped = panel_gate(pos, adata_obj.var_names)
+    _, neg_dropped = panel_gate(neg, adata_obj.var_names)
     dropped_rows = []
     for ct in pos:
         n_on_panel = len(pos_kept[ct])
@@ -112,7 +116,7 @@ def main():
             "dropped_pos": ";".join(pos_dropped.get(ct, [])),
             "dropped_neg": ";".join(neg_dropped.get(ct, [])),
         })
-    save_table(pd.DataFrame(dropped_rows), wd, f"panel_gating_{args.level}.csv")
+    save_table(pd.DataFrame(dropped_rows), wd, f"panel_gating_{level}.csv")
     uncallable = {ct for ct, g in pos_kept.items() if len(g) < MIN_ON_PANEL_MARKERS}
     if uncallable:
         eprint(f"   UNCALLABLE on this panel (<{MIN_ON_PANEL_MARKERS} on-panel markers): "
@@ -121,8 +125,8 @@ def main():
     if not usable:
         raise SystemExit("ERROR: no marker genes remain after panel-gating.")
 
-    clusters = list(adata.obs[args.cluster_key].cat.categories)
-    neg_kept, _ = panel_gate(neg, adata.var_names)
+    clusters = list(adata_obj.obs[cluster_key].cat.categories)
+    neg_kept, _ = panel_gate(neg, adata_obj.var_names)
     ora_df = auc_bc = uc_bc = None  # captured for the consolidated cross-check below
 
     # --- per-cluster marker overlap ---
@@ -132,8 +136,8 @@ def main():
     # only if that table isn't present.
     try:
         ranked: dict[str, list[str]] = {}
-        mk_path = (Path(args.markers_csv).expanduser() if args.markers_csv
-                   else wd / "tables" / f"markers_{args.level}.csv")
+        mk_path = (Path(markers_csv).expanduser() if markers_csv
+                   else wd / "tables" / f"markers_{level}.csv")
         if mk_path.exists():
             eprint(f"   overlap: reusing {mk_path.name} (skips a redundant Wilcoxon)")
             mk = pd.read_csv(mk_path)
@@ -141,11 +145,11 @@ def main():
                 ranked[str(g)] = sub["names"].astype(str).tolist()
         else:
             eprint("   overlap: markers table not found — computing rank_genes_groups")
-            sc.tl.rank_genes_groups(adata, groupby=args.cluster_key, method="wilcoxon",
+            sc.tl.rank_genes_groups(adata_obj, groupby=cluster_key, method="wilcoxon",
                                     tie_correct=True, use_raw=False)
             for g in clusters:
                 ranked[str(g)] = sc.get.rank_genes_groups_df(
-                    adata, group=str(g)).head(100)["names"].tolist()
+                    adata_obj, group=str(g)).head(100)["names"].tolist()
         ora_rows = []
         for g in clusters:
             top = ranked.get(str(g), [])
@@ -158,7 +162,7 @@ def main():
                                  "frac": round(inter / max(len(genes), 1), 3),
                                  "uncallable": len(genes) < MIN_ON_PANEL_MARKERS})
         ora_df = pd.DataFrame(ora_rows)
-        save_table(ora_df, wd, f"scores_overlap_{args.level}.csv")
+        save_table(ora_df, wd, f"scores_overlap_{level}.csv")
     except Exception as e:  # noqa: BLE001
         eprint(f"   overlap scoring degraded ({type(e).__name__}: {e})")
 
@@ -166,13 +170,13 @@ def main():
     try:
         import decoupler as dc
         net = _net_from_sets(usable)
-        eprint(f">> decoupler aucell (per-cell, tmin={args.min_targets})")
-        dc.mt.aucell(adata, net=net, tmin=args.min_targets)
-        auc = _get_dc_result(adata, "aucell")
+        eprint(f">> decoupler aucell (per-cell, tmin={min_targets})")
+        dc.mt.aucell(adata_obj, net=net, tmin=min_targets)
+        auc = _get_dc_result(adata_obj, "aucell")
         if auc is not None:
-            by_cluster = auc.groupby(adata.obs[args.cluster_key].astype(str).values).mean()
+            by_cluster = auc.groupby(adata_obj.obs[cluster_key].astype(str).values).mean()
             by_cluster.index.name = "cluster"
-            save_table(by_cluster.reset_index(), wd, f"scores_aucell_{args.level}.csv")
+            save_table(by_cluster.reset_index(), wd, f"scores_aucell_{level}.csv")
             auc_bc = by_cluster
             # z-score each signature ACROSS clusters: relative enrichment, the correct way
             # to read AUCell across clusters. On a targeted/spatial panel the ABSOLUTE
@@ -201,12 +205,12 @@ def main():
         for ct, g in usable.items():
             genes = [f"{x}+" for x in g] + [f"{x}-" for x in neg_kept.get(ct, [])]
             signatures[ct] = genes
-        pyucell.compute_ucell_scores(adata, signatures=signatures, suffix="_UCell")
-        cols = [c for c in adata.obs.columns if c.endswith("_UCell")]
+        pyucell.compute_ucell_scores(adata_obj, signatures=signatures, suffix="_UCell")
+        cols = [c for c in adata_obj.obs.columns if c.endswith("_UCell")]
         if cols:
-            by = adata.obs.groupby(adata.obs[args.cluster_key].astype(str))[cols].mean()
+            by = adata_obj.obs.groupby(adata_obj.obs[cluster_key].astype(str))[cols].mean()
             by.index.name = "cluster"
-            save_table(by.reset_index(), wd, f"scores_ucell_{args.level}.csv")
+            save_table(by.reset_index(), wd, f"scores_ucell_{level}.csv")
             uc_bc = by
     except ImportError as e:
         if str(e) != "skip-no-negatives":
@@ -240,7 +244,7 @@ def main():
             cons["agree"] = cons[winners].apply(
                 lambda r: int(r.dropna().value_counts().iloc[0]) if r.notna().any() else 0,
                 axis=1)
-        save_table(cons.reset_index(), wd, f"crosscheck_{args.level}.csv")
+        save_table(cons.reset_index(), wd, f"crosscheck_{level}.csv")
     except Exception as e:  # noqa: BLE001
         eprint(f"   consolidated cross-check degraded ({type(e).__name__}: {e})")
 
@@ -256,7 +260,3 @@ def _get_dc_result(adata, method):
             return res if isinstance(res, pd.DataFrame) else pd.DataFrame(
                 res, index=adata.obs_names)
     return None
-
-
-if __name__ == "__main__":
-    main()

@@ -27,22 +27,22 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse
 import base64
 import html
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
+import typer
 
-from cta_io import eprint, is_unknown_label, resolve_workdir, safe_cluster_id
-from report_plots import discover_plots, make_plots
+from cta.io import eprint, is_unknown_label, resolve_workdir, safe_cluster_id
 
-try:
-    import markdown as _md
-    def md_to_html(s: str) -> str:
+
+def md_to_html(s: str) -> str:
+    try:
+        import markdown as _md
         return _md.markdown(s, extensions=["tables", "fenced_code"])
-except Exception:  # markdown is optional; fall back to <pre>
-    def md_to_html(s: str) -> str:
+    except Exception:  # markdown is optional; fall back to <pre>
         return f"<pre>{html.escape(s)}</pre>"
 
 
@@ -180,43 +180,49 @@ def _print_gate(problems: list[str], warnings: list[str]) -> None:
         eprint("\n>> level-completeness check: ✓ report + labels + filled cards + signed gate")
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--level", required=True)
-    ap.add_argument("--title", default=None)
-    # optional plotting inputs
-    ap.add_argument("--adata", default=None, help="enable plots (UMAP/dotplot/composition)")
-    ap.add_argument("--cluster-key", default=None)
-    ap.add_argument("--viz-key", default=None, help="obsm key for the UMAP/tSNE viz embedding")
-    ap.add_argument("--embedding-key", default=None,
-                    help="obsm key of the anchor embedding (used to ORDER labels by "
-                         "similarity so similar types get adjacent colors; defaults to --viz-key)")
-    ap.add_argument("--lognorm-layer", default=None)
-    ap.add_argument("--split-by", default=None,
-                    help="OPTIONAL categorical obs to split composition by — comma-separated "
-                         "for multiple panels (e.g. 'condition,week'); reuses uns colors. "
-                         "Generic; never assume a specific column exists.")
-    ap.add_argument("--strict", action="store_true",
-                    help="treat an incomplete level as an error (exit 1): every cluster must "
-                         "have a non-blank label AND a filled (non-TODO) rationale. This is the "
-                         "gate to run before descending — it catches the silent-skip failure "
-                         "mode where a level is 'done' but its reasoning was never written.")
-    ap.add_argument("--check-only", action="store_true",
-                    help="re-evaluate the completeness gate WITHOUT rendering or writing the "
-                         "report (read-only). Use this to re-check after recording a sign-off "
-                         "— never re-run the renderer just to flip the gate. With --strict it "
-                         "exits 1 when the level is incomplete; it writes nothing.")
-    args = ap.parse_args()
+def cli(
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option(..., help="hierarchy level tag, e.g. L1"),
+    title: Optional[str] = typer.Option(None, help="report title"),
+    adata: Optional[str] = typer.Option(
+        None, help="enable plots (UMAP/dotplot/composition)"),
+    cluster_key: Optional[str] = typer.Option(None, help="obs column holding the clusters"),
+    viz_key: Optional[str] = typer.Option(
+        None, help="obsm key for the UMAP/tSNE viz embedding"),
+    embedding_key: Optional[str] = typer.Option(
+        None,
+        help="obsm key of the anchor embedding (used to ORDER labels by "
+             "similarity so similar types get adjacent colors; defaults to --viz-key)"),
+    lognorm_layer: Optional[str] = typer.Option(None, help="layer with log-normalized data"),
+    split_by: Optional[str] = typer.Option(
+        None,
+        help="OPTIONAL categorical obs to split composition by — comma-separated "
+             "for multiple panels (e.g. 'condition,week'); reuses uns colors. "
+             "Generic; never assume a specific column exists."),
+    strict: bool = typer.Option(
+        False,
+        help="treat an incomplete level as an error (exit 1): every cluster must "
+             "have a non-blank label AND a filled (non-TODO) rationale. This is the "
+             "gate to run before descending — it catches the silent-skip failure "
+             "mode where a level is 'done' but its reasoning was never written."),
+    check_only: bool = typer.Option(
+        False,
+        help="re-evaluate the completeness gate WITHOUT rendering or writing the "
+             "report (read-only). Use this to re-check after recording a sign-off "
+             "— never re-run the renderer just to flip the gate. With --strict it "
+             "exits 1 when the level is incomplete; it writes nothing."),
+) -> None:
+    """Assemble a self-contained HTML report for one hierarchy level."""
+    from cta.report_plots import discover_plots, make_plots
 
-    wd = resolve_workdir(args.workdir)
-    title = args.title or f"Cell-type annotation — level {args.level}"
+    wd = resolve_workdir(workdir)
+    title = title or f"Cell-type annotation — level {level}"
 
-    labels_path = wd / "labels" / f"annotation_{args.level}.csv"
+    labels_path = wd / "labels" / f"annotation_{level}.csv"
     labels = pd.read_csv(labels_path) if labels_path.exists() else pd.DataFrame()
 
     # attach top markers (from COSG) per cluster to the summary
-    top_markers = _top_markers_by_cluster(wd, args.level)
+    top_markers = _top_markers_by_cluster(wd, level)
     if not labels.empty and "cluster" in labels.columns and top_markers:
         labels = labels.copy()
         labels["top_markers"] = labels["cluster"].astype(str).map(top_markers)
@@ -224,21 +230,21 @@ def main():
     # Read-only gate: re-evaluate completeness without rendering or overwriting the report.
     # This is how you re-check after recording a sign-off — never re-run the renderer just to
     # flip the gate (omitting --adata on such a re-run is what silently dropped the figures).
-    if args.check_only:
+    if check_only:
         problems, warnings = _level_completeness(
-            wd, args.level, labels, _find_card_files(wd, args.level))
+            wd, level, labels, _find_card_files(wd, level))
         _print_gate(problems, warnings)
-        raise SystemExit(1 if (problems and args.strict) else 0)
+        raise SystemExit(1 if (problems and strict) else 0)
 
     # Figures: (re)generate PNGs only when an AnnData is supplied, but ALWAYS embed whatever is
     # already on disk in plots/ (via discover_plots). So rebuilding without --adata reuses the
     # existing figures instead of silently dropping them.
-    if args.adata:
+    if adata:
         make_plots(
-            adata_path=args.adata, cluster_key=args.cluster_key, viz_key=args.viz_key,
-            embedding_key=args.embedding_key, lognorm_layer=args.lognorm_layer,
-            split_by=args.split_by, level=args.level, labels=labels, wd=wd)
-    plot_items = discover_plots(wd, args.level)
+            adata_path=adata, cluster_key=cluster_key, viz_key=viz_key,
+            embedding_key=embedding_key, lognorm_layer=lognorm_layer,
+            split_by=split_by, level=level, labels=labels, wd=wd)
+    plot_items = discover_plots(wd, level)
     plots_inner = ""
     for heading, caption, p in plot_items:
         try:
@@ -251,7 +257,7 @@ def main():
                   f'composition)</summary>{plots_inner}</details>') if plots_inner else ""
 
     # evidence cards (scaffold_cards.py writes "L<level>_cluster<id>.md")
-    card_files = _find_card_files(wd, args.level)
+    card_files = _find_card_files(wd, level)
 
     def is_flagged(row) -> bool:
         # An explicit status (if the labels CSV carries one) OR an Unknown label always flags —
@@ -281,7 +287,7 @@ def main():
 
         # --- rollup: one row per label (cells, n clusters, flagged), most cells first ---
         if "label" in labels.columns:
-            sizes = _cluster_sizes(args.adata, args.cluster_key)
+            sizes = _cluster_sizes(adata, cluster_key)
             total_cells = sum(sizes.values()) or 0
             rr = ""
             rollup = []
@@ -358,9 +364,9 @@ def main():
                        f'{"s" if len(ps)!=1 else ""}{flagtag})</span></summary>'
                        f'<div class="grpbody">{inner}</div></details>')
 
-    out = wd / "reports" / f"report_{args.level}.html"
+    out = wd / "reports" / f"report_{level}.html"
     out.write_text(TEMPLATE.format(
-        title=html.escape(title), level=html.escape(args.level),
+        title=html.escape(title), level=html.escape(level),
         n=len(card_files) or len(labels),
         n_regions=n_regions,
         n_flagged=len(flagged_clusters),
@@ -377,11 +383,11 @@ def main():
     # (4) the level's assumptions gate is signed off. Skipping any of these is the usual way a
     # run looks finished while its reasoning was never recorded — so we surface it loudly, and
     # under --strict refuse to pass (exit 1) so the descent to the next level is blocked.
-    problems, warnings = _level_completeness(wd, args.level, labels, card_files)
+    problems, warnings = _level_completeness(wd, level, labels, card_files)
     _print_gate(problems, warnings)
-    if problems and args.strict:
+    if problems and strict:
         raise SystemExit(
-            f"ERROR: level {args.level} is incomplete ({len(problems)} blocking issue(s)); "
+            f"ERROR: level {level} is incomplete ({len(problems)} blocking issue(s)); "
             "fix the labels CSV / fill rationale, then re-run. Refusing to pass --strict.")
 
 
@@ -453,7 +459,3 @@ def _level_completeness(wd, level, labels, card_files):
     else:
         problems.append("no run_state.json — can't verify the assumptions gate is signed")
     return problems, warnings
-
-
-if __name__ == "__main__":
-    main()

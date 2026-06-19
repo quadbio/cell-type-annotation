@@ -24,15 +24,15 @@ Per --label-cols column, writes tables/refmap_<level>_<col>.csv with columns:
 """
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
-import scanpy as sc
+import typer
 from scipy.sparse import issparse
 
-from cta_io import (eprint, load_adata, require_obs, resolve_expression,
+from cta.io import (aggregate_predictions, eprint, load_adata, require_obs, resolve_expression,
                  resolve_workdir, safe_cluster_id, save_table, split_csv)
 
 MIN_SHARED_GENES = 30
@@ -51,6 +51,8 @@ def _looks_like_counts(X) -> bool:
 
 def _normalize_reference(ref, ref_counts_flag: bool) -> None:
     """log1p of 1e4-normalized counts, to match the query's lognorm space."""
+    import scanpy as sc
+
     do_norm = ref_counts_flag or _looks_like_counts(ref.X)
     if do_norm:
         eprint("   reference looks like counts -> normalize_total(1e4) + log1p")
@@ -105,31 +107,6 @@ def _read_reference_subsampled(path, label_cols, max_ref: int, stratify_col: str
     return ref
 
 
-def _aggregate(clusters: np.ndarray, labels: np.ndarray, conf: np.ndarray,
-               method: str) -> pd.DataFrame:
-    """Per cluster: majority label + frac, runner-up + frac, mean confidence."""
-    df = pd.DataFrame({"cluster": clusters, "label": labels, "conf": conf})
-    rows = []
-    for cl, g in df.groupby("cluster", sort=True):
-        counts = g["label"].value_counts()
-        n = counts.sum()
-        top1 = counts.index[0]
-        frac1 = float(counts.iloc[0] / n)
-        if len(counts) > 1:
-            top2 = counts.index[1]
-            frac2 = float(counts.iloc[1] / n)
-        else:
-            top2, frac2 = "", 0.0
-        rows.append({
-            "cluster": cl,
-            "top1": top1,
-            "frac1": round(frac1, 4),
-            "top2": top2,
-            "frac2": round(frac2, 4),
-            "mean_conf": round(float(g["conf"].mean()), 4),
-            "method": method,
-        })
-    return pd.DataFrame(rows)
 
 
 def _shared_genes(query, reference):
@@ -144,19 +121,19 @@ def _shared_genes(query, reference):
     return shared
 
 
-def _run_cellmapper(query, reference, label_cols, args):
+def _run_cellmapper(query, reference, label_cols, embedding_method, n_comps, knn_method):
     """Transfer each label column onto query.obs via CellMapper. Returns method tag."""
     from cellmapper import CellMapper
 
     cmap = CellMapper(query, reference)
-    eprint(f">> building joint embedding via '{args.embedding_method}'")
-    if args.embedding_method == "cca":
-        cmap.compute_fast_cca(n_comps=args.n_comps, key_added="X_joint")
+    eprint(f">> building joint embedding via '{embedding_method}'")
+    if embedding_method == "cca":
+        cmap.compute_fast_cca(n_comps=n_comps, key_added="X_joint")
     else:
-        cmap.compute_joint_pca(n_comps=args.n_comps, key_added="X_joint")
+        cmap.compute_joint_pca(n_comps=n_comps, key_added="X_joint")
 
-    eprint(f">> computing neighbors (knn_method='{args.knn_method}')")
-    cmap.compute_neighbors(use_rep="X_joint", knn_method=args.knn_method, random_state=0)
+    eprint(f">> computing neighbors (knn_method='{knn_method}')")
+    cmap.compute_neighbors(use_rep="X_joint", knn_method=knn_method, random_state=0)
     cmap.compute_mapping_matrix()
 
     for col in label_cols:
@@ -165,7 +142,7 @@ def _run_cellmapper(query, reference, label_cols, args):
     return "cellmapper"
 
 
-def _run_correlation_fallback(query, reference, label_cols, args, shared):
+def _run_correlation_fallback(query, reference, label_cols, cluster_key, workdir, level, shared):
     """Centroid-Spearman fallback: write transferred label + a pseudo-confidence
     onto query.obs so the same aggregation path can be reused."""
     from scipy.stats import rankdata
@@ -177,7 +154,7 @@ def _run_correlation_fallback(query, reference, label_cols, args, shared):
     Xq = q.X.toarray() if issparse(q.X) else np.asarray(q.X)
     Xr = r.X.toarray() if issparse(r.X) else np.asarray(r.X)
 
-    qclus = query.obs[args.cluster_key].astype(str).values
+    qclus = query.obs[cluster_key].astype(str).values
     # Per-query-cluster centroid, rank-transformed for Spearman.
     qcats = np.unique(qclus)
     qcent = np.vstack([Xq[qclus == c].mean(axis=0) for c in qcats])
@@ -210,87 +187,80 @@ def _run_correlation_fallback(query, reference, label_cols, args, shared):
                 "top2": top2, "frac2": frac2,
                 "mean_conf": frac1, "method": "correlation",
             })
-        save_table(pd.DataFrame(rows), resolve_workdir(args.workdir),
-                   f"refmap_{args.level}_{safe_cluster_id(col)}.csv")
+        save_table(pd.DataFrame(rows), resolve_workdir(workdir),
+                   f"refmap_{level}_{safe_cluster_id(col)}.csv")
     return "correlation"
 
 
-def main():
-    args = _parse_args()
-    wd = resolve_workdir(args.workdir)
-    label_cols = split_csv(args.label_cols)
-    if not label_cols:
+def cli(
+    query: str = typer.Option(
+        ..., "--query", "--adata",
+        help="the query AnnData to annotate (alias: --adata)"),
+    reference: str = typer.Option(..., help="reference AnnData with label columns"),
+    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    label_cols: str = typer.Option(
+        ..., help="comma-separated reference.obs columns to transfer"),
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    query_lognorm_layer: Optional[str] = typer.Option(
+        None, "--query-lognorm-layer", "--lognorm-layer",
+        help="query layer holding log1p data ('X' or a layer name); alias: --lognorm-layer"),
+    ref_counts: bool = typer.Option(
+        False, "--ref-counts",
+        help="force normalize_total(1e4)+log1p on the reference"),
+    embedding_method: str = typer.Option("cca", help="joint embedding method: cca or pca"),
+    n_comps: int = typer.Option(50, help="number of embedding components"),
+    knn_method: str = typer.Option(
+        "pynndescent",
+        help="CellMapper kNN backend. CPU: 'pynndescent' (default), 'sklearn', "
+             "'faiss-cpu'. GPU: 'rapids' (seconds over millions of cells; needs "
+             "cuml-cu12 from the gpu env, `pixi install -e gpu`) or 'faiss-gpu' (needs a working "
+             "faiss-gpu build — prefer the conda one; the pip wheel is often ABI-"
+             "broken). On a GPU profile use 'rapids' to scale this cross-check."),
+    max_ref: int = typer.Option(200000, help="max reference cells to use (subsampled)"),
+    stratify_col: Optional[str] = typer.Option(
+        None, help="reference.obs column to stratify the subsample by"),
+) -> None:
+    """CellMapper reference label-transfer as a cross-check hypothesis (not a verdict)."""
+    wd = resolve_workdir(workdir)
+    label_cols_list = split_csv(label_cols)
+    if not label_cols_list:
         raise SystemExit("ERROR: --label-cols must list at least one column")
 
     eprint(">> loading query")
-    query = load_adata(args.query)
-    require_obs(query, args.cluster_key, "cluster key")
+    query_obj = load_adata(query)
+    require_obs(query_obj, cluster_key, "cluster key")
 
     eprint(">> loading reference (backed) + subsample-before-materialize")
-    reference = _read_reference_subsampled(args.reference, label_cols, args.max_ref,
-                                           args.stratify_col)
+    reference_obj = _read_reference_subsampled(reference, label_cols_list, max_ref,
+                                               stratify_col)
 
     # Intersect var_names -> shared genes; subset both.
-    shared = _shared_genes(query, reference)
-    query = query[:, shared].copy()
-    reference = reference[:, shared].copy()
+    shared = _shared_genes(query_obj, reference_obj)
+    query_obj = query_obj[:, shared].copy()
+    reference_obj = reference_obj[:, shared].copy()
 
     # Query expression: pin .X to the chosen lognorm matrix.
-    layer = None if args.query_lognorm_layer in (None, "X") else args.query_lognorm_layer
-    query.X = resolve_expression(query, layer)
+    layer = None if query_lognorm_layer in (None, "X") else query_lognorm_layer
+    query_obj.X = resolve_expression(query_obj, layer)
 
     # Reference normalization to match the query's lognorm space.
-    _normalize_reference(reference, args.ref_counts)
+    _normalize_reference(reference_obj, ref_counts)
 
     try:
-        method = _run_cellmapper(query, reference, label_cols, args)
+        method = _run_cellmapper(query_obj, reference_obj, label_cols_list,
+                                 embedding_method, n_comps, knn_method)
     except ImportError:
-        _run_correlation_fallback(query, reference, label_cols, args, shared)
+        _run_correlation_fallback(query_obj, reference_obj, label_cols_list,
+                                  cluster_key, workdir, level, shared)
         eprint(">> done (correlation fallback)")
         return
 
     # Aggregate the transferred per-cell labels per query cluster.
-    clusters = query.obs[args.cluster_key].astype(str).values
-    for col in label_cols:
-        pred = query.obs[f"{col}_pred"].astype(str).values
-        conf = np.asarray(query.obs[f"{col}_conf"].values, dtype=float)
-        out = _aggregate(clusters, pred, conf, method)
-        save_table(out, wd, f"refmap_{args.level}_{safe_cluster_id(col)}.csv")
+    clusters = query_obj.obs[cluster_key].astype(str).values
+    for col in label_cols_list:
+        pred = query_obj.obs[f"{col}_pred"].astype(str).values
+        conf = np.asarray(query_obj.obs[f"{col}_conf"].values, dtype=float)
+        out = aggregate_predictions(clusters, pred, conf, method)
+        save_table(out, wd, f"refmap_{level}_{safe_cluster_id(col)}.csv")
     eprint(">> done")
-
-
-def _parse_args():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    # This script takes TWO objects, so the annotated one is "--query"; "--adata" is
-    # accepted as an alias so the flag matches every other script in the suite.
-    ap.add_argument("--query", "--adata", dest="query", required=True,
-                    help="the query AnnData to annotate (alias: --adata)")
-    ap.add_argument("--reference", required=True)
-    ap.add_argument("--cluster-key", required=True)
-    ap.add_argument("--label-cols", required=True,
-                    help="comma-separated reference.obs columns to transfer")
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--level", default="L1")
-    ap.add_argument("--query-lognorm-layer", "--lognorm-layer", dest="query_lognorm_layer",
-                    default=None,
-                    help="query layer holding log1p data ('X' or a layer name); "
-                         "alias: --lognorm-layer")
-    ap.add_argument("--ref-counts", action="store_true",
-                    help="force normalize_total(1e4)+log1p on the reference")
-    ap.add_argument("--embedding-method", choices=["cca", "pca"], default="cca")
-    ap.add_argument("--n-comps", type=int, default=50)
-    ap.add_argument("--knn-method", default="pynndescent",
-                    help="CellMapper kNN backend. CPU: 'pynndescent' (default), 'sklearn', "
-                         "'faiss-cpu'. GPU: 'rapids' (seconds over millions of cells; needs "
-                         "cuml-cu12 from requirements-gpu.txt) or 'faiss-gpu' (needs a working "
-                         "faiss-gpu build — prefer the conda one; the pip wheel is often ABI-"
-                         "broken). On a GPU profile use 'rapids' to scale this cross-check.")
-    ap.add_argument("--max-ref", type=int, default=200000)
-    ap.add_argument("--stratify-col", default=None,
-                    help="reference.obs column to stratify the subsample by")
-    return ap.parse_args()
-
-
-if __name__ == "__main__":
-    main()

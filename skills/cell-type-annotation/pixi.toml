@@ -1,0 +1,89 @@
+[workspace]
+name = "cell-type-annotation"
+version = "0.1.0"
+description = "Evidence-driven, compute-environment-aware cell-type annotation skill."
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+# Two environments (see reference/compute_environments.md):
+#   default  CPU / Apple-Silicon core — everything the local_cpu profile needs. Deliberately
+#            torch-free (lean, and avoids the macOS OpenMP clash), so the reference-model
+#            tools are not available here.
+#   gpu      adds the reference-model stack (scvi-tools: scANVI/scArches) + the CUDA-only
+#            GPU k-NN libs (cuML/cuDF) + the optional large-memory foundation model
+#            (scimilarity), Linux + NVIDIA only. Build it WHERE the GPU is:
+#               pixi install -e gpu        # on a GPU node / host
+#            On a scheduler login node, build `default` there and `gpu` inside a GPU job,
+#            pointing the env at shared scratch (see [activation] / detached-environments).
+
+[tasks]
+# `pixi run cta <command> …` works directly; this is a convenience for the common probe.
+detect-env = "cta detect-env"
+test = "python -m pytest"
+
+[dependencies]
+# conda-forge for the interpreter, numpy (numba ABI), and faiss (the pip faiss wheels are
+# build-/ABI-fragile — conda-forge's are reliable).
+python = "3.12.*"
+numpy = ">=2"
+faiss-cpu = "*"
+pytest = "*"
+
+[pypi-dependencies]
+# The skill's own package (the `cta` CLI), installed editable.
+cta = { path = ".", editable = true }
+typer = "*"  # the CLI framework (grouped subcommands, typed options, lazy command bodies)
+
+# scVerse marker/annotation stack.
+scanpy = ">=1.10"
+anndata = ">=0.10"
+# pandas + scipy are used directly across the package (not just via scanpy) — declare them
+# explicitly so a future scanpy that loosens them can't silently break us.
+pandas = "*"
+scipy = "*"
+decoupler = ">=2.0"
+cosg = "*"
+celltypist = "*"
+cellmapper = "*"
+pynndescent = "*"
+pyucell = "*"
+scikit-misc = "*"
+igraph = ">=0.11"
+leidenalg = "*"
+
+# Reporting.
+matplotlib = "*"
+seaborn = "*"
+jinja2 = "*"
+markdown = "*"
+
+# NOTE: scvi-tools (scANVI/scArches) is intentionally NOT here. It pulls torch, whose
+# bundled OpenMP clashes with conda's on macOS (OMP Error #15, a native abort the guarded
+# imports can't catch), and the CPU default is meant to stay lean. It lives in the `gpu`
+# feature below. To use the scANVI option locally on a Mac (MPS, slow), add scvi-tools to a
+# separate env yourself — it is a GPU-tier tool by design (see reference/tool_registry.md).
+
+# Additional cross-checks + condition-DE (Job B).
+singler = "*"
+celldex = "*"
+pertpy = "*"
+pydeseq2 = "*"
+cellxgene-census = "*"
+
+# --- GPU env: CUDA-only, Linux. cuML is what CellMapper's `rapids` k-NN backend needs
+#     (validated on an RTX 4090); resolved from the NVIDIA index. ----------------------
+[feature.gpu.pypi-options]
+extra-index-urls = ["https://pypi.nvidia.com"]
+
+[feature.gpu.target.linux-64.pypi-dependencies]
+# Reference-model option (scANVI/scArches + scvi-hub). torch+OpenMP coexist fine with the
+# conda stack on Linux (validated on an RTX 4090); on a GPU it actually uses CUDA.
+scvi-tools = "*"
+# CellMapper's `rapids` GPU k-NN backend calls cuML directly (validated on an RTX 4090).
+cuml-cu12 = "*"
+cudf-cu12 = "*"
+# Optional large-memory zero-shot annotator (additional cross-check only).
+scimilarity = "*"
+
+[environments]
+gpu = ["gpu"]
