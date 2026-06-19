@@ -81,9 +81,11 @@ Each is still a HYPOTHESIS, held to the same bar as the CPU cross-check.
   `refmap_<level>_<col>.csv` schema, so the cards/report fold it in like any cross-check.
   scvi-tools also runs on Apple-Silicon **MPS** — so a Mac can do this slowly as a deeper
   local option (offer it; don't default to it).
-- **GPU kNN reference mapping** — `scripts/reference_map.py --knn-method faiss|rapids`
+- **GPU kNN reference mapping** — `scripts/reference_map.py --knn-method rapids`
   scales the existing CellMapper cross-check to **seconds over millions of cells**. Same
-  conceptual transfer, GPU backend (needs `requirements-gpu.txt`).
+  conceptual transfer, GPU backend (needs `cuml-cu12` from `requirements-gpu.txt` — CellMapper's
+  rapids backend calls cuML directly, *not* rapids-singlecell). The `faiss-gpu` backend needs
+  a working faiss-gpu build (the conda one; the pip wheel is often ABI-broken).
 - **Large reference atlases / Census slices** — with the memory headroom, lift the
   `fetch_census_reference.py --max-cells` cap and prefer a full curated atlas (or a shipped
   hub model) over the laptop-scale slice (`reference/knowledge_sources.md`).

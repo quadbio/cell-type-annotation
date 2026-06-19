@@ -25,8 +25,8 @@ Detected by `scripts/detect_env.py` (suggested) and confirmed with the user.
 | `scheduler` | a batch scheduler exists but no GPU is reachable here (e.g. a login/submit node) | **handed off** for submission elsewhere; light steps still inline | same capability set as `local_gpu`, but GPU-heavy scripts are written into the plan to be submitted, not run inline |
 
 Notes:
-- **Apple-Silicon (MPS)** is a `local_cpu` host for the CUDA-only tools (rapids-singlecell,
-  faiss-gpu don't use MPS). The one exception is **scvi-tools**, which *can* use MPS — so a
+- **Apple-Silicon (MPS)** is a `local_cpu` host for the CUDA-only tools (cuml/cudf, the GPU
+  faiss build don't use MPS). The one exception is **scvi-tools**, which *can* use MPS — so a
   Mac can still train/refine a small reference model and run scArches mapping as a deeper
   local option, just slower than CUDA. Offer it; don't assume it.
 - The `local_gpu` vs `scheduler` split is about **where the GPU is reachable from**, not how
@@ -37,7 +37,7 @@ Notes:
 The dedicated venv is bootstrapped by `setup_env.sh` (Stage 1c). The trap on a scheduler
 cluster: a login node has **no GPU**, but pip will still install multi-GB CUDA wheels there
 — wasting quota on packages that can't run, while GPU-index-only packages
-(rapids-singlecell) silently fail to resolve. The rule is **build the env where the work
+(cuml/cudf) silently fail to resolve. The rule is **build the env where the work
 runs**:
 
 - **`local_cpu` / `local_gpu`** — one host does everything; `setup_env.sh [--profile gpu]`
@@ -53,8 +53,9 @@ runs**:
 `setup_env.sh --profile gpu` enforces this: it installs the GPU extras only when a CUDA GPU
 is visible on the current host; otherwise it skips them with a loud notice and leaves a
 working CPU core. Pre-staging from a no-GPU host (e.g. onto a shared FS) is opt-in via
-`CTA_ALLOW_GPU_BUILD_WITHOUT_GPU=1`. It also passes the NVIDIA pip index so
-rapids-singlecell resolves, and prints which GPU extras actually imported (no silent gaps).
+`CTA_ALLOW_GPU_BUILD_WITHOUT_GPU=1`. It also passes the NVIDIA pip index so cuml/cudf
+resolve, and **actually imports** each GPU extra to report present/broken (find_spec would
+call an ABI-broken wheel "present", so a real import is used).
 
 ## Detection idioms (what `detect_env.py` checks)
 
@@ -120,10 +121,12 @@ on the login node. Only the genuinely GPU/large-memory steps are handed off.
 - GPU results are **not bit-identical** to CPU, and deep models (scVI/scANVI) are
   **stochastic** — seed them (`scvi.settings.seed = 0`; the scripts do) but still report
   predictions as a **hypothesis**, never a verdict.
-- rapids-singlecell GPU clustering/UMAP can shift cluster boundaries vs CPU. This skill
-  annotates **pre-existing** clusters and does not re-cluster the main object, so this
-  mostly doesn't bite — but if a GPU-accelerated step ever feeds clustering, treat the
-  clusters as the same kind of input the skill already validates, not as ground truth.
+- GPU k-NN (`reference_map.py --knn-method rapids`) and any optional GPU clustering/UMAP
+  (e.g. rapids-singlecell, not a default extra) are not bit-identical to their CPU
+  equivalents. This skill annotates **pre-existing** clusters and does not re-cluster the
+  main object, so this mostly doesn't bite — but if a GPU-accelerated step ever feeds
+  clustering, treat the clusters as the same kind of input the skill validates, not as
+  ground truth.
 
 ## The invariant that does not change with the hardware
 

@@ -28,11 +28,11 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | Inspect object (1e) | `inspect_adata.py` | none | all | keys/layers/norm-fingerprint/panel flag → `context.md`. |
 | Slim cache (1e, opt.) | `prep_slim.py` | none | all | cache embedding+X+counts+obs to avoid reloading huge files. |
 | Seed markers (3.1, opt.) | `assemble_markers.py` | none | all | seed `markers_<level>.json` from a CellTypist model / reference DE. |
-| Score — bottom-up (3.3) | `compute_markers.py` | optional | all | `rank_genes_groups` (wilcoxon) + COSG. rapids-singlecell can accelerate on large queries. |
+| Score — bottom-up (3.3) | `compute_markers.py` | none | all | `rank_genes_groups` (wilcoxon) + COSG (CPU). GPU acceleration would need rapids-singlecell (full RAPIDS+dask, not in the default extras) — niche, since the main object isn't re-preprocessed. |
 | Score — top-down (3.3) | `profile_markers.py` | none | all | score the curated panel across clusters → pct/mean + dotplot. |
 | Score — signatures (3.3) | `score_signatures.py` | none | all | decoupler `aucell` + pyUCell + DE-overlap → `crosscheck`. |
 | Cross-check — in-object (3.4) | `crosscheck_obs_pred.py` | none | all | summarize an existing `obs` prediction column. Preferred when one fits. |
-| Cross-check — kNN refmap (3.4) | `reference_map.py` | optional | all | CellMapper kNN transfer. CPU `pynndescent`/`sklearn`; GPU `--knn-method faiss\|rapids` scales to millions. |
+| Cross-check — kNN refmap (3.4) | `reference_map.py` | optional | all | CellMapper kNN transfer. CPU `pynndescent`/`sklearn`/`faiss-cpu`; GPU `--knn-method rapids` (needs cuml-cu12) scales to millions. (`faiss-gpu` needs a conda build; pip wheel is ABI-broken.) |
 | Cross-check — CellTypist (3.4) | `run_celltypist.py` | none | all | tissue-gated pretrained LR classifier; `list` (no download) then `predict` only if a model fits. |
 | Cross-check — reference model (3.4) | `map_query_scarches.py` | preferred | local_gpu / scheduler | scArches surgery onto a scANVI model (trained, or a scvi-hub shipped model). Labels + per-cell uncertainty. |
 | Train reference model (3.4 prep) | `train_reference_model.py` | preferred | local_gpu / scheduler | scVI→scANVI on a labeled atlas (scvi-tools). Reference side of train-then-map. |

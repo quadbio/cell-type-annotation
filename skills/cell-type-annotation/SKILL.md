@@ -111,8 +111,8 @@ confirmed `compute` block in `run_state.json` (schema in `reference/artifacts.md
 `~/.cache/cell-type-annotation/venv` (override `$CTA_VENV`) with the scVerse stack,
 **never** touching the user's project environment. All scripts run through this venv.
 On a GPU-capable profile (`local_gpu`/`scheduler`), run `setup_env.sh --profile gpu` to also
-install the GPU / large-memory extras (`requirements-gpu.txt`: scvi-tools, rapids-singlecell,
-faiss-gpu, scimilarity) — best-effort, and they never downgrade the CPU core.
+install the GPU / large-memory extras (`requirements-gpu.txt`: scvi-tools, cuml/cudf for
+CellMapper's GPU kNN, scimilarity) — best-effort, and they never downgrade the CPU core.
 **Build the env where the work runs.** `setup_env.sh --profile gpu` only installs the GPU
 extras if a CUDA GPU is visible on the current host; on a login node with no GPU it skips
 them (loudly) and leaves a working CPU core — enough for detection + light steps. So on
@@ -252,7 +252,7 @@ first, so a deep recursion never leaves the user lost.
      well-matched model exists. (`reference/compute_environments.md`.)
    - else **kNN reference mapping:** `scripts/reference_map.py` (CellMapper; CCA cross-modality,
      PCA same-modality; builds its own joint embedding). On a GPU profile add
-     `--knn-method faiss|rapids` to scale to millions of cells.
+     `--knn-method rapids` (needs cuml-cu12) to scale to millions of cells.
    - else **CellTypist (tissue-gated):** `run_celltypist.py list` → `predict` only if a
      model fits; **omit if none does** (don't force an ill-fitting model).
    - else **Census reference (fallback):** if the user has no atlas and no CellTypist
@@ -374,7 +374,7 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `scripts/profile_markers.py` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. |
 | `scripts/score_signatures.py` | decoupler `aucell` + pyUCell + DE-overlap; writes z-scored AUCell + a consolidated `crosscheck`. |
 | `scripts/run_celltypist.py` | `list` the remote model index (tissue-gated, no downloads); `predict`/`markers` for a matched model only. |
-| `scripts/reference_map.py` | CellMapper kNN label transfer from a reference (joint CCA/PCA; CPU pynndescent, or GPU `--knn-method faiss/rapids`) — cross-check when no in-object prediction fits. |
+| `scripts/reference_map.py` | CellMapper kNN label transfer from a reference (joint CCA/PCA; CPU pynndescent, or GPU `--knn-method rapids` via cuml) — cross-check when no in-object prediction fits. |
 | `scripts/train_reference_model.py` | GPU/large-memory: train (or refine) a scANVI reference model on a labeled atlas (scvi-tools). Reference side of the train-then-map workflow. |
 | `scripts/map_query_scarches.py` | GPU/large-memory: map the query onto a scANVI reference (a model you trained, or a shipped scvi-tools hub model) via scArches surgery — labels + per-cell uncertainty, in the `refmap_*` schema. |
 | `scripts/run_scimilarity.py` | Optional large-memory cross-check: zero-shot per-cell labels via SCimilarity (~64GB RAM + model bundle). Foundation model → additional hypothesis only, never primary. |

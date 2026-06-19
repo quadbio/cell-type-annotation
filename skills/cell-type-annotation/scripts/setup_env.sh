@@ -8,8 +8,8 @@
 # Profiles (compute-environment aware — see reference/compute_environments.md):
 #   cpu  (default)  CPU / Apple-Silicon core: requirements.txt + requirements-extra.txt.
 #   gpu             ALSO installs the GPU / large-memory extras (requirements-gpu.txt):
-#                   scvi-tools (scANVI/scArches + HuggingFace hub), rapids-singlecell,
-#                   faiss-gpu, scimilarity. Use on an NVIDIA CUDA host (or where scvi-tools
+#                   scvi-tools (scANVI/scArches + HuggingFace hub), cuml/cudf (CellMapper
+#                   GPU kNN), scimilarity. Use on an NVIDIA CUDA host (or where scvi-tools
 #                   can use MPS). The GPU extras are best-effort: any wheel that can't
 #                   install on this platform is skipped and never breaks the CPU core.
 #
@@ -90,14 +90,14 @@ if [ "$PROFILE" = "gpu" ]; then
     echo ">> --profile gpu requested but NO CUDA GPU is visible on this host." >&2
     echo "   Skipping the GPU extras — the CPU core above is installed and usable here" >&2
     echo "   (enough for detection + light steps on a login node). The GPU extras (scvi-" >&2
-    echo "   tools, rapids-singlecell, faiss-gpu, scimilarity) belong WHERE the GPU runs:" >&2
+    echo "   tools, cuml/cudf, scimilarity) belong WHERE the GPU runs:" >&2
     echo "   run 'setup_env.sh --profile gpu' INSIDE a GPU job, into this same venv" >&2
     echo "   ($VENV — put it on a shared filesystem so the GPU node sees it)." >&2
     echo "   To pre-stage them here anyway: CTA_ALLOW_GPU_BUILD_WITHOUT_GPU=1 ..." >&2
   else
     [ "$GPU_VISIBLE" = "yes" ] && echo ">> CUDA GPU visible — installing GPU / large-memory extras" \
       || echo ">> no GPU visible, but CTA_ALLOW_GPU_BUILD_WITHOUT_GPU set — pre-staging GPU extras"
-    echo "   (best-effort; rapids-singlecell resolves via the NVIDIA pip index)"
+    echo "   (best-effort; cuml/cudf resolve via the NVIDIA pip index)"
     GPU_OK=""; GPU_SKIP=""
     while IFS= read -r line; do
       pkg="$(echo "$line" | sed 's/#.*//' | xargs || true)"
@@ -110,13 +110,18 @@ if [ "$PROFILE" = "gpu" ]; then
         GPU_SKIP="$GPU_SKIP $pkg"
       fi
     done < "$SCRIPT_DIR/requirements-gpu.txt"
-    # Make silent skips visible: report which GPU extras actually import.
+    # Make silent skips visible: actually IMPORT each (find_spec only checks discoverability
+    # and would call an ABI-broken wheel "present"), so broken installs are reported honestly.
     "$PYBIN" - <<'PYEOF'
-import importlib.util as u
-checks = [("scvi-tools", "scvi"), ("rapids-singlecell", "rapids_singlecell"),
-          ("faiss-gpu", "faiss"), ("scimilarity", "scimilarity")]
+import importlib
+checks = [("scvi-tools", "scvi"), ("cuml (GPU kNN)", "cuml"),
+          ("cudf", "cudf"), ("scimilarity", "scimilarity")]
 for name, mod in checks:
-    print(f"   gpu extra {name:<18}: {'present' if u.find_spec(mod) else 'MISSING'}")
+    try:
+        importlib.import_module(mod); status = "present"
+    except Exception as e:  # noqa: BLE001 — missing OR broken (e.g. ABI mismatch)
+        status = f"MISSING/broken ({type(e).__name__})"
+    print(f"   gpu extra {name:<16}: {status}")
 PYEOF
   fi
 fi

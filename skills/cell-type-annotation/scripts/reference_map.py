@@ -281,10 +281,11 @@ def _parse_args():
     ap.add_argument("--embedding-method", choices=["cca", "pca"], default="cca")
     ap.add_argument("--n-comps", type=int, default=50)
     ap.add_argument("--knn-method", default="pynndescent",
-                    help="CellMapper kNN backend: 'pynndescent'/'sklearn' (CPU, default) or "
-                         "'faiss'/'rapids' (GPU — seconds over millions of cells; needs the "
-                         "GPU extras, requirements-gpu.txt). Use a GPU backend on a "
-                         "GPU-capable profile to scale this cross-check to large references.")
+                    help="CellMapper kNN backend. CPU: 'pynndescent' (default), 'sklearn', "
+                         "'faiss-cpu'. GPU: 'rapids' (seconds over millions of cells; needs "
+                         "cuml-cu12 from requirements-gpu.txt) or 'faiss-gpu' (needs a working "
+                         "faiss-gpu build — prefer the conda one; the pip wheel is often ABI-"
+                         "broken). On a GPU profile use 'rapids' to scale this cross-check.")
     ap.add_argument("--max-ref", type=int, default=200000)
     ap.add_argument("--stratify-col", default=None,
                     help="reference.obs column to stratify the subsample by")
