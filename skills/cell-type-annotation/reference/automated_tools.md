@@ -21,12 +21,12 @@ ambiguous progenitor / transitional states that are biologically real and import
   few MB. **Tissue-gate it — don't download blind:**
   - The model index (name + `details` + `No_celltypes` + `source`) is available WITHOUT
     downloading via `celltypist.models.get_models_index(force_update=True)` (the JSON at
-    `celltypist.cog.sanger.ac.uk/models/models.json`). Use `cta celltypist list
+    `celltypist.cog.sanger.ac.uk/models/models.json`). Use `cta crosscheck celltypist list
     [--contains <tissue>]` to read it and decide whether any model matches.
     (⚠️ `models.get_all_models()` lists only *already-downloaded* models, and
     `models_description(on_the_fly=True)` is unreliable across versions — use the index.)
   - `celltypist.annotate(model=...)` needs the `.pkl` **downloaded first** (Model.load
-    does not auto-fetch); `cta celltypist predict` downloads just the chosen model.
+    does not auto-fetch); `cta crosscheck celltypist predict` downloads just the chosen model.
   - Real, valid tissue-matched models exist (e.g. `Developing_Human_Brain` = 129 cell
     types, first-trimester human brain; `Adult_Human_PrefrontalCortex`;
     `Developing_Human_Hippocampus`). **If none matches the tissue, OMIT CellTypist** —
@@ -35,7 +35,7 @@ ambiguous progenitor / transitional states that are biologically real and import
   - *Caveat:* on a limited/targeted panel most model genes are missing → accuracy
     degrades; the output is a hypothesis to reconcile, never an overwrite.
 - **CellMapper** (`pip install cellmapper`) — kNN label / expression / embedding
-  transfer; the **preferred reference cross-check**, via `cta reference-map`.
+  transfer; the **preferred reference cross-check**, via `cta crosscheck reference-map`.
   It **builds the joint embedding itself** from the shared genes —
   `compute_joint_pca()` (same-modality) or `compute_fast_cca()` (cross-modality, e.g. a
   dissociated scRNA reference onto a targeted spatial query) — so it does **not** need a
@@ -44,10 +44,10 @@ ambiguous progenitor / transitional states that are biologically real and import
   guidance to "skip if there's no shared embedding" was wrong for this tool.)
 - **CELLxGENE Census as an on-demand reference** (`cellxgene-census`, optional extra) —
   when the user has **no atlas of their own and no CellTypist model fits**, this is the
-  fallback that keeps the reference cross-check alive. `cta fetch-census-reference`
+  fallback that keeps the reference cross-check alive. `cta reference fetch-census`
   opens the remote TileDB-SOMA store (no atlas download), reads only the matching obs to
   pick a **capped, stratified, fixed-seed** subset, fetches just those cells, and writes a
-  small reference `.h5ad` that feeds `cta reference-map`. CL/UBERON-filtered, so it lines
+  small reference `.h5ad` that feeds `cta crosscheck reference-map`. CL/UBERON-filtered, so it lines
   up with the skill's CL-normalized labels. *Caveats:* network-dependent (fails cleanly
   offline); Census `cell_type` is author-supplied and heterogeneous across contributing
   datasets, so a transferred label is a coarser/noisier hypothesis than one from a single
@@ -70,9 +70,9 @@ Each is still a HYPOTHESIS, held to the same bar as the CPU cross-check.
 
 - **scANVI reference model + scArches surgery** — the core GPU win, and the canonical
   "train/refine a reference model, then map the query onto it" workflow.
-  `cta train-reference-model` trains scVI→scANVI on a labeled atlas (semi-supervised:
+  `cta reference train-model` trains scVI→scANVI on a labeled atlas (semi-supervised:
   learns a batch-corrected latent space *and* a label classifier);
-  `cta map-scarches` then maps the query on by **freezing the reference net and
+  `cta reference map-scarches` then maps the query on by **freezing the reference net and
   training a few query-specific weights** — so the query lands in the reference latent space
   and gets per-cell predictions **with calibrated uncertainty**, without retraining and
   without needing the reference's cells. Reference model can be one you trained, or a
@@ -81,20 +81,20 @@ Each is still a HYPOTHESIS, held to the same bar as the CPU cross-check.
   `refmap_<level>_<col>.csv` schema, so the cards/report fold it in like any cross-check.
   scvi-tools also runs on Apple-Silicon **MPS** — so a Mac can do this slowly as a deeper
   local option (offer it; don't default to it).
-- **GPU kNN reference mapping** — `cta reference-map --knn-method rapids`
+- **GPU kNN reference mapping** — `cta crosscheck reference-map --knn-method rapids`
   scales the existing CellMapper cross-check to **seconds over millions of cells**. Same
   conceptual transfer, GPU backend (needs `cuml-cu12` from the `gpu` pixi env — CellMapper's
   rapids backend calls cuML directly, *not* rapids-singlecell). The `faiss-gpu` backend needs
   a working faiss-gpu build (the conda one; the pip wheel is often ABI-broken).
 - **Large reference atlases / Census slices** — with the memory headroom, lift the
-  `cta fetch-census-reference --max-cells` cap and prefer a full curated atlas (or a shipped
+  `cta reference fetch-census --max-cells` cap and prefer a full curated atlas (or a shipped
   hub model) over the laptop-scale slice (`reference/knowledge_sources.md`).
 - **Foundation models — OPTIONAL, additional cross-check only.** 2026 benchmarks repeatedly
   show single-cell foundation models (scGPT, Geneformer, UCE, scFoundation) **rarely beat
   scANVI or even simple baselines for annotation**, and degrade out-of-distribution on small
   targeted panels — so they are never the primary annotator here. The two that fit a local,
   data-stays-put design and emit a usable per-cell label are **SCimilarity**
-  (`cta scimilarity`; zero-shot kNN against a large reference, needs ~64 GB RAM +
+  (`cta crosscheck scimilarity`; zero-shot kNN against a large reference, needs ~64 GB RAM +
   a multi-GB bundle) and **scPRINT** (CPU-capable, emits ontology IDs) — wire either in only
   as one more independent opinion to reconcile.
 

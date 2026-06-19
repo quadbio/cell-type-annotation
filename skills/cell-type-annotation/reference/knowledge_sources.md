@@ -43,12 +43,12 @@ the `knowledgebase` Europe PMC tools for literature — don't block on it.
 ## Need a small Python loader (no MCP equivalent)
 
 - **CellTypist model markers** (top pick for data-driven markers when a model covers
-  your tissue): **tissue-gate it** — `cta celltypist list [--contains <tissue>]`
+  your tissue): **tissue-gate it** — `cta crosscheck celltypist list [--contains <tissue>]`
   reads the remote index (name + description, NO downloads) so you can check whether a
   model fits before pulling anything; ~60 models exist (e.g. `Developing_Human_Brain`,
   `Cells_Intestinal_Tract`, `Immune_All_Low`). If one matches, `extract_top_markers()`
   for priors / `predict` for a cross-check (it downloads just that model). **If none
-  matches, skip CellTypist.** See `cta celltypist`.
+  matches, skip CellTypist.** See `cta crosscheck celltypist`.
 - **CellMarker 2.0** — broadest curated, PMID-backed (CC-BY-4.0 xlsx; the host is
   flaky → cache the file locally once).
 - **ScTypeDB** (`ScTypeDB_full.xlsx`) — a rare source of **negative markers**.
@@ -57,8 +57,8 @@ the `knowledgebase` Europe PMC tools for literature — don't block on it.
   capped, tissue/organism-filtered slice your query selects (laptop-scale, CPU). Two
   uses: (a) derive markers on demand for "cell type X in tissue Y" via `get_anndata`
   + `rank_genes_groups`; (b) when the user has **no reference atlas of their own and no
-  CellTypist model fits**, `cta fetch-census-reference` pulls a capped reference
-  subset to feed the `cta reference-map` cross-check (see below). Caveat: Census labels
+  CellTypist model fits**, `cta reference fetch-census` pulls a capped reference
+  subset to feed the `cta crosscheck reference-map` cross-check (see below). Caveat: Census labels
   are author-supplied and heterogeneous in granularity across datasets, so a transferred
   Census label is a coarser, noisier hypothesis than a curated single atlas — and it
   needs network access (degrades cleanly offline).
@@ -67,24 +67,24 @@ the `knowledgebase` Europe PMC tools for literature — don't block on it.
 
 Whenever the user has a curated reference atlas matching their tissue/context, it beats
 generic frozen databases. Use it two ways: (1) compute markers directly with
-`rank_genes_groups` for priors (`cta assemble-markers --reference ...`); and (2) **map the
-query onto it** as an automated cross-check with `cta reference-map` (CellMapper —
+`rank_genes_groups` for priors (`cta markers assemble --reference ...`); and (2) **map the
+query onto it** as an automated cross-check with `cta crosscheck reference-map` (CellMapper —
 builds its own joint embedding, transfers labels with confidence; no pre-existing joint
 rep needed). Capture reference path(s) + label column(s) at Stage 1. For spatial panels a
 platform-matched spatial reference is especially useful.
 
 **No atlas of your own?** When the user has no reference and no CellTypist model fits the
-tissue, fall back to `cta fetch-census-reference` to pull a capped, tissue-matched
-subset from CELLxGENE Census and map onto *that* with `cta reference-map` — so every tissue
+tissue, fall back to `cta reference fetch-census` to pull a capped, tissue-matched
+subset from CELLxGENE Census and map onto *that* with `cta crosscheck reference-map` — so every tissue
 still gets an automated reference cross-check (with the heterogeneous-label caveat above).
 
 **On a GPU / large-memory profile** (`reference/compute_environments.md`) two upgrades open
-up here: (1) lift the `cta fetch-census-reference --max-cells` cap / download a full curated
+up here: (1) lift the `cta reference fetch-census --max-cells` cap / download a full curated
 atlas, since the RAM is there to hold it; and (2) prefer a **shipped reference model** —
 pull a tissue-matched scANVI model from the **scvi-tools HuggingFace hub**
-(`scvi.hub`, used by `cta map-scarches --hf-repo …`) and map the query onto it
+(`scvi.hub`, used by `cta reference map-scarches --hf-repo …`) and map the query onto it
 with scArches surgery — no retraining. When no shipped model fits, train one on the user's
-atlas with `cta train-reference-model`. These remain cross-check hypotheses, not
+atlas with `cta reference train-model`. These remain cross-check hypotheses, not
 verdicts (`reference/automated_tools.md`).
 
 ## Default knowledge stack (the order to consult)
@@ -96,4 +96,4 @@ verdicts (`reference/automated_tools.md`).
 5. **Data-driven markers** via tissue-matched CellTypist models (tissue-gated; skip if none fit).
 6. **Curated breadth** via CellMarker / ScTypeDB.
 7. **Ground truth** via the user's own atlases — markers computed directly, and as a
-   label-transfer cross-check via `cta reference-map` (CellMapper).
+   label-transfer cross-check via `cta crosscheck reference-map` (CellMapper).

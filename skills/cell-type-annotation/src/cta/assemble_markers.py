@@ -23,9 +23,9 @@ companion <out stem>_gated.json is written alongside the raw --out.
 """
 from __future__ import annotations
 
-import argparse
-import json
-from pathlib import Path
+from typing import Optional
+
+import typer
 
 from cta.io import eprint, load_adata, panel_gate
 
@@ -89,32 +89,34 @@ def summarize(markers: dict[str, list[str]], what: str) -> None:
     eprint(f">> {what}: {n} labels, mean {mean:.1f} genes/label")
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--out", required=True, help="output markers_<level>.json path")
-    ap.add_argument("--n-genes", type=int, default=15,
-                    help="top markers per label per source (default 15)")
-    ap.add_argument("--celltypist-model", default=None,
-                    help="pretrained CellTypist model name (a marker-prior source)")
-    ap.add_argument("--reference", default=None,
-                    help="reference .h5ad for data-driven DE markers")
-    ap.add_argument("--ref-label-col", default=None,
-                    help="obs column in --reference to group by (required with --reference)")
-    ap.add_argument("--ref-counts", action="store_true",
-                    help="--reference X is raw counts; normalize_total + log1p first")
-    ap.add_argument("--adata", default=None,
-                    help="query .h5ad to panel-gate against (writes a *_gated.json too)")
-    args = ap.parse_args()
+def cli(
+    out: str = typer.Option(..., help="output markers_<level>.json path"),
+    n_genes: int = typer.Option(
+        15, help="top markers per label per source (default 15)"),
+    celltypist_model: Optional[str] = typer.Option(
+        None, help="pretrained CellTypist model name (a marker-prior source)"),
+    reference: Optional[str] = typer.Option(
+        None, help="reference .h5ad for data-driven DE markers"),
+    ref_label_col: Optional[str] = typer.Option(
+        None, help="obs column in --reference to group by (required with --reference)"),
+    ref_counts: bool = typer.Option(
+        False, "--ref-counts/--no-ref-counts",
+        help="--reference X is raw counts; normalize_total + log1p first"),
+    adata: Optional[str] = typer.Option(
+        None, help="query .h5ad to panel-gate against (writes a *_gated.json too)"),
+) -> None:
+    """Assemble a candidate marker prior from data-driven sources — a STARTING POINT."""
+    import json
+    from pathlib import Path
 
     sources: list[dict[str, list[str]]] = []
-    if args.celltypist_model:
-        sources.append(from_celltypist(args.celltypist_model, args.n_genes))
-    if args.reference:
-        if not args.ref_label_col:
+    if celltypist_model:
+        sources.append(from_celltypist(celltypist_model, n_genes))
+    if reference:
+        if not ref_label_col:
             raise SystemExit("ERROR: --reference requires --ref-label-col")
-        sources.append(from_reference(args.reference, args.ref_label_col,
-                                      args.n_genes, args.ref_counts))
+        sources.append(from_reference(reference, ref_label_col,
+                                      n_genes, ref_counts))
     if not sources:
         raise SystemExit("ERROR: provide at least one source "
                          "(--celltypist-model and/or --reference)")
@@ -122,14 +124,14 @@ def main():
     merged = merge(sources)
     summarize(merged, "merged (raw, ungated)")
 
-    out_path = Path(args.out).expanduser()
+    out_path = Path(out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(merged, indent=2))
     eprint(f"   wrote {out_path}")
 
-    if args.adata:
-        adata = load_adata(args.adata)
-        kept, dropped = panel_gate(merged, adata.var_names)
+    if adata:
+        adata_obj = load_adata(adata)
+        kept, dropped = panel_gate(merged, adata_obj.var_names)
         if dropped:
             eprint(">> off-panel genes dropped per label:")
             for label, genes in dropped.items():
@@ -145,7 +147,3 @@ def main():
         summarize(kept, "gated (on-panel)")
 
     eprint(">> done. This is a STARTING POINT — curate labels/genes before annotating.")
-
-
-if __name__ == "__main__":
-    main()

@@ -14,10 +14,10 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse
-import json
+from typing import Optional
 
 import numpy as np
+import typer
 
 from cta.io import eprint, load_adata
 
@@ -81,66 +81,73 @@ def _fingerprint(X):
             "verdict": verdict}
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--adata", required=True)
-    ap.add_argument("--cluster-key")
-    ap.add_argument("--embedding-key")
-    ap.add_argument("--viz-key")
-    ap.add_argument("--counts-layer")
-    ap.add_argument("--lognorm-layer")
-    ap.add_argument("--json")
-    args = ap.parse_args()
+def cli(
+    adata: str = typer.Option(..., help="path to the .h5ad to inspect"),
+    cluster_key: Optional[str] = typer.Option(
+        None, help="obs column with the cluster labels"),
+    embedding_key: Optional[str] = typer.Option(
+        None, help="obsm key for the analysis embedding"),
+    viz_key: Optional[str] = typer.Option(
+        None, help="obsm key for a 2D viz embedding"),
+    counts_layer: Optional[str] = typer.Option(
+        None, help="layer expected to hold raw counts"),
+    lognorm_layer: Optional[str] = typer.Option(
+        None, help="layer expected to hold log-normalized data"),
+    json: Optional[str] = typer.Option(
+        None, help="also write the report to this JSON file"),
+) -> None:
+    """Inspect an AnnData and verify the keys/layers the skill will rely on."""
+    import json as json_mod
 
-    adata = load_adata(args.adata)
+    adata_obj = load_adata(adata)
     report: dict = {
-        "adata_path": args.adata,
-        "n_obs": int(adata.n_obs),
-        "n_vars": int(adata.n_vars),
-        "obs_columns": list(adata.obs.columns),
-        "obsm_keys": list(adata.obsm.keys()),
-        "layers": list(adata.layers.keys()),
-        "uns_keys": list(adata.uns.keys()),
+        "adata_path": adata,
+        "n_obs": int(adata_obj.n_obs),
+        "n_vars": int(adata_obj.n_vars),
+        "obs_columns": list(adata_obj.obs.columns),
+        "obsm_keys": list(adata_obj.obsm.keys()),
+        "layers": list(adata_obj.layers.keys()),
+        "uns_keys": list(adata_obj.uns.keys()),
         "checks": {},
         "warnings": [],
         "fatal": [],
     }
 
     # X stats
-    report["X"] = _matrix_stats(adata.X)
-    report["layer_stats"] = {l: _matrix_stats(adata.layers[l]) for l in adata.layers}
+    report["X"] = _matrix_stats(adata_obj.X)
+    report["layer_stats"] = {l: _matrix_stats(adata_obj.layers[l]) for l in adata_obj.layers}
 
     def check(label, ok, detail=""):
         report["checks"][label] = {"ok": bool(ok), "detail": detail}
         if not ok:
             report["warnings"].append(f"{label}: {detail}")
 
-    if args.cluster_key:
-        ok = args.cluster_key in adata.obs
+    if cluster_key:
+        ok = cluster_key in adata_obj.obs
         detail = ""
         if ok:
-            vc = adata.obs[args.cluster_key].value_counts()
+            vc = adata_obj.obs[cluster_key].value_counts()
             report["cluster_sizes"] = {str(k): int(v) for k, v in vc.items()}
             report["n_clusters"] = int(vc.shape[0])
             detail = f"{vc.shape[0]} clusters, sizes {int(vc.min())}..{int(vc.max())}"
         else:
-            detail = f"not in obs; have {list(adata.obs.columns)}"
-        check(f"cluster_key '{args.cluster_key}'", ok, detail)
+            detail = f"not in obs; have {list(adata_obj.obs.columns)}"
+        check(f"cluster_key '{cluster_key}'", ok, detail)
 
-    for key, kind in [(args.embedding_key, "embedding"), (args.viz_key, "viz_embedding")]:
+    for key, kind in [(embedding_key, "embedding"), (viz_key, "viz_embedding")]:
         if key:
-            ok = key in adata.obsm
-            detail = (f"shape {tuple(adata.obsm[key].shape)}" if ok
-                      else f"not in obsm; have {list(adata.obsm.keys())}")
+            ok = key in adata_obj.obsm
+            detail = (f"shape {tuple(adata_obj.obsm[key].shape)}" if ok
+                      else f"not in obsm; have {list(adata_obj.obsm.keys())}")
             check(f"{kind}_key '{key}'", ok, detail)
 
     report.setdefault("normalization", {})
-    for key, kind in [(args.counts_layer, "counts"), (args.lognorm_layer, "lognorm")]:
+    for key, kind in [(counts_layer, "counts"), (lognorm_layer, "lognorm")]:
         if key:
-            ok = key in adata.layers
+            ok = key in adata_obj.layers
             if ok:
                 st = report["layer_stats"][key]
-                fp = _fingerprint(adata.layers[key])
+                fp = _fingerprint(adata_obj.layers[key])
                 report["normalization"][key] = {"declared_as": kind, **fp}
                 detail = f"looks_like={st['looks_like']}; fingerprint={fp['verdict']}"
                 if kind == "counts" and not fp["integer_valued"]:
@@ -153,15 +160,15 @@ def main():
                         f"lognorm-layer '{key}' fails the normalization fingerprint "
                         f"({fp['verdict']}). Markers computed from it would be invalid.")
             else:
-                detail = f"not in layers; have {list(adata.layers.keys())}"
+                detail = f"not in layers; have {list(adata_obj.layers.keys())}"
             check(f"{kind}_layer '{key}'", ok, detail)
 
     # If no explicit lognorm layer was given, fingerprint X (the default analysis matrix).
-    if not args.lognorm_layer:
-        report["normalization"]["X"] = {"declared_as": "default(X)", **_fingerprint(adata.X)}
+    if not lognorm_layer:
+        report["normalization"]["X"] = {"declared_as": "default(X)", **_fingerprint(adata_obj.X)}
 
     # Surface obs columns that look like existing annotations/predictions (priors).
-    hints = [c for c in adata.obs.columns
+    hints = [c for c in adata_obj.obs.columns
              if any(t in c.lower() for t in
                     ("annot", "celltype", "cell_type", "_pred", "label", "class",
                      "subtype", "snap", "leiden", "louvain", "cluster"))]
@@ -171,28 +178,28 @@ def main():
     # custom), marker ABSENCE is not evidence of absence and many canonical markers are
     # off-panel. When true, the annotator should (Stage 1/2) record a short panel-capability
     # note — which expected identities the panel CANNOT resolve (no canonical markers on it).
-    report["targeted_panel"] = bool(adata.n_vars <= 2000)
+    report["targeted_panel"] = bool(adata_obj.n_vars <= 2000)
     if report["targeted_panel"]:
         report.setdefault("warnings", []).append(
-            f"targeted panel: only {adata.n_vars} genes — absence != negative; record a "
+            f"targeted panel: only {adata_obj.n_vars} genes — absence != negative; record a "
             "panel-capability note (which identities are uncallable on this panel).")
 
     # Categorical obs columns (candidate composition covariates) + whether each already
     # has a stored colour palette in uns (build_report.py reuses these). Helps the
     # annotator ask the user which covariates to profile composition over (Stage 1c).
-    cat_cols = [c for c in adata.obs.columns
-                if str(adata.obs[c].dtype) in ("category", "object", "bool")
-                or adata.obs[c].dtype == bool]
+    cat_cols = [c for c in adata_obj.obs.columns
+                if str(adata_obj.obs[c].dtype) in ("category", "object", "bool")
+                or adata_obj.obs[c].dtype == bool]
     report["categorical_obs"] = {
-        c: {"n_categories": int(adata.obs[c].nunique()),
-            "has_uns_colors": f"{c}_colors" in adata.uns}
-        for c in cat_cols if adata.obs[c].nunique() <= 200}
+        c: {"n_categories": int(adata_obj.obs[c].nunique()),
+            "has_uns_colors": f"{c}_colors" in adata_obj.uns}
+        for c in cat_cols if adata_obj.obs[c].nunique() <= 200}
 
-    print(json.dumps(report, indent=2))
-    if args.json:
-        with open(args.json, "w") as fh:
-            json.dump(report, fh, indent=2)
-        eprint(f"\n>> wrote {args.json}")
+    print(json_mod.dumps(report, indent=2))
+    if json:
+        with open(json, "w") as fh:
+            json_mod.dump(report, fh, indent=2)
+        eprint(f"\n>> wrote {json}")
     if report["warnings"]:
         eprint("\n>> WARNINGS:")
         for w in report["warnings"]:
@@ -201,7 +208,3 @@ def main():
         eprint("\n>> FATAL (do NOT proceed to marker computation — reconcile with the user):")
         for w in report["fatal"]:
             eprint(f"   - {w}")
-
-
-if __name__ == "__main__":
-    main()

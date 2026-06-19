@@ -32,6 +32,7 @@ pytest = "*"
 [pypi-dependencies]
 # The skill's own package (the `cta` CLI), installed editable.
 cta = { path = ".", editable = true }
+typer = "*"  # the CLI framework (grouped subcommands, typed options, lazy command bodies)
 
 # scVerse marker/annotation stack.
 scanpy = ">=1.10"

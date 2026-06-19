@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Map the query onto a scANVI reference model via scArches surgery — a GPU/large-memory
 cross-check HYPOTHESIS (not a verdict).
 
@@ -37,11 +36,11 @@ Writes tables/refmap_<level>_<label-col>.csv with columns:
 """
 from __future__ import annotations
 
-import argparse
 import platform
+from typing import Optional
 
 import numpy as np
-import scanpy as sc
+import typer
 
 from cta.io import (aggregate_predictions, eprint, require_obs, resolve_workdir, safe_cluster_id,
                     save_table)
@@ -77,9 +76,28 @@ def _place_counts(query, src_layer: str, ref_layer: str) -> None:
 
 
 
-def main():
-    args = _parse_args()
-    if bool(args.model_dir) == bool(args.hf_repo):
+def cli(
+    query: str = typer.Option(
+        ..., "--query", "--adata", help="the query AnnData to annotate (alias: --adata)"),
+    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    model_dir: Optional[str] = typer.Option(None, help="local scANVI model dir"),
+    hf_repo: Optional[str] = typer.Option(
+        None, help="scvi-tools HuggingFace hub repo id to pull a shipped model from"),
+    cache_dir: Optional[str] = typer.Option(None, help="cache dir for the pulled hub model"),
+    counts_layer: str = typer.Option(
+        "X", help="query layer holding RAW COUNTS now ('X' if X is counts)"),
+    ref_layer: str = typer.Option(
+        "counts", help="layer name the reference model expects counts in ('X' or a name)"),
+    label_col: str = typer.Option(
+        "scanvi", help="name used in the output table filename (refmap_<level>_<col>.csv)"),
+    max_epochs: int = typer.Option(100, help="surgery training epochs"),
+    accelerator: str = typer.Option("auto", help="accelerator: auto|cuda|mps|cpu"),
+) -> None:
+    """Map the query onto a scANVI reference model via scArches surgery."""
+    import scanpy as sc
+    if bool(model_dir) == bool(hf_repo):
         raise SystemExit("ERROR: provide exactly one of --model-dir or --hf-repo.")
 
     try:
@@ -91,7 +109,7 @@ def main():
             "scvi-tools; CUDA or Apple-Silicon MPS preferred."
         )
 
-    accel = _resolve_accelerator(args.accelerator)
+    accel = _resolve_accelerator(accelerator)
     eprint(f">> accelerator: {accel}")
     try:
         scvi.settings.seed = 0
@@ -100,33 +118,33 @@ def main():
 
     # Resolve the reference model source -> a path or an instantiated model object;
     # both prepare_query_anndata and load_query_data accept either.
-    if args.hf_repo:
+    if hf_repo:
         try:
             from scvi.hub import HubModel
         except ImportError:
             raise SystemExit("ERROR: scvi.hub unavailable — upgrade scvi-tools to pull "
                              "models from the HuggingFace hub.")
-        eprint(f">> pulling reference model from HuggingFace hub: {args.hf_repo}")
+        eprint(f">> pulling reference model from HuggingFace hub: {hf_repo}")
         hm = HubModel.pull_from_huggingface_hub(
-            repo_name=args.hf_repo, cache_dir=args.cache_dir, revision="main")
+            repo_name=hf_repo, cache_dir=cache_dir, revision="main")
         # Pass the loaded model instance — load_query_data/prepare_query_anndata accept
         # either a path or an instantiated model, and hm.model is the version-stable handle.
         reference_model = hm.model
     else:
-        eprint(f">> using local reference model: {args.model_dir}")
-        reference_model = args.model_dir
+        eprint(f">> using local reference model: {model_dir}")
+        reference_model = model_dir
 
-    eprint(f">> loading query {args.query}")
-    query = sc.read_h5ad(args.query)
-    require_obs(query, args.cluster_key, "cluster key")
-    _place_counts(query, args.counts_layer, args.ref_layer)
+    eprint(f">> loading query {query}")
+    query_obj = sc.read_h5ad(query)
+    require_obs(query_obj, cluster_key, "cluster key")
+    _place_counts(query_obj, counts_layer, ref_layer)
 
     eprint(">> aligning query genes to the reference model (prepare_query_anndata)")
-    scvi.model.SCANVI.prepare_query_anndata(query, reference_model)
+    scvi.model.SCANVI.prepare_query_anndata(query_obj, reference_model)
 
     eprint(">> scArches surgery (load_query_data + train)")
-    q_model = scvi.model.SCANVI.load_query_data(query, reference_model)
-    q_model.train(max_epochs=args.max_epochs, accelerator=accel,
+    q_model = scvi.model.SCANVI.load_query_data(query_obj, reference_model)
+    q_model.train(max_epochs=max_epochs, accelerator=accel,
                   plan_kwargs={"weight_decay": 0.0})
 
     eprint(">> predicting labels + uncertainty")
@@ -136,37 +154,9 @@ def main():
 
     # Persist the per-cell latent + prediction onto the query is optional; the skill
     # reasons from the per-cluster table, so we only write that (no query mutation on disk).
-    clusters = query.obs[args.cluster_key].astype(str).to_numpy()
+    clusters = query_obj.obs[cluster_key].astype(str).to_numpy()
     out = aggregate_predictions(clusters, pred, conf, "scarches-scanvi")
-    wd = resolve_workdir(args.workdir)
-    save_table(out, wd, f"refmap_{args.level}_{safe_cluster_id(args.label_col)}.csv")
+    wd = resolve_workdir(workdir)
+    save_table(out, wd, f"refmap_{level}_{safe_cluster_id(label_col)}.csv")
     eprint(f">> done. {len(out)} clusters; mean confidence "
            f"{out['mean_conf'].astype(float).mean():.3f} (treat as a hypothesis).")
-
-
-def _parse_args():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--query", "--adata", dest="query", required=True,
-                    help="the query AnnData to annotate (alias: --adata)")
-    ap.add_argument("--cluster-key", required=True)
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--level", default="L1")
-    ap.add_argument("--model-dir", default=None, help="local scANVI model dir")
-    ap.add_argument("--hf-repo", default=None,
-                    help="scvi-tools HuggingFace hub repo id to pull a shipped model from")
-    ap.add_argument("--cache-dir", default=None, help="cache dir for the pulled hub model")
-    ap.add_argument("--counts-layer", default="X",
-                    help="query layer holding RAW COUNTS now ('X' if X is counts)")
-    ap.add_argument("--ref-layer", default="counts",
-                    help="layer name the reference model expects counts in ('X' or a name)")
-    ap.add_argument("--label-col", default="scanvi",
-                    help="name used in the output table filename (refmap_<level>_<col>.csv)")
-    ap.add_argument("--max-epochs", type=int, default=100, help="surgery training epochs")
-    ap.add_argument("--accelerator", default="auto",
-                    choices=["auto", "cuda", "mps", "cpu"])
-    return ap.parse_args()
-
-
-if __name__ == "__main__":
-    main()

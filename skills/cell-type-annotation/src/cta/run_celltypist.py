@@ -26,13 +26,16 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse
 import os
+from typing import Optional
 
 import pandas as pd
+import typer
 
 from cta.io import (eprint, load_adata, require_obs, resolve_expression,
                  resolve_workdir, safe_cluster_id, save_table)
+
+app = typer.Typer()
 
 
 def _ensure_model(model: str) -> str:
@@ -73,7 +76,13 @@ def _model_index() -> list[dict]:
     return models.get_models_index(force_update=True)["models"]
 
 
-def cmd_list(args):
+@app.command("list")
+def list_models(
+    contains: Optional[str] = typer.Option(
+        None, help="case-insensitive keyword filter (e.g. tissue)"),
+    workdir: Optional[str] = typer.Option(
+        None, help="if given, also save the index as a table"),
+) -> None:
     """Print the remote model index (metadata only — NO model downloads)."""
     ms = _model_index()
     idx = pd.DataFrame([{
@@ -82,29 +91,39 @@ def cmd_list(args):
         "details": m.get("details", ""),
         "source": m.get("source", ""),
     } for m in ms])
-    if args.contains:
-        kw = args.contains.lower()
+    if contains:
+        kw = contains.lower()
         mask = idx.apply(lambda r: kw in f"{r['model']} {r['details']}".lower(), axis=1)
         idx = idx[mask]
-    eprint(f">> {len(idx)} model(s)" + (f" matching '{args.contains}'" if args.contains else ""))
+    eprint(f">> {len(idx)} model(s)" + (f" matching '{contains}'" if contains else ""))
     # print full, untruncated, to stdout for the agent to read
     with pd.option_context("display.max_rows", None, "display.max_colwidth", None,
                            "display.width", 200):
         print(idx.to_string(index=False))
-    if args.workdir:
-        save_table(idx, resolve_workdir(args.workdir), "celltypist_model_index.csv")
+    if workdir:
+        save_table(idx, resolve_workdir(workdir), "celltypist_model_index.csv")
 
 
-def cmd_predict(args):
+@app.command("predict")
+def predict(
+    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
+    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    model: str = typer.Option(..., help="CellTypist model name to run"),
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    lognorm_layer: Optional[str] = typer.Option(
+        None, help="layer with log-normalized data; default uses adata.X"),
+) -> None:
+    """Run one CellTypist model with majority voting over the user's clusters."""
     import celltypist
-    wd = resolve_workdir(args.workdir)
-    model = _ensure_model(args.model)
-    adata = load_adata(args.adata)
-    require_obs(adata, args.cluster_key, "cluster key")
-    X = resolve_expression(adata, args.lognorm_layer)
-    if args.lognorm_layer is not None:
-        adata = adata.copy()
-        adata.X = X
+    wd = resolve_workdir(workdir)
+    model = _ensure_model(model)
+    adata_obj = load_adata(adata)
+    require_obs(adata_obj, cluster_key, "cluster key")
+    X = resolve_expression(adata_obj, lognorm_layer)
+    if lognorm_layer is not None:
+        adata_obj = adata_obj.copy()
+        adata_obj.X = X
 
     # CellTypist expects log1p of 1e4-normalized counts. resolve_expression() already
     # warned if the chosen matrix doesn't look log1p; CellTypist itself re-checks.
@@ -112,13 +131,13 @@ def cmd_predict(args):
     # the USER's clusters (else CellTypist runs its own internal Leiden and the
     # cluster-vs-prediction crosstab below would compare against the wrong grouping).
     eprint(f">> CellTypist predict with model '{model}' "
-           f"(majority_voting over '{args.cluster_key}')")
-    pred = celltypist.annotate(adata, model=model, majority_voting=True,
-                               over_clustering=args.cluster_key)
+           f"(majority_voting over '{cluster_key}')")
+    pred = celltypist.annotate(adata_obj, model=model, majority_voting=True,
+                               over_clustering=cluster_key)
     res = pred.predicted_labels.copy()
-    res.insert(0, "cell", adata.obs_names)
-    res.insert(1, "cluster", adata.obs[args.cluster_key].astype(str).values)
-    save_table(res, wd, f"celltypist_pred_{args.level}.csv")
+    res.insert(0, "cell", adata_obj.obs_names)
+    res.insert(1, "cluster", adata_obj.obs[cluster_key].astype(str).values)
+    save_table(res, wd, f"celltypist_pred_{level}.csv")
 
     # cluster -> predicted-label distribution. Summarize the RAW per-cell predictions, NOT
     # the `majority_voting` column: majority voting (over_clustering=cluster_key) forces every
@@ -130,51 +149,25 @@ def cmd_predict(args):
     totals = res.groupby("cluster").size()
     summary = pd.DataFrame({"cluster": ct.index, "top_predicted": ct.values,
                             "n_cells": totals.reindex(ct.index).values})
-    save_table(summary, wd, f"celltypist_cluster_summary_{args.level}.csv")
+    save_table(summary, wd, f"celltypist_cluster_summary_{level}.csv")
     eprint(">> done")
 
 
-def cmd_markers(args):
+@app.command("markers")
+def markers(
+    model: str = typer.Option(..., help="CellTypist model name to extract markers from"),
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    n_genes: int = typer.Option(20, help="top marker genes per cell type"),
+) -> None:
+    """Extract top markers from a model WITHOUT predicting (priors)."""
     from celltypist import models
-    wd = resolve_workdir(args.workdir)
-    model = _ensure_model(args.model)
+    wd = resolve_workdir(workdir)
+    model = _ensure_model(model)
     eprint(f">> extracting top markers from model '{model}' (no prediction)")
     mdl = models.Model.load(model=model)
     rows = []
     for ct in mdl.cell_types:
-        for g in mdl.extract_top_markers(ct, args.n_genes):
+        for g in mdl.extract_top_markers(ct, n_genes):
             rows.append({"cell_type": ct, "gene": g})
     save_table(pd.DataFrame(rows), wd, f"celltypist_model_markers_{safe_cluster_id(model)}.csv")
     eprint(">> done")
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    sub = ap.add_subparsers(dest="cmd", required=True)
-
-    li = sub.add_parser("list", help="print the remote model index (no downloads)")
-    li.add_argument("--contains", default=None, help="case-insensitive keyword filter (e.g. tissue)")
-    li.add_argument("--workdir", default=None, help="if given, also save the index as a table")
-    li.set_defaults(func=cmd_list)
-
-    p = sub.add_parser("predict")
-    p.add_argument("--adata", required=True)
-    p.add_argument("--cluster-key", required=True)
-    p.add_argument("--model", required=True)
-    p.add_argument("--workdir", required=True)
-    p.add_argument("--level", default="L1")
-    p.add_argument("--lognorm-layer", default=None)
-    p.set_defaults(func=cmd_predict)
-
-    m = sub.add_parser("markers")
-    m.add_argument("--model", required=True)
-    m.add_argument("--workdir", required=True)
-    m.add_argument("--n-genes", type=int, default=20)
-    m.set_defaults(func=cmd_markers)
-
-    args = ap.parse_args()
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()

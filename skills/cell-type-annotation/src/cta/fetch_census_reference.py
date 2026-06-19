@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Fetch a small, capped reference AnnData slice from CZ CELLxGENE Census.
 
 The output is a valid ``--reference`` for reference_map.py: raw counts in X plus a
@@ -36,10 +35,11 @@ Then feed the result to reference_map.py:
 """
 from __future__ import annotations
 
-import argparse
+from typing import Optional
 
 import numpy as np
 import pandas as pd
+import typer
 
 from cta.io import eprint, resolve_workdir, save_table
 
@@ -76,7 +76,7 @@ def _normalize_organism(organism: str) -> str:
     return o[:1].upper() + o[1:] if o else o
 
 
-def _build_obs_value_filter(args) -> str:
+def _build_obs_value_filter(obs_value_filter: Optional[str], tissue: Optional[str]) -> str:
     """Construct the Census obs_value_filter (SOMA value_filter syntax).
 
     If --obs-value-filter is given, use it VERBATIM (the advanced escape hatch — e.g. a
@@ -84,17 +84,17 @@ def _build_obs_value_filter(args) -> str:
     `tissue_general` column. In both cases we AND-in `is_primary_data == True` to drop
     duplicated cells, UNLESS the raw filter already mentions is_primary_data.
     """
-    if args.obs_value_filter:
-        raw = args.obs_value_filter.strip()
+    if obs_value_filter:
+        raw = obs_value_filter.strip()
         if "is_primary_data" in raw:
             return raw
         return f"({raw}) and is_primary_data == True"
-    if not args.tissue:
+    if not tissue:
         raise SystemExit(
             "ERROR: provide either --tissue (a tissue_general value, e.g. 'brain') or "
             "--obs-value-filter (a raw Census obs_value_filter string)."
         )
-    tissue = args.tissue.replace("'", "\\'")
+    tissue = tissue.replace("'", "\\'")
     return f"tissue_general == '{tissue}' and is_primary_data == True"
 
 
@@ -132,21 +132,42 @@ def _choose_joinids(obs: pd.DataFrame, max_cells: int, stratify_by: str) -> np.n
     return np.sort(sel)
 
 
-def main():
-    args = _parse_args()
+def cli(
+    organism: str = typer.Option(
+        ..., help="e.g. 'homo_sapiens'/'Homo sapiens' or 'mus_musculus'/'Mus musculus'"),
+    out: str = typer.Option(..., help="output .h5ad path"),
+    tissue: Optional[str] = typer.Option(
+        None, help="tissue_general value to filter on, e.g. 'brain'. For an "
+                   "ontology term instead, use --obs-value-filter."),
+    obs_value_filter: Optional[str] = typer.Option(
+        None, help="advanced: raw Census obs_value_filter string that OVERRIDES the "
+                   "tissue filter, e.g. "
+                   "\"tissue_ontology_term_id=='UBERON:0000955' and is_primary_data==True\""),
+    cell_type_col: str = typer.Option(
+        "cell_type", help="Census obs column to carry as the reference label (default cell_type)"),
+    max_cells: int = typer.Option(
+        50000, help="HARD cap on fetched cells; the slice is subsampled down to this"),
+    stratify_by: Optional[str] = typer.Option(
+        None, help="obs col to stratify the subsample by; default is --cell-type-col"),
+    census_version: str = typer.Option(
+        "stable", help="Census version tag (default 'stable')"),
+    workdir: Optional[str] = typer.Option(
+        None, help="if given, also write tables/census_reference_summary.csv"),
+) -> None:
+    """Fetch a small, capped reference AnnData slice from CZ CELLxGENE Census."""
     cellxgene_census = _import_census()
 
-    organism = _normalize_organism(args.organism)
-    obs_filter = _build_obs_value_filter(args)
-    stratify_by = args.stratify_by or args.cell_type_col
+    organism = _normalize_organism(organism)
+    obs_filter = _build_obs_value_filter(obs_value_filter, tissue)
+    stratify_by = stratify_by or cell_type_col
 
-    eprint(f">> opening CELLxGENE Census (version='{args.census_version}')")
+    eprint(f">> opening CELLxGENE Census (version='{census_version}')")
     eprint("   (remote TileDB-SOMA over S3; the atlas is NOT downloaded)")
-    with cellxgene_census.open_soma(census_version=args.census_version) as census:
+    with cellxgene_census.open_soma(census_version=census_version) as census:
         eprint(f">> reading matching obs metadata (organism='{organism}')")
         eprint(f"   obs_value_filter: {obs_filter}")
         # Read ONLY the obs columns we need to choose joinids — no expression yet.
-        obs_cols = list(dict.fromkeys([JOINID, args.cell_type_col, stratify_by]))
+        obs_cols = list(dict.fromkeys([JOINID, cell_type_col, stratify_by]))
         obs = cellxgene_census.get_obs(
             census,
             organism=organism,
@@ -161,10 +182,10 @@ def main():
             )
         eprint(f"   {len(obs)} cells match before capping")
 
-        joinids = _choose_joinids(obs, args.max_cells, stratify_by)
+        joinids = _choose_joinids(obs, max_cells, stratify_by)
 
         eprint(f">> fetching AnnData for {joinids.size} selected cells")
-        adata = cellxgene_census.get_anndata(
+        adata_obj = cellxgene_census.get_anndata(
             census,
             organism=organism,
             obs_value_filter=obs_filter,
@@ -172,54 +193,24 @@ def main():
             column_names={"obs": obs_cols},
         )
 
-    if adata.n_obs == 0:
+    if adata_obj.n_obs == 0:
         raise SystemExit("ERROR: fetched AnnData is empty after applying obs_coords.")
 
     # --- summary ---
     eprint(">> done")
-    eprint(f"   reference : n_obs={adata.n_obs}  n_vars={adata.n_vars}  (X = raw counts)")
+    eprint(f"   reference : n_obs={adata_obj.n_obs}  n_vars={adata_obj.n_vars}  (X = raw counts)")
     eprint(f"   organism  : {organism}")
     eprint(f"   filter    : {obs_filter}")
-    counts = adata.obs[args.cell_type_col].astype(str).value_counts()
-    eprint(f"   '{args.cell_type_col}' value_counts ({counts.size} types):")
+    counts = adata_obj.obs[cell_type_col].astype(str).value_counts()
+    eprint(f"   '{cell_type_col}' value_counts ({counts.size} types):")
     for label, c in counts.items():
         eprint(f"      {c:>7d}  {label}")
 
-    if args.workdir:
-        wd = resolve_workdir(args.workdir)
-        summary = counts.rename_axis(args.cell_type_col).reset_index(name="n_cells")
+    if workdir:
+        wd = resolve_workdir(workdir)
+        summary = counts.rename_axis(cell_type_col).reset_index(name="n_cells")
         save_table(summary, wd, "census_reference_summary.csv")
 
-    eprint(f">> writing {args.out}")
-    adata.write_h5ad(args.out)
-    print(args.out)
-
-
-def _parse_args():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--organism", required=True,
-                    help="e.g. 'homo_sapiens'/'Homo sapiens' or 'mus_musculus'/'Mus musculus'")
-    ap.add_argument("--tissue",
-                    help="tissue_general value to filter on, e.g. 'brain'. For an "
-                         "ontology term instead, use --obs-value-filter.")
-    ap.add_argument("--obs-value-filter",
-                    help="advanced: raw Census obs_value_filter string that OVERRIDES the "
-                         "tissue filter, e.g. "
-                         "\"tissue_ontology_term_id=='UBERON:0000955' and is_primary_data==True\"")
-    ap.add_argument("--cell-type-col", default="cell_type",
-                    help="Census obs column to carry as the reference label (default cell_type)")
-    ap.add_argument("--max-cells", type=int, default=50000,
-                    help="HARD cap on fetched cells; the slice is subsampled down to this")
-    ap.add_argument("--stratify-by",
-                    help="obs col to stratify the subsample by; default is --cell-type-col")
-    ap.add_argument("--census-version", default="stable",
-                    help="Census version tag (default 'stable')")
-    ap.add_argument("--out", required=True, help="output .h5ad path")
-    ap.add_argument("--workdir",
-                    help="if given, also write tables/census_reference_summary.csv")
-    return ap.parse_args()
-
-
-if __name__ == "__main__":
-    main()
+    eprint(f">> writing {out}")
+    adata_obj.write_h5ad(out)
+    print(out)

@@ -23,19 +23,29 @@ Writes tables/refmap_<level>_<label-col>.csv with columns:
 """
 from __future__ import annotations
 
-import argparse
-
 import numpy as np
-import scanpy as sc
+import typer
 
 from cta.io import (aggregate_predictions, eprint, require_obs, resolve_workdir, safe_cluster_id,
                     save_table)
 
 
+def cli(
+    query: str = typer.Option(
+        ..., "--query", "--adata",
+        help="the query AnnData to annotate (alias: --adata)"),
+    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    model_path: str = typer.Option(..., help="downloaded SCimilarity model dir"),
+    counts_layer: str = typer.Option(
+        "X", help="query layer holding RAW COUNTS ('X' if X is counts)"),
+    label_col: str = typer.Option(
+        "scimilarity", help="name used in the output table filename"),
+) -> None:
+    """Optional zero-shot cross-check via SCimilarity — a large-memory hypothesis (not a verdict)."""
+    import scanpy as sc
 
-
-def main():
-    args = _parse_args()
     try:
         from scimilarity import CellAnnotation, align_dataset, lognorm_counts
     except ImportError:
@@ -45,34 +55,34 @@ def main():
             "~64GB RAM at runtime)."
         )
 
-    eprint(f">> loading query {args.query}")
-    query = sc.read_h5ad(args.query)
-    require_obs(query, args.cluster_key, "cluster key")
+    eprint(f">> loading query {query}")
+    query_obj = sc.read_h5ad(query)
+    require_obs(query_obj, cluster_key, "cluster key")
 
     # SCimilarity wants raw counts in X.
-    if args.counts_layer not in (None, "X"):
-        if args.counts_layer not in (query.layers or {}):
-            raise SystemExit(f"ERROR: --counts-layer '{args.counts_layer}' not in "
-                             f"query.layers {list(query.layers.keys())}.")
-        query.X = query.layers[args.counts_layer]
+    if counts_layer not in (None, "X"):
+        if counts_layer not in (query_obj.layers or {}):
+            raise SystemExit(f"ERROR: --counts-layer '{counts_layer}' not in "
+                             f"query.layers {list(query_obj.layers.keys())}.")
+        query_obj.X = query_obj.layers[counts_layer]
 
-    eprint(f">> loading SCimilarity model: {args.model_path}")
-    ca = CellAnnotation(model_path=args.model_path)
+    eprint(f">> loading SCimilarity model: {model_path}")
+    ca = CellAnnotation(model_path=model_path)
 
     eprint(">> aligning genes to model gene order + log-normalizing")
-    query = align_dataset(query, ca.gene_order)
-    query = lognorm_counts(query)
+    query_obj = align_dataset(query_obj, ca.gene_order)
+    query_obj = lognorm_counts(query_obj)
 
     eprint(">> embedding + kNN annotation")
-    query.obsm["X_scimilarity"] = ca.get_embeddings(query.X)
-    result = ca.get_predictions_knn(query.obsm["X_scimilarity"])
+    query_obj.obsm["X_scimilarity"] = ca.get_embeddings(query_obj.X)
+    result = ca.get_predictions_knn(query_obj.obsm["X_scimilarity"])
     # API returns (predictions, nn_idxs, nn_dists, nn_stats); be tolerant of arity.
     predictions = result[0] if isinstance(result, (tuple, list)) else result
     pred = np.asarray(getattr(predictions, "values", predictions)).astype(str)
 
     # Per-cell confidence: invert min nearest-neighbor distance into 0-1 (relative within
     # this query), if distances are available; else leave blank.
-    conf = np.full(query.n_obs, np.nan)
+    conf = np.full(query_obj.n_obs, np.nan)
     try:
         nn_stats = result[3] if len(result) > 3 else None
         dist = None
@@ -87,28 +97,8 @@ def main():
     except Exception:  # noqa: BLE001
         pass
 
-    clusters = query.obs[args.cluster_key].astype(str).to_numpy()
+    clusters = query_obj.obs[cluster_key].astype(str).to_numpy()
     out = aggregate_predictions(clusters, pred, conf, "scimilarity")
-    wd = resolve_workdir(args.workdir)
-    save_table(out, wd, f"refmap_{args.level}_{safe_cluster_id(args.label_col)}.csv")
+    wd = resolve_workdir(workdir)
+    save_table(out, wd, f"refmap_{level}_{safe_cluster_id(label_col)}.csv")
     eprint(f">> done. {len(out)} clusters (zero-shot — treat as a hypothesis).")
-
-
-def _parse_args():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--query", "--adata", dest="query", required=True,
-                    help="the query AnnData to annotate (alias: --adata)")
-    ap.add_argument("--cluster-key", required=True)
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--level", default="L1")
-    ap.add_argument("--model-path", required=True, help="downloaded SCimilarity model dir")
-    ap.add_argument("--counts-layer", default="X",
-                    help="query layer holding RAW COUNTS ('X' if X is counts)")
-    ap.add_argument("--label-col", default="scimilarity",
-                    help="name used in the output table filename")
-    return ap.parse_args()
-
-
-if __name__ == "__main__":
-    main()

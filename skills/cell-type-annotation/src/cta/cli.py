@@ -1,69 +1,97 @@
-"""`cta` command-line interface — a thin dispatcher over the tool modules.
+"""`cta` — the grouped Typer CLI for the cell-type-annotation skill.
 
-Each subcommand maps to a module in this package that owns its own argparse `main()`.
-The dispatcher rewrites `sys.argv` and delegates, so every tool keeps its exact flags —
-including aliases like `--adata`/`--query` and `celltypist`'s `list`/`predict`/`markers`
-sub-subcommands — with zero re-plumbing. Run `cta <command> --help` for a command's
-options, or `cta` / `cta --help` to list commands.
+Commands are organized into groups (Sopa-style): `cta markers compute`,
+`cta crosscheck reference-map`, etc. Each leaf command is a `cli()` function defined in its
+own module (or, for `celltypist`, a nested `typer.Typer()` app), with heavy imports done
+lazily inside the command body — so `cta --help` and tab-completion are instant and don't
+pull scanpy/torch.
 
-`COMMANDS` is the single source of truth for the command set; it is checked against
-`reference/tool_registry.md` by `tests/test_registry_sync.py`, so the docs table, the CLI,
-and the package can't silently drift.
+`GROUPS` is the single source of truth for the command surface. It is mirrored by
+`reference/tool_registry.md` (the canonical step→tool table) and checked by
+`tests/test_registry_sync.py`, so docs, CLI, and package can't silently drift.
 """
 from __future__ import annotations
 
-import importlib
-import sys
+import typer
 
-# command name -> dotted module path (each module exposes `main()`).
-COMMANDS: dict[str, str] = {
-    "detect-env": "cta.detect_env",
-    "inspect": "cta.inspect_adata",
-    "prep-slim": "cta.prep_slim",
-    "assemble-markers": "cta.assemble_markers",
-    "compute-markers": "cta.compute_markers",
-    "profile-markers": "cta.profile_markers",
-    "score-signatures": "cta.score_signatures",
-    "crosscheck-obs-pred": "cta.crosscheck_obs_pred",
-    "reference-map": "cta.reference_map",
-    "celltypist": "cta.run_celltypist",
-    "fetch-census-reference": "cta.fetch_census_reference",
-    "train-reference-model": "cta.train_reference_model",
-    "map-scarches": "cta.map_query_scarches",
-    "scimilarity": "cta.run_scimilarity",
-    "subcluster": "cta.subcluster",
-    "profile-clusters": "cta.profile_clusters",
-    "cluster-confidence": "cta.cluster_confidence",
-    "scaffold-cards": "cta.scaffold_cards",
-    "build-report": "cta.build_report",
-    "write-back": "cta.write_back",
+from cta import (assemble_markers, build_report, cluster_confidence, compute_markers,
+                 crosscheck_obs_pred, detect_env, fetch_census_reference, inspect_adata,
+                 map_query_scarches, prep_slim, profile_clusters, profile_markers,
+                 reference_map, run_celltypist, run_scimilarity, scaffold_cards,
+                 score_signatures, subcluster, train_reference_model, write_back)
+
+# group -> {command name: leaf command}. group None = top-level. A leaf is either a `cli`
+# function or a nested Typer app (celltypist's list/predict/markers).
+GROUPS: dict[str | None, dict[str, object]] = {
+    None: {"detect-env": detect_env.cli},
+    "data": {"inspect": inspect_adata.cli, "prep-slim": prep_slim.cli},
+    "markers": {"assemble": assemble_markers.cli, "compute": compute_markers.cli,
+                "profile": profile_markers.cli, "score": score_signatures.cli},
+    "crosscheck": {"obs-pred": crosscheck_obs_pred.cli, "reference-map": reference_map.cli,
+                   "celltypist": run_celltypist.app, "scimilarity": run_scimilarity.cli},
+    "reference": {"fetch-census": fetch_census_reference.cli,
+                  "train-model": train_reference_model.cli,
+                  "map-scarches": map_query_scarches.cli},
+    "cluster": {"subcluster": subcluster.cli, "profile": profile_clusters.cli,
+                "confidence": cluster_confidence.cli},
+    "report": {"scaffold-cards": scaffold_cards.cli, "build": build_report.cli,
+               "write-back": write_back.cli},
+}
+
+_GROUP_HELP = {
+    "data": "Inspect / slim the AnnData (Stage 1).",
+    "markers": "Marker evidence: priors, DE/COSG, panel profiling, signature scoring.",
+    "crosscheck": "Automated cross-checks — hypotheses to reconcile, never verdicts.",
+    "reference": "Reference side: fetch/train a reference model, map the query onto it.",
+    "cluster": "Sub-cluster and investigate clusters; per-cluster confidence proxy.",
+    "report": "Evidence cards, the per-level HTML report, and the final write-back.",
 }
 
 
-def _usage() -> str:
-    lines = [
-        "usage: cta <command> [options]",
-        "       cta <command> --help     # options for one command",
-        "",
-        "commands:",
-        *(f"  {name}" for name in COMMANDS),
-    ]
-    return "\n".join(lines)
+def _build_app() -> typer.Typer:
+    app = typer.Typer(
+        add_completion=False,
+        help="Evidence-driven, compute-environment-aware cell-type annotation.",
+    )
+    for group, commands in GROUPS.items():
+        target = app if group is None else typer.Typer(
+            no_args_is_help=True, help=_GROUP_HELP.get(group))
+        for name, cmd in commands.items():
+            if isinstance(cmd, typer.Typer):
+                target.add_typer(cmd, name=name)
+            else:
+                target.command(name)(cmd)
+        if group is not None:
+            app.add_typer(target, name=group)
+
+    @app.callback(invoke_without_command=True)
+    def _root(
+        ctx: typer.Context,
+        version: bool = typer.Option(
+            False, "--version", help="Show the cta version and exit."),
+    ):
+        if version:
+            from cta import __version__
+            typer.echo(__version__)
+            raise typer.Exit()
+        if ctx.invoked_subcommand is None:
+            typer.echo(ctx.get_help())
+            raise typer.Exit()
+
+    return app
 
 
-def main(argv: list[str] | None = None) -> None:
-    argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or argv[0] in ("-h", "--help"):
-        print(_usage())
-        return
-    cmd, rest = argv[0], argv[1:]
-    if cmd not in COMMANDS:
-        print(f"cta: unknown command '{cmd}'\n\n{_usage()}", file=sys.stderr)
-        raise SystemExit(2)
-    module = importlib.import_module(COMMANDS[cmd])
-    # Give the module its own argv so its argparse prog/flags work unchanged.
-    sys.argv = [f"cta {cmd}", *rest]
-    module.main()
+app = _build_app()
+
+
+def command_paths() -> list[str]:
+    """Full command paths, e.g. 'detect-env', 'markers compute', 'crosscheck celltypist'."""
+    return [name if group is None else f"{group} {name}"
+            for group, commands in GROUPS.items() for name in commands]
+
+
+def main() -> None:
+    app()
 
 
 if __name__ == "__main__":

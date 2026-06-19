@@ -24,13 +24,14 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import platform
 import shutil
 import subprocess
 import sys
+
+import typer
 
 
 def eprint(*a, **k):
@@ -209,13 +210,11 @@ def _suggest_profile(cuda: dict, mps: bool, sched: dict) -> tuple[str, str]:
     return "local_cpu", "no CUDA GPU and no batch scheduler reachable"
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--json-only", action="store_true",
-                    help="print only the JSON object to stdout (no human summary)")
-    args = ap.parse_args()
-
+def cli(
+    json_only: bool = typer.Option(
+        False, help="print only the JSON object to stdout (no human summary)"),
+) -> None:
+    """Detect the compute environment and suggest a profile for the annotation run."""
     cuda = _detect_cuda()
     mps = _detect_mps()
     ram = _detect_ram()
@@ -244,7 +243,7 @@ def main():
         "reason": why,
     }
 
-    if not args.json_only:
+    if not json_only:
         eprint(">> compute environment probe (detection only — nothing was run or submitted)")
         eprint(f"   platform     : {report['platform']} / {report['machine']} "
                f"(python {report['python']})")
@@ -263,7 +262,3 @@ def main():
         eprint("   NOTE: 'scheduler' vs 'local_cpu' is ambiguous — confirm with the user.")
 
     print(json.dumps(report, indent=2))
-
-
-if __name__ == "__main__":
-    main()

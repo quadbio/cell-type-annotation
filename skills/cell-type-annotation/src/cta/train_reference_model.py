@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Train (or refine) a scANVI reference model on a LABELED atlas — the reference side of
 the train-a-model-then-map-the-query workflow (GPU / large-memory profiles).
 
@@ -28,10 +27,10 @@ tables/refmodel_summary.csv.
 """
 from __future__ import annotations
 
-import argparse
 import platform
+from typing import Optional
 
-import scanpy as sc
+import typer
 
 from cta.io import eprint, require_obs, resolve_workdir, save_table
 
@@ -52,8 +51,29 @@ def _resolve_accelerator(choice: str) -> str:
     return "cpu"
 
 
-def main():
-    args = _parse_args()
+def cli(
+    reference: str = typer.Option(..., help="labeled reference atlas .h5ad"),
+    labels_key: str = typer.Option(..., help="reference.obs label column to learn"),
+    out_model: str = typer.Option(..., help="output model DIRECTORY"),
+    counts_layer: str = typer.Option(
+        "X", help="layer holding RAW COUNTS ('X' if X is counts)"),
+    batch_key: Optional[str] = typer.Option(
+        None, help="reference.obs batch column (optional)"),
+    n_hvg: Optional[int] = typer.Option(
+        None, help="restrict to N highly-variable genes for a compact feature space"),
+    n_latent: int = typer.Option(30, help="latent space dimensionality"),
+    max_epochs_scvi: int = typer.Option(200, help="scVI training epochs"),
+    max_epochs_scanvi: int = typer.Option(20, help="scANVI training epochs"),
+    n_samples_per_label: int = typer.Option(100, help="scANVI samples per label"),
+    unlabeled_category: str = typer.Option(
+        "Unknown", help="label value treated as 'unlabeled' by scANVI"),
+    accelerator: str = typer.Option(
+        "auto", help="accelerator: auto|cuda|mps|cpu"),
+    workdir: Optional[str] = typer.Option(
+        None, help="if given, also write tables/refmodel_summary.csv"),
+) -> None:
+    """Train (or refine) a scANVI reference model on a LABELED atlas."""
+    import scanpy as sc
     try:
         import scvi
     except ImportError:
@@ -63,93 +83,65 @@ def main():
             "is preferred.)"
         )
 
-    accel = _resolve_accelerator(args.accelerator)
+    accel = _resolve_accelerator(accelerator)
     eprint(f">> accelerator: {accel}")
     try:
         scvi.settings.seed = 0  # reproducibility (GPU is still not bit-identical)
     except Exception:  # noqa: BLE001
         pass
 
-    eprint(f">> loading reference {args.reference}")
-    ref = sc.read_h5ad(args.reference)
-    require_obs(ref, args.labels_key, "labels key")
-    if args.batch_key:
-        require_obs(ref, args.batch_key, "batch key")
+    eprint(f">> loading reference {reference}")
+    ref = sc.read_h5ad(reference)
+    require_obs(ref, labels_key, "labels key")
+    if batch_key:
+        require_obs(ref, batch_key, "batch key")
 
-    if args.counts_layer not in (None, "X"):
-        if args.counts_layer not in (ref.layers or {}):
+    if counts_layer not in (None, "X"):
+        if counts_layer not in (ref.layers or {}):
             raise SystemExit(
-                f"ERROR: counts layer '{args.counts_layer}' not in reference.layers "
+                f"ERROR: counts layer '{counts_layer}' not in reference.layers "
                 f"{list(ref.layers.keys())}. scVI needs RAW COUNTS.")
-        counts_layer = args.counts_layer
+        counts_layer_resolved = counts_layer
     else:
-        counts_layer = None  # X holds counts
+        counts_layer_resolved = None  # X holds counts
 
-    if args.n_hvg:
-        eprint(f">> selecting {args.n_hvg} highly-variable genes (flavor=seurat_v3 on counts)")
-        sc.pp.highly_variable_genes(ref, n_top_genes=args.n_hvg, flavor="seurat_v3",
-                                    layer=counts_layer, subset=True,
-                                    batch_key=args.batch_key or None)
+    if n_hvg:
+        eprint(f">> selecting {n_hvg} highly-variable genes (flavor=seurat_v3 on counts)")
+        sc.pp.highly_variable_genes(ref, n_top_genes=n_hvg, flavor="seurat_v3",
+                                    layer=counts_layer_resolved, subset=True,
+                                    batch_key=batch_key or None)
 
     eprint(">> setting up scVI (raw counts)")
-    scvi.model.SCVI.setup_anndata(ref, layer=counts_layer, batch_key=args.batch_key or None)
-    vae = scvi.model.SCVI(ref, n_latent=args.n_latent)
-    eprint(f">> training scVI ({args.max_epochs_scvi} epochs)")
-    vae.train(max_epochs=args.max_epochs_scvi, accelerator=accel)
+    scvi.model.SCVI.setup_anndata(ref, layer=counts_layer_resolved, batch_key=batch_key or None)
+    vae = scvi.model.SCVI(ref, n_latent=n_latent)
+    eprint(f">> training scVI ({max_epochs_scvi} epochs)")
+    vae.train(max_epochs=max_epochs_scvi, accelerator=accel)
 
     eprint(">> initializing scANVI from the trained scVI model")
     lvae = scvi.model.SCANVI.from_scvi_model(
-        vae, adata=ref, labels_key=args.labels_key,
-        unlabeled_category=args.unlabeled_category)
-    eprint(f">> training scANVI ({args.max_epochs_scanvi} epochs)")
-    lvae.train(max_epochs=args.max_epochs_scanvi, accelerator=accel,
-               n_samples_per_label=args.n_samples_per_label)
+        vae, adata=ref, labels_key=labels_key,
+        unlabeled_category=unlabeled_category)
+    eprint(f">> training scANVI ({max_epochs_scanvi} epochs)")
+    lvae.train(max_epochs=max_epochs_scanvi, accelerator=accel,
+               n_samples_per_label=n_samples_per_label)
 
-    eprint(f">> saving model to {args.out_model}")
-    lvae.save(args.out_model, overwrite=True)
+    eprint(f">> saving model to {out_model}")
+    lvae.save(out_model, overwrite=True)
 
-    n_labels = ref.obs[args.labels_key].astype(str).nunique()
+    n_labels = ref.obs[labels_key].astype(str).nunique()
     eprint(f">> done. reference={ref.n_obs} cells x {ref.n_vars} genes, "
-           f"{n_labels} labels, latent={args.n_latent}, accelerator={accel}")
+           f"{n_labels} labels, latent={n_latent}, accelerator={accel}")
 
-    if args.workdir:
-        wd = resolve_workdir(args.workdir)
+    if workdir:
+        wd = resolve_workdir(workdir)
         import pandas as pd
         save_table(pd.DataFrame([{
-            "model_path": str(args.out_model),
+            "model_path": str(out_model),
             "n_obs": ref.n_obs, "n_vars": ref.n_vars,
-            "labels_key": args.labels_key, "n_labels": n_labels,
-            "batch_key": args.batch_key or "", "n_latent": args.n_latent,
-            "n_hvg": args.n_hvg or "", "accelerator": accel,
-            "epochs_scvi": args.max_epochs_scvi, "epochs_scanvi": args.max_epochs_scanvi,
+            "labels_key": labels_key, "n_labels": n_labels,
+            "batch_key": batch_key or "", "n_latent": n_latent,
+            "n_hvg": n_hvg or "", "accelerator": accel,
+            "epochs_scvi": max_epochs_scvi, "epochs_scanvi": max_epochs_scanvi,
         }]), wd, "refmodel_summary.csv")
 
-    print(args.out_model)
-
-
-def _parse_args():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--reference", required=True, help="labeled reference atlas .h5ad")
-    ap.add_argument("--labels-key", required=True, help="reference.obs label column to learn")
-    ap.add_argument("--counts-layer", default="X",
-                    help="layer holding RAW COUNTS ('X' if X is counts)")
-    ap.add_argument("--out-model", required=True, help="output model DIRECTORY")
-    ap.add_argument("--batch-key", default=None, help="reference.obs batch column (optional)")
-    ap.add_argument("--n-hvg", type=int, default=None,
-                    help="restrict to N highly-variable genes for a compact feature space")
-    ap.add_argument("--n-latent", type=int, default=30)
-    ap.add_argument("--max-epochs-scvi", type=int, default=200)
-    ap.add_argument("--max-epochs-scanvi", type=int, default=20)
-    ap.add_argument("--n-samples-per-label", type=int, default=100)
-    ap.add_argument("--unlabeled-category", default="Unknown",
-                    help="label value treated as 'unlabeled' by scANVI")
-    ap.add_argument("--accelerator", default="auto",
-                    choices=["auto", "cuda", "mps", "cpu"])
-    ap.add_argument("--workdir", default=None,
-                    help="if given, also write tables/refmodel_summary.csv")
-    return ap.parse_args()
-
-
-if __name__ == "__main__":
-    main()
+    print(out_model)

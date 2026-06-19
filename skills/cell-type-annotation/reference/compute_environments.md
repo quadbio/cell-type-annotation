@@ -78,9 +78,9 @@ CPU host that merely has the client tools installed. `cta detect-env` flags it; 
 
 `ram_gb` gates RAM-hungry options independently of the GPU question:
 - **Large reference atlases / large Census slices** — lifting the laptop-scale cap in
-  `cta fetch-census-reference --max-cells` (and downloading whole curated atlases) only makes
+  `cta reference fetch-census --max-cells` (and downloading whole curated atlases) only makes
   sense when RAM allows loading them.
-- **SCimilarity** (`cta scimilarity`) needs ~64 GB RAM and a multi-GB model bundle —
+- **SCimilarity** (`cta crosscheck scimilarity`) needs ~64 GB RAM and a multi-GB model bundle —
   large-memory only, and optional even there.
 
 ## Which tool at which step (and what it needs)
@@ -88,7 +88,7 @@ CPU host that merely has the client tools installed. `cta detect-env` flags it; 
 The per-tool step / GPU-requirement / profile mapping has **one home**:
 `reference/tool_registry.md`. Read it to decide what to run where. In short: most of the
 pipeline is CPU (`none`); only the reference-mapping cross-check and (optionally)
-large-query scoring touch a GPU, and only `cta scimilarity` is gated on RAM rather than
+large-query scoring touch a GPU, and only `cta crosscheck scimilarity` is gated on RAM rather than
 a GPU. The profile decides *how* the `preferred`/`required` rows execute — inline on
 `local_gpu`, handed off on `scheduler` (next section).
 
@@ -117,7 +117,7 @@ on the login node. Only the genuinely GPU/large-memory steps are handed off.
 - GPU results are **not bit-identical** to CPU, and deep models (scVI/scANVI) are
   **stochastic** — seed them (`scvi.settings.seed = 0`; the scripts do) but still report
   predictions as a **hypothesis**, never a verdict.
-- GPU k-NN (`cta reference-map --knn-method rapids`) and any optional GPU clustering/UMAP
+- GPU k-NN (`cta crosscheck reference-map --knn-method rapids`) and any optional GPU clustering/UMAP
   (e.g. rapids-singlecell, not a default extra) are not bit-identical to their CPU
   equivalents. This skill annotates **pre-existing** clusters and does not re-cluster the
   main object, so this mostly doesn't bite — but if a GPU-accelerated step ever feeds

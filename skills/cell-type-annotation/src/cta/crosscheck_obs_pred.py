@@ -20,42 +20,40 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse
-
 import numpy as np
 import pandas as pd
+import typer
 
 from cta.io import (eprint, load_adata, require_obs, resolve_workdir,
                     safe_cluster_id, save_table, split_csv)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--adata", required=True)
-    ap.add_argument("--cluster-key", required=True)
-    ap.add_argument("--pred-cols", required=True, help="comma-separated obs prediction columns")
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--level", default="L1")
-    ap.add_argument("--conf-suffix", default="_conf",
-                    help="suffix of a companion per-cell confidence column, if any")
-    args = ap.parse_args()
+def cli(
+    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
+    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    pred_cols: str = typer.Option(..., help="comma-separated obs prediction columns"),
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    conf_suffix: str = typer.Option(
+        "_conf", help="suffix of a companion per-cell confidence column, if any"),
+) -> None:
+    """Cross-check from an existing in-object prediction column — no recompute."""
+    wd = resolve_workdir(workdir)
+    adata_obj = load_adata(adata, backed="r")
+    require_obs(adata_obj, cluster_key, "cluster key")
+    obs = adata_obj.obs
+    clusters = obs[cluster_key].astype(str)
 
-    wd = resolve_workdir(args.workdir)
-    adata = load_adata(args.adata, backed="r")
-    require_obs(adata, args.cluster_key, "cluster key")
-    obs = adata.obs
-    clusters = obs[args.cluster_key].astype(str)
-
-    for col in split_csv(args.pred_cols):
+    for col in split_csv(pred_cols):
         if col not in obs:
             eprint(f"   WARN: prediction column '{col}' not in obs — skipping")
             continue
         # confidence column conventions vary: '<col>_conf' (e.g. CellClass_pred_conf) OR
         # the base name with the pred-suffix swapped (CellClass_pred -> CellClass_conf).
-        cand = [f"{col}{args.conf_suffix}", f"{col}_confidence"]
+        cand = [f"{col}{conf_suffix}", f"{col}_confidence"]
         for ps in ("_pred", "_prediction", "_pred_label", "_predicted"):
             if col.endswith(ps):
-                cand.append(col[: -len(ps)] + args.conf_suffix)
+                cand.append(col[: -len(ps)] + conf_suffix)
         conf_col = next((c for c in cand if c in obs), None)
         has_conf = conf_col is not None
         rows = []
@@ -68,10 +66,6 @@ def main():
                          errors="coerce"))), 3) if has_conf else "")
             rows.append(dict(cluster=str(cl), top1=top1, frac1=frac1, top2=top2, frac2=frac2,
                              mean_conf=mean_conf, method=f"in-object:{col}"))
-        save_table(pd.DataFrame(rows), wd, f"refmap_{args.level}_{safe_cluster_id(col)}.csv")
-        eprint(f">> wrote tables/refmap_{args.level}_{safe_cluster_id(col)}.csv "
+        save_table(pd.DataFrame(rows), wd, f"refmap_{level}_{safe_cluster_id(col)}.csv")
+        eprint(f">> wrote tables/refmap_{level}_{safe_cluster_id(col)}.csv "
                f"({len(rows)} clusters, conf={'yes' if has_conf else 'no'})")
-
-
-if __name__ == "__main__":
-    main()

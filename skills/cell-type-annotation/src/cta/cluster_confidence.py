@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Data-driven confidence proxy per cluster — a sanity check on hand-set confidences.
 
 Confidence in the labels CSV is the annotator's judgement, but it should be calibrated
@@ -16,35 +15,31 @@ Plus, if tables/crosscheck_<level>.csv exists: `agree` (how many methods concur)
 
 Writes tables/cluster_confidence_<level>.csv with those columns + `suggested_conf`.
 This is advisory only — it never writes labels.
-
-Usage:
-  python cluster_confidence.py --workdir DIR --level L1 [--strong-thresh 0.02]
 """
 from __future__ import annotations
 
-import argparse
-
-import pandas as pd
+import typer
 
 from cta.io import eprint, resolve_workdir
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--level", default="L1")
-    ap.add_argument("--strong-thresh", type=float, default=0.02,
-                    help="COSG score above which a marker counts as 'strong'")
-    args = ap.parse_args()
+def cli(
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    strong_thresh: float = typer.Option(
+        0.02, help="COSG score above which a marker counts as 'strong'"),
+) -> None:
+    """Suggest a per-cluster confidence band from COSG specificity + cross-check agreement."""
+    import pandas as pd
 
-    wd = resolve_workdir(args.workdir)
-    cosg_path = wd / "tables" / f"cosg_{args.level}.csv"
+    wd = resolve_workdir(workdir)
+    cosg_path = wd / "tables" / f"cosg_{level}.csv"
     if not cosg_path.exists():
         raise SystemExit(f"ERROR: {cosg_path} not found (run compute_markers.py first)")
     cosg = pd.read_csv(cosg_path)
     cosg["cluster"] = cosg["cluster"].astype(str)
 
-    cc = wd / "tables" / f"crosscheck_{args.level}.csv"
+    cc = wd / "tables" / f"crosscheck_{level}.csv"
     agree = None
     if cc.exists():
         d = pd.read_csv(cc)
@@ -57,7 +52,7 @@ def main():
         top1 = scores[0] if scores else 0.0
         top2 = scores[1] if len(scores) > 1 else 0.0
         margin = top1 - top2
-        n_strong = int(sum(s >= args.strong_thresh for s in scores))
+        n_strong = int(sum(s >= strong_thresh for s in scores))
         # crude, transparent banding: strong & well-separated -> high; weak -> low
         conf = 0.5
         if top1 >= 0.05 and n_strong >= 3:
@@ -79,10 +74,6 @@ def main():
                          suggested_conf=round(conf, 2)))
 
     out = pd.DataFrame(rows)
-    out.to_csv(wd / "tables" / f"cluster_confidence_{args.level}.csv", index=False)
-    eprint(f">> wrote tables/cluster_confidence_{args.level}.csv ({len(out)} clusters)")
+    out.to_csv(wd / "tables" / f"cluster_confidence_{level}.csv", index=False)
+    eprint(f">> wrote tables/cluster_confidence_{level}.csv ({len(out)} clusters)")
     print(out.to_string(index=False))
-
-
-if __name__ == "__main__":
-    main()

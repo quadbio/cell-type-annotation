@@ -20,10 +20,11 @@ Usage:
 """
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
+import typer
 
 from cta.io import eprint, resolve_workdir, safe_cluster_id, split_csv
 
@@ -272,30 +273,30 @@ def _sizes_map(workdir: Path, level: str) -> dict[str, int]:
     return {}
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--workdir", required=True)
-    ap.add_argument("--level", required=True, help="hierarchy level tag, e.g. L1")
-    ap.add_argument("--overwrite", action="store_true",
-                    help="overwrite existing cards (default: skip, preserve reasoning)")
-    ap.add_argument("--evidence", default=None,
-                    help="comma-separated evidence table(s) to embed per cluster — the actual "
-                         "numbers behind the call (e.g. the curated marker-fraction tables you "
-                         "scored on). Names are resolved under <workdir>/tables/ (a .csv "
-                         "suffix is optional) or given as absolute paths. Each cluster's row is "
-                         "shown, wide tables summarized as the strongest values.")
-    ap.add_argument("--labels", default=None,
-                    help="labels CSV to source the per-cluster call + reasoning from "
-                         "(default: <workdir>/labels/annotation_<level>.csv). Columns "
-                         "`label`,`confidence`,`cl_id`,`rationale`,`rejected` are rendered into "
-                         "each card; this is the single source of truth, so re-scaffolding "
-                         "after you fill the CSV refreshes the cards without losing reasoning.")
-    args = ap.parse_args()
-
-    wd = resolve_workdir(args.workdir)
-    level = args.level
+def cli(
+    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    level: str = typer.Option(..., help="hierarchy level tag, e.g. L1"),
+    overwrite: bool = typer.Option(
+        False, help="overwrite existing cards (default: skip, preserve reasoning)"),
+    evidence: Optional[str] = typer.Option(
+        None,
+        help="comma-separated evidence table(s) to embed per cluster — the actual "
+             "numbers behind the call (e.g. the curated marker-fraction tables you "
+             "scored on). Names are resolved under <workdir>/tables/ (a .csv "
+             "suffix is optional) or given as absolute paths. Each cluster's row is "
+             "shown, wide tables summarized as the strongest values."),
+    labels: Optional[str] = typer.Option(
+        None,
+        help="labels CSV to source the per-cluster call + reasoning from "
+             "(default: <workdir>/labels/annotation_<level>.csv). Columns "
+             "`label`,`confidence`,`cl_id`,`rationale`,`rejected` are rendered into "
+             "each card; this is the single source of truth, so re-scaffolding "
+             "after you fill the CSV refreshes the cards without losing reasoning."),
+) -> None:
+    """Scaffold one evidence-card stub per cluster from the exported tables."""
+    wd = resolve_workdir(workdir)
     tables = wd / "tables"
-    evidence = wd / "evidence"
+    evidence_dir = wd / "evidence"
 
     cosg = _read_csv(tables / f"cosg_{level}.csv")
     if cosg is None or "cluster" not in (cosg.columns if cosg is not None else []):
@@ -320,7 +321,7 @@ def main():
 
     # User-designated evidence tables — the actual numbers behind the call.
     evidence_sources: list[tuple[str, pd.DataFrame]] = []
-    for name in split_csv(args.evidence):
+    for name in split_csv(evidence):
         path = Path(name) if Path(name).is_absolute() else tables / name
         if path.suffix != ".csv":
             path = path.with_suffix(".csv")
@@ -331,7 +332,7 @@ def main():
             eprint(f"   WARN: --evidence table not found: {path}")
 
     sizes = _sizes_map(wd, level)
-    labels = _labels_map(wd, level, args.labels)
+    labels_map = _labels_map(wd, level, labels)
 
     # Preserve first-seen order of clusters as they appear in cosg.
     clusters = list(dict.fromkeys(cosg["cluster"].tolist()))
@@ -339,9 +340,9 @@ def main():
     written, skipped, missing_rationale = 0, 0, []
     for cid in clusters:
         safe = safe_cluster_id(cid)
-        out = evidence / f"L{level.lstrip('L')}_cluster{safe}.md"
+        out = evidence_dir / f"L{level.lstrip('L')}_cluster{safe}.md"
         # ^ tolerate level given as "L1" or "1": canonicalize the filename prefix.
-        if out.exists() and not args.overwrite:
+        if out.exists() and not overwrite:
             eprint(f"   skip (exists): {out.name}")
             skipped += 1
             continue
@@ -349,7 +350,7 @@ def main():
         n_cells = sizes.get(str(cid))
         size_str = f" — n={n_cells} cells" if n_cells is not None else ""
 
-        rec = labels.get(str(cid), {})
+        rec = labels_map.get(str(cid), {})
         call_bits = []
         if rec.get("label"):
             call_bits.append(f"**Call:** {rec['label']}")
@@ -392,20 +393,16 @@ def main():
         written += 1
 
     eprint(f">> scaffolded {written} card(s), skipped {skipped} existing "
-           f"(of {len(clusters)} clusters) in {evidence}")
-    if labels and missing_rationale:
+           f"(of {len(clusters)} clusters) in {evidence_dir}")
+    if labels_map and missing_rationale:
         eprint(f"   NOTE: {len(missing_rationale)} card(s) still have a TODO rationale "
                f"(no `rationale` in the labels CSV): {', '.join(missing_rationale[:12])}"
                + (" …" if len(missing_rationale) > 12 else "")
                + "\n   Fill the `rationale`/`rejected` columns in the labels CSV and re-run; "
                  "build_report.py --strict will block descent until they're filled.")
-    elif not labels:
+    elif not labels_map:
         eprint("   NOTE: no labels CSV found — cards carry TODO rationale stubs. Write "
                f"labels/annotation_{level}.csv (with `rationale`/`rejected` columns) and "
                "re-scaffold to render the reasoning into the cards.")
     print(f"written={written} skipped={skipped} total={len(clusters)} "
           f"missing_rationale={len(missing_rationale)}")
-
-
-if __name__ == "__main__":
-    main()
