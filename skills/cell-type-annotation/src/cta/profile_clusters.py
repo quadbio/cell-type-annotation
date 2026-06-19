@@ -31,7 +31,7 @@ import argparse
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
-from cta_io import (
+from cta.io import (
     eprint,
     load_adata,
     require_obs,

@@ -41,7 +41,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from cta_io import eprint, resolve_workdir, save_table
+from cta.io import eprint, resolve_workdir, save_table
 
 # soma_joinid is the obs primary key; obs_coords in get_anndata indexes by it.
 JOINID = "soma_joinid"

@@ -25,7 +25,7 @@ from pathlib import Path
 
 import anndata as ad
 
-from cta_io import eprint, load_adata, split_csv
+from cta.io import eprint, load_adata, split_csv
 
 
 def _resolve_lognorm(adata: ad.AnnData, layer: str | None):

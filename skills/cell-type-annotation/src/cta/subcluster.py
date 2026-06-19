@@ -30,7 +30,7 @@ import pandas as pd
 import scanpy as sc
 import scipy.sparse as sp
 
-from cta_io import (eprint, load_adata, read_markers_json, require_obs,
+from cta.io import (eprint, load_adata, read_markers_json, require_obs,
                     resolve_expression, resolve_workdir, save_table, split_csv)
 
 

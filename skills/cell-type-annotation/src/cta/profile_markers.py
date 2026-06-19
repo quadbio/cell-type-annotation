@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from cta_io import (eprint, load_adata, panel_gate, require_obs, resolve_expression,
+from cta.io import (eprint, load_adata, panel_gate, require_obs, resolve_expression,
                     resolve_workdir, save_table, split_csv)
 
 

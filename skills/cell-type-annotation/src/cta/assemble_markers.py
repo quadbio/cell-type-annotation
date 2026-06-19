@@ -27,13 +27,13 @@ import argparse
 import json
 from pathlib import Path
 
-from cta_io import eprint, load_adata, panel_gate
+from cta.io import eprint, load_adata, panel_gate
 
 
 def from_celltypist(model_name: str, n_genes: int) -> dict[str, list[str]]:
     from celltypist import models
 
-    from run_celltypist import _ensure_model  # download-on-demand (Model.load won't fetch)
+    from cta.run_celltypist import _ensure_model  # download-on-demand (Model.load won't fetch)
     eprint(f">> CellTypist source: extract_top_markers from model '{model_name}'")
     model_name = _ensure_model(model_name)
     model = models.Model.load(model=model_name)

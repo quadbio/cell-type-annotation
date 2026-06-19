@@ -20,7 +20,7 @@ import argparse
 import pandas as pd
 import scanpy as sc
 
-from cta_io import (eprint, load_adata, require_obs, resolve_expression,
+from cta.io import (eprint, load_adata, require_obs, resolve_expression,
                  resolve_workdir, save_table, split_csv)
 
 

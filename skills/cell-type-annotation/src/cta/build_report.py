@@ -34,8 +34,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from cta_io import eprint, is_unknown_label, resolve_workdir, safe_cluster_id
-from report_plots import discover_plots, make_plots
+from cta.io import eprint, is_unknown_label, resolve_workdir, safe_cluster_id
+from cta.report_plots import discover_plots, make_plots
 
 try:
     import markdown as _md

@@ -33,7 +33,7 @@ import platform
 
 import scanpy as sc
 
-from cta_io import eprint, require_obs, resolve_workdir, save_table
+from cta.io import eprint, require_obs, resolve_workdir, save_table
 
 
 def _resolve_accelerator(choice: str) -> str:

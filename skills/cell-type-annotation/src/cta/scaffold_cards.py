@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cta_io import eprint, resolve_workdir, safe_cluster_id, split_csv
+from cta.io import eprint, resolve_workdir, safe_cluster_id, split_csv
 
 TOP_N = 8
 

@@ -26,7 +26,7 @@ import argparse
 
 import pandas as pd
 
-from cta_io import eprint, resolve_workdir
+from cta.io import eprint, resolve_workdir
 
 
 def main():

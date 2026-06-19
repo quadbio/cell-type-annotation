@@ -32,7 +32,7 @@ import pandas as pd
 import scanpy as sc
 from scipy.sparse import issparse
 
-from cta_io import (eprint, load_adata, require_obs, resolve_expression,
+from cta.io import (eprint, load_adata, require_obs, resolve_expression,
                  resolve_workdir, safe_cluster_id, save_table, split_csv)
 
 MIN_SHARED_GENES = 30

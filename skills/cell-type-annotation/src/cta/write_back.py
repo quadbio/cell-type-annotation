@@ -38,7 +38,7 @@ import tempfile
 
 import pandas as pd
 
-from cta_io import (check_hierarchy_nesting, eprint, label_color_map, load_adata,
+from cta.io import (check_hierarchy_nesting, eprint, label_color_map, load_adata,
                     require_obs, resolve_workdir, split_csv)
 
 # CSV columns that, when present, get mirrored into companion obs columns.
@@ -94,7 +94,7 @@ def order_label_column(series: pd.Series, adata, cluster_key: str, embedding_key
     stable order (known labels as first seen, Unknown last) and colours are still
     assigned. The hex list is aligned to the returned categories for adata.uns.
     """
-    from cta_io import is_unknown_label
+    from cta.io import is_unknown_label
     from matplotlib.colors import to_hex
 
     cats = list(pd.Categorical(series).categories)

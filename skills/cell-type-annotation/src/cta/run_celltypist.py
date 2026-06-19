@@ -31,7 +31,7 @@ import os
 
 import pandas as pd
 
-from cta_io import (eprint, load_adata, require_obs, resolve_expression,
+from cta.io import (eprint, load_adata, require_obs, resolve_expression,
                  resolve_workdir, safe_cluster_id, save_table)
 
 

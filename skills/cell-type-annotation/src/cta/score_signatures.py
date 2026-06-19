@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 
-from cta_io import (eprint, load_adata, panel_gate, require_obs, resolve_expression,
+from cta.io import (eprint, load_adata, panel_gate, require_obs, resolve_expression,
                  resolve_workdir, save_table)
 
 # A candidate with fewer than this many on-panel positive markers cannot be

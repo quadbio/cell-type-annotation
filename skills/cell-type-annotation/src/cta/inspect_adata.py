@@ -19,7 +19,7 @@ import json
 
 import numpy as np
 
-from cta_io import eprint, load_adata
+from cta.io import eprint, load_adata
 
 
 def _nonzero_data(X, cap=200_000):

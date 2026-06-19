@@ -44,7 +44,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 
-from cta_io import (eprint, require_obs, resolve_workdir, safe_cluster_id,
+from cta.io import (eprint, require_obs, resolve_workdir, safe_cluster_id,
                     save_table)
 
 

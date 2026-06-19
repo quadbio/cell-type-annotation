@@ -25,7 +25,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from cta_io import (eprint, load_adata, require_obs, resolve_workdir,
+from cta.io import (eprint, load_adata, require_obs, resolve_workdir,
                     safe_cluster_id, save_table, split_csv)
 
 

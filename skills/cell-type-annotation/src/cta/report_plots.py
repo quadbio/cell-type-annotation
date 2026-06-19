@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cta_io import eprint, is_unknown_label, label_color_map, split_csv
+from cta.io import eprint, is_unknown_label, label_color_map, split_csv
 
 # Figure headings + captions, keyed by artifact kind. Single source of truth shared by
 # make_plots (writes the PNGs) and discover_plots (embeds whatever is on disk) so the report
@@ -178,7 +178,7 @@ def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import scanpy as sc
-        from cta_io import load_adata, resolve_expression
+        from cta.io import load_adata, resolve_expression
         plots_dir = wd / "plots"
         plots_dir.mkdir(parents=True, exist_ok=True)
 
