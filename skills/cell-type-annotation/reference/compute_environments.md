@@ -16,7 +16,7 @@ plan; *how* a step is executed in a given environment is a separate concern.
 
 ## The three profiles
 
-Detected by `scripts/detect_env.py` (suggested) and confirmed with the user.
+Detected by `cta detect-env` (suggested) and confirmed with the user.
 
 | Profile | What it means | Heavy-step execution | What it unlocks beyond the CPU default |
 | --- | --- | --- | --- |
@@ -32,32 +32,28 @@ Notes:
 - The `local_gpu` vs `scheduler` split is about **where the GPU is reachable from**, not how
   big it is. `ram_gb` is a separate axis (below).
 
-## Where to build the venv (the login-node footgun)
+## Where to build the env (the login-node footgun)
 
-The dedicated venv is bootstrapped by `setup_env.sh` (Stage 1c). The trap on a scheduler
-cluster: a login node has **no GPU**, but pip will still install multi-GB CUDA wheels there
-— wasting quota on packages that can't run, while GPU-index-only packages
-(cuml/cudf) silently fail to resolve. The rule is **build the env where the work
-runs**:
+The env is built with **pixi** (Stage 1c): `pixi.toml` defines a `default` (CPU) and a `gpu`
+environment. The trap on a scheduler cluster: a login node has **no GPU**, but
+`pixi install -e gpu` will still download multi-GB CUDA wheels there — wasting quota on
+packages that can't run. pixi does **not** auto-detect a GPU, so the discipline is **build
+the env where the work runs** — choose the env to match the host:
 
-- **`local_cpu` / `local_gpu`** — one host does everything; `setup_env.sh [--profile gpu]`
-  on that host is correct.
+- **`local_cpu` / `local_gpu`** — one host does everything: `pixi install` (CPU) or
+  `pixi install -e gpu` (GPU) on that host.
 - **`scheduler`** — two places:
-  1. On the **login node**, run `setup_env.sh` (CPU core). That is all detection and the
-     light inline steps need.
-  2. Inside a **GPU job**, run `setup_env.sh --profile gpu` to add the GPU extras into the
-     **same** venv. Point `$CTA_VENV` at a **shared filesystem** (so the login and compute
-     nodes see one venv), and on a cluster prefer **scratch** over a quota-limited home —
-     the CUDA wheels are large.
+  1. On the **login node**, `pixi install` (the `default` CPU env). That is all detection
+     and the light inline steps need. Do **not** `pixi install -e gpu` here.
+  2. Inside a **GPU job**, `pixi install -e gpu` to build the GPU env on the GPU node.
 
-`setup_env.sh --profile gpu` enforces this: it installs the GPU extras only when a CUDA GPU
-is visible on the current host; otherwise it skips them with a loud notice and leaves a
-working CPU core. Pre-staging from a no-GPU host (e.g. onto a shared FS) is opt-in via
-`CTA_ALLOW_GPU_BUILD_WITHOUT_GPU=1`. It also passes the NVIDIA pip index so cuml/cudf
-resolve, and **actually imports** each GPU extra to report present/broken (find_spec would
-call an ABI-broken wheel "present", so a real import is used).
+On a cluster, keep pixi's envs off quota-limited home and on a **shared scratch** filesystem
+(so the login and compute nodes see the same env and the large CUDA env fits):
+`pixi config set detached-environments <scratch-path>`. The GPU env pulls cuML/cuDF from the
+NVIDIA index (declared in `pixi.toml` `[feature.gpu.pypi-options]`); `pixi.lock` pins
+everything for reproducibility.
 
-## Detection idioms (what `detect_env.py` checks)
+## Detection idioms (what `cta detect-env` checks)
 
 - **CUDA GPU:** `torch.cuda.is_available()` + `device_count()` + `get_device_name` +
   `get_device_properties(i).total_memory` (VRAM). Fall back to parsing `nvidia-smi
@@ -75,16 +71,16 @@ call an ABI-broken wheel "present", so a real import is used).
 
 The decisive ambiguity detection can't resolve on its own: a host with a scheduler on PATH
 but no local GPU might be a **login node whose GPUs live on compute nodes**, *or* a plain
-CPU host that merely has the client tools installed. `detect_env.py` flags it; the skill
+CPU host that merely has the client tools installed. `cta detect-env` flags it; the skill
 **asks the user** (Stage 1) which it is before committing the plan.
 
 ## The memory axis
 
 `ram_gb` gates RAM-hungry options independently of the GPU question:
 - **Large reference atlases / large Census slices** — lifting the laptop-scale cap in
-  `fetch_census_reference.py --max-cells` (and downloading whole curated atlases) only makes
+  `cta fetch-census-reference --max-cells` (and downloading whole curated atlases) only makes
   sense when RAM allows loading them.
-- **SCimilarity** (`run_scimilarity.py`) needs ~64 GB RAM and a multi-GB model bundle —
+- **SCimilarity** (`cta scimilarity`) needs ~64 GB RAM and a multi-GB model bundle —
   large-memory only, and optional even there.
 
 ## Which tool at which step (and what it needs)
@@ -92,7 +88,7 @@ CPU host that merely has the client tools installed. `detect_env.py` flags it; t
 The per-tool step / GPU-requirement / profile mapping has **one home**:
 `reference/tool_registry.md`. Read it to decide what to run where. In short: most of the
 pipeline is CPU (`none`); only the reference-mapping cross-check and (optionally)
-large-query scoring touch a GPU, and only `run_scimilarity.py` is gated on RAM rather than
+large-query scoring touch a GPU, and only `cta scimilarity` is gated on RAM rather than
 a GPU. The profile decides *how* the `preferred`/`required` rows execute — inline on
 `local_gpu`, handed off on `scheduler` (next section).
 
@@ -121,7 +117,7 @@ on the login node. Only the genuinely GPU/large-memory steps are handed off.
 - GPU results are **not bit-identical** to CPU, and deep models (scVI/scANVI) are
   **stochastic** — seed them (`scvi.settings.seed = 0`; the scripts do) but still report
   predictions as a **hypothesis**, never a verdict.
-- GPU k-NN (`reference_map.py --knn-method rapids`) and any optional GPU clustering/UMAP
+- GPU k-NN (`cta reference-map --knn-method rapids`) and any optional GPU clustering/UMAP
   (e.g. rapids-singlecell, not a default extra) are not bit-identical to their CPU
   equivalents. This skill annotates **pre-existing** clusters and does not re-cluster the
   main object, so this mostly doesn't bite — but if a GPU-accelerated step ever feeds

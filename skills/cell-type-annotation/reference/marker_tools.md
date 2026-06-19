@@ -29,7 +29,7 @@ over the evidence is the arbiter.
     ⚠️ **On targeted/spatial panels, compare AUCell scores RELATIVELY, never absolutely
     across signatures.** A broadly-expressed marker set scores high in *every* cluster
     and can argmax the same broad type everywhere (incl. obvious neurons). Read the
-    per-signature **z-score across clusters** (`score_signatures.py` writes
+    per-signature **z-score across clusters** (`cta score-signatures` writes
     `scores_aucell_z`) and the consolidated `crosscheck` table, and let **COSG
     specificity** + the reference cross-check be primary — not raw AUCell.
   - `ulm` / `mlm` / `viper` are for **weighted TF/pathway regulons, NOT bare marker

@@ -64,7 +64,7 @@ demand). Rationale/algorithm: `reference/methodology.md` §1.
 - **Keep the user oriented.** This is a long, multi-stage, partly-autonomous run — the
   user should never wonder where they are. At each stage and each hierarchy level,
   *say* what you're about to do, why, and what they'll get; before a potentially slow
-  script (scoring a large object, `reference_map.py`, the critic fan-out) give a quick
+  script (scoring a large object, `cta reference-map`, the critic fan-out) give a quick
   heads-up so a quiet terminal reads as "working," not "hung." Announce the three-stage
   map once up front, and tell the user early that the run is **resumable** (everything is
   checkpointed to the working dir — a new session can pick up from the last step).
@@ -86,7 +86,7 @@ and `plan.md` in the working directory first, then continue from
 
 ### Stage 1 — Scene-setting, environment & tooling gate
 
-**1a. Tooling gate — check this FIRST (fail fast, before the venv build).** Two tiers:
+**1a. Tooling gate — check this FIRST (fail fast, before the env build).** Two tiers:
 
 - **`knowledgebase` MCP — hard requirement (strict stop).** The grounded marker/ontology
   evidence. If not configured, **STOP and ask the user to set it up** (don't degrade to
@@ -96,7 +96,7 @@ and `plan.md` in the working directory first, then continue from
 - Verify whichever MCPs are present actually respond before proceeding.
 
 **1b. Detect the compute environment (do this early — it shapes the plan).** Run
-`scripts/detect_env.py` (stdlib-only — works with any python). It reports the accelerator
+`cta detect-env` (stdlib-only — works with any python). It reports the accelerator
 (CUDA / Apple-Silicon MPS / none), usable RAM (clamped to cgroup/scheduler limits), any
 batch scheduler, and a **suggested profile**: `local_cpu` / `local_gpu` / `scheduler`.
 **Confirm it with the user** — and you *must* ask in the one ambiguous case the probe flags:
@@ -106,21 +106,20 @@ confirmed `compute` block in `run_state.json` (schema in `reference/artifacts.md
 **detection only** — never submit a job, never install the GPU stack unasked. Full model:
 `reference/compute_environments.md`.
 
-**1c. Bootstrap the dedicated venv** (needed before `inspect_adata.py`). Run
-`scripts/setup_env.sh` — a reusable Python 3.12 uv venv at
-`~/.cache/cell-type-annotation/venv` (override `$CTA_VENV`) with the scVerse stack,
-**never** touching the user's project environment. All scripts run through this venv.
-On a GPU-capable profile (`local_gpu`/`scheduler`), run `setup_env.sh --profile gpu` to also
-install the GPU / large-memory extras (`requirements-gpu.txt`: scvi-tools, cuml/cudf for
-CellMapper's GPU kNN, scimilarity) — best-effort, and they never downgrade the CPU core.
-**Build the env where the work runs.** `setup_env.sh --profile gpu` only installs the GPU
-extras if a CUDA GPU is visible on the current host; on a login node with no GPU it skips
-them (loudly) and leaves a working CPU core — enough for detection + light steps. So on
-`scheduler`: build the CPU core on the login node, and run `setup_env.sh --profile gpu`
-**inside a GPU job** to add the GPU extras into the *same* venv (put `$CTA_VENV` on a shared
-filesystem — and on a cluster, prefer scratch over a quota-limited home so the multi-GB CUDA
-wheels fit). Pre-staging the GPU extras from a no-GPU host is possible but opt-in
-(`CTA_ALLOW_GPU_BUILD_WITHOUT_GPU=1`). Details: `reference/compute_environments.md`.
+**1c. Bootstrap the environment with pixi** (needed before `cta inspect`). The skill ships a
+`pixi.toml` with two environments; pixi builds an isolated env inside the skill dir
+(`.pixi/`), **never** touching the user's project environment. From the skill directory:
+- **CPU / Apple-Silicon (`local_cpu`):** `pixi install` (the `default` env: scVerse stack).
+  Run every tool as **`pixi run cta <command> …`**.
+- **GPU (`local_gpu`):** `pixi install -e gpu` (adds scvi-tools + cuML/cuDF GPU kNN +
+  scimilarity; Linux + CUDA). Run tools as **`pixi run -e gpu cta <command> …`**.
+
+**Build the env where the work runs.** pixi does not check for a GPU, so only run
+`pixi install -e gpu` **where a GPU actually is**. On `scheduler`: `pixi install` (default)
+on the login node — enough for detection + light steps — and `pixi install -e gpu`
+**inside a GPU job**. On a cluster, put pixi's envs on scratch (not quota-limited home) so
+the multi-GB CUDA env fits and both nodes see it: `pixi config set detached-environments
+<scratch-path>`. Details: `reference/compute_environments.md`.
 
 **1d. Scene-setting.** Inspect the object first to pre-fill inferred answers, then use
 **AskUserQuestion** in **2–3 batched confirm-or-correct rounds** (don't interrogate
@@ -130,7 +129,7 @@ one item at a time) to establish:
   default** (next to the data is often a poor choice).
 - **Keys:** the cluster key (`obs`); the **embedding key** (`obsm`) to use
   everywhere; the **viz embedding** (UMAP/tSNE) for plots; for **spatial** data, the
-  **obsm key holding spatial coordinates** (used by `profile_clusters.py`).
+  **obsm key holding spatial coordinates** (used by `cta profile-clusters`).
 - **Layers:** which layer is **raw counts** and which is **log-normalized** — ask
   explicitly, never infer. (Scoring runs on log-normalized; counts are needed only for
   the normalization fingerprint and optional slim caching.)
@@ -141,12 +140,12 @@ one item at a time) to establish:
 - **Composition covariates — ASK explicitly:** which categorical `obs` columns should
   the per-level reports show cluster composition over (e.g. condition / timepoint /
   batch / donor)? Don't infer silently — surface the candidate categorical `obs`
-  (from `inspect_adata.py`) and have the user pick the ones they care about. These drive
-  both `profile_clusters.py --cat-cols` (investigate-before-`Unknown`) and the report's
-  `build_report.py --split-by` (comma-separated → one composition panel each). Record
-  them in `run_state.json` `cat_cols`. `build_report.py` automatically reuses each
+  (from `cta inspect`) and have the user pick the ones they care about. These drive
+  both `cta profile-clusters --cat-cols` (investigate-before-`Unknown`) and the report's
+  `cta build-report --split-by` (comma-separated → one composition panel each). Record
+  them in `run_state.json` `cat_cols`. `cta build-report` automatically reuses each
   covariate's **original colours** from `adata.uns['<col>_colors']` when present —
-  `inspect_adata.py` reports which columns have them, so confirm the user is happy with
+  `cta inspect` reports which columns have them, so confirm the user is happy with
   those colours (or note none exist). Do NOT assume specific column names.
 - **Label-vocabulary contract:** reuse a specific paper's labels? a controlled
   ontology (Cell Ontology / CellxGene)? or a free hierarchy with explicit per-level
@@ -154,14 +153,14 @@ one item at a time) to establish:
   to fit the tissue)? Whether to normalize final labels to **CL IDs** (recommended).
 - **Reference datasets:** any to map against? Capture, per reference: **path**, the
   **`obs` label column(s)** to transfer, **whether its X is raw counts or
-  log-normalized** (ask — `reference_map.py --ref-counts`), and an optional **`obs`
+  log-normalized** (ask — `cta reference-map --ref-counts`), and an optional **`obs`
   column to stratify the subsample by** (e.g. its cell-type column). These feed
-  `reference_map.py` (CellMapper) and the CellTypist tissue match.
+  `cta reference-map` (CellMapper) and the CellTypist tissue match.
 - **Marker sources:** preferred references, the user's own atlases, marker lists.
 - **Write-back target:** the `obs` key/prefix for the final labels (default
   `cta_L1`..`cta_L4`) — confirm now; the actual write is gated to the END of Stage 3.
 
-**1e. Inspect.** Run `scripts/inspect_adata.py` to verify every key/layer exists and
+**1e. Inspect.** Run `cta inspect` to verify every key/layer exists and
 capture `n_obs`/`n_vars`, cluster sizes, layer stats, `obsm` keys, a
 **normalization fingerprint**, the candidate **`categorical_obs`** (with which have
 `uns` colours), and a **`targeted_panel`** flag. Reconcile any mismatch with the user.
@@ -171,10 +170,10 @@ which expected identities this panel **cannot** resolve because their canonical 
 are off-panel (sets it apart from biology you simply didn't find); revisit it as
 `panel_gating_<level>.csv` reports dropped/uncallable sets per level. This sets
 expectations honestly and prevents reading panel gaps as negative biology.
-For a very large object, optionally run `scripts/prep_slim.py` once to cache a slim
+For a very large object, optionally run `cta prep-slim` once to cache a slim
 copy (chosen embedding + X + counts + obs) so later scripts don't reload the full file.
 
-**Hard stop on normalization.** If `inspect_adata.py` reports anything under `fatal`
+**Hard stop on normalization.** If `cta inspect` reports anything under `fatal`
 — in particular a declared log-normalized layer that fails the fingerprint (e.g.
 `log1p` of *un-normalized* counts, raw counts, or scaled data) — **STOP**. Do not
 compute markers. Wrong normalization makes every downstream marker track sequencing
@@ -189,7 +188,7 @@ as the missing-MCP gate.
 
 With the data understood:
 
-1. **Explore** the object from the `inspect_adata.py` report — cluster sizes,
+1. **Explore** the object from the `cta inspect` report — cluster sizes,
    existing annotations/predictions already in `obs`, embeddings, QC signals.
    Surface any QC red flags (Gate principle: alert, don't fix).
 2. **Gather prior knowledge** for the tissue/context via the knowledge stack
@@ -200,8 +199,8 @@ With the data understood:
    been — say so, and don't burden the user with GPU options. On `local_gpu` / `scheduler`,
    decide and record in `plan.md`: the **reference strategy** (map onto the user's atlas; pull
    a tissue-matched **shipped scANVI model** from the scvi-tools hub if one fits; **train**
-   one with `train_reference_model.py`; or a larger Census slice), whether to use the **GPU
-   kNN backend** for `reference_map.py`, and the **execution mode** — on `scheduler`, mark the
+   one with `cta train-reference-model`; or a larger Census slice), whether to use the **GPU
+   kNN backend** for `cta reference-map`, and the **execution mode** — on `scheduler`, mark the
    GPU-heavy steps "submit via your environment's job-submission mechanism" with their exact
    standalone commands, and never embed a submission command yourself.
 4. **Draft the hierarchy** and the per-level vocabulary, and outline the workflow.
@@ -221,19 +220,19 @@ bring you the assumptions ledger, then a report."* Do this every iteration, not 
 first, so a deep recursion never leaves the user lost.
 
 1. **Assemble priors** → candidate types + markers for this level/context. Optionally
-   seed the marker JSON with `scripts/assemble_markers.py` (from a CellTypist model
+   seed the marker JSON with `cta assemble-markers` (from a CellTypist model
    and/or a reference's `rank_genes_groups`), then curate.
 2. **Panel-gate** every marker set against `adata.var_names`; record dropped genes.
 3. **Score** — two complementary views:
-   - *bottom-up (what defines each cluster):* `scripts/compute_markers.py`
+   - *bottom-up (what defines each cluster):* `cta compute-markers`
      (`rank_genes_groups` wilcoxon + COSG specificity) → marker tables;
-     `scripts/score_signatures.py` (`aucell` + pyUCell + DE-overlap → `scores_aucell_z` +
+     `cta score-signatures` (`aucell` + pyUCell + DE-overlap → `scores_aucell_z` +
      a `crosscheck_<level>` consolidation).
-   - *top-down (how your candidate markers land):* `scripts/profile_markers.py` — score the
+   - *top-down (how your candidate markers land):* `cta profile-markers` — score the
      **curated panel you assembled in step 1** across clusters into per-cluster pct + mean
      matrices (`panel_pct_<level>.csv` / `panel_mean_<level>.csv`) and a dot plot. This is the
      workhorse you reason from cluster-by-cluster ("is marker X on in cluster Y?") and it
-     feeds the cards directly via `scaffold_cards.py --evidence panel_pct_<level>.csv`. Run it
+     feeds the cards directly via `cta scaffold-cards --evidence panel_pct_<level>.csv`. Run it
      once per level on the level's marker JSON.
 
    On targeted panels read `crosscheck`/`scores_aucell_z`, not raw AUCell — COSG specificity +
@@ -242,23 +241,23 @@ first, so a deep recursion never leaves the user lost.
    break a tie); flag agreement/disagreement, never overwrite (`reference/automated_tools.md`):
    - **In-object prediction (preferred when one exists):** if `obs` already carries a
      label-transfer / classifier prediction that fits the level (e.g. a previously-mapped
-     atlas `*_pred`, a CellTypist `predicted_labels`), use `scripts/crosscheck_obs_pred.py`
+     atlas `*_pred`, a CellTypist `predicted_labels`), use `cta crosscheck-obs-pred`
      — free, already reconciled with the object, no recompute.
    - else **Reference-model mapping (GPU profiles — scANVI/scArches):** when on
      `local_gpu`/`scheduler` and a reference model fits the level — a **shipped** scANVI model
-     pulled from the scvi-tools hub (`map_query_scarches.py --hf-repo …`) or one you trained
-     on the user's atlas (`train_reference_model.py` → `map_query_scarches.py --model-dir …`).
+     pulled from the scvi-tools hub (`cta map-scarches --hf-repo …`) or one you trained
+     on the user's atlas (`cta train-reference-model` → `cta map-scarches --model-dir …`).
      scArches surgery transfers labels **with per-cell uncertainty**; prefer this when a
      well-matched model exists. (`reference/compute_environments.md`.)
-   - else **kNN reference mapping:** `scripts/reference_map.py` (CellMapper; CCA cross-modality,
+   - else **kNN reference mapping:** `cta reference-map` (CellMapper; CCA cross-modality,
      PCA same-modality; builds its own joint embedding). On a GPU profile add
      `--knn-method rapids` (needs cuml-cu12) to scale to millions of cells.
-   - else **CellTypist (tissue-gated):** `run_celltypist.py list` → `predict` only if a
+   - else **CellTypist (tissue-gated):** `cta celltypist list` → `predict` only if a
      model fits; **omit if none does** (don't force an ill-fitting model).
    - else **Census reference (fallback):** if the user has no atlas and no CellTypist
-     model fits, `scripts/fetch_census_reference.py` pulls a capped, tissue-matched
+     model fits, `cta fetch-census-reference` pulls a capped, tissue-matched
      subset from CELLxGENE Census (optional `cellxgene-census` extra; network-dependent)
-     to feed `reference_map.py` — so every tissue still gets a reference cross-check.
+     to feed `cta reference-map` — so every tissue still gets a reference cross-check.
      Census labels are author-supplied and heterogeneous, so weight it as corroborating
      signal, not ground truth (`reference/automated_tools.md`).
 5. **Gate A — assumptions ledger (living).** Before any labels at this level, extend
@@ -276,7 +275,7 @@ first, so a deep recursion never leaves the user lost.
 6. **Write evidence cards — reasoning lives in the labels CSV, not hand-edited markdown.**
    The labels table `labels/annotation_<level>.csv` is the **single source of truth**: give
    it `label,cl_id,confidence,rationale,rejected` columns and fill `rationale`/`rejected`
-   per cluster *there*. Then `scripts/scaffold_cards.py` **renders** the cards from it (call +
+   per cluster *there*. Then `cta scaffold-cards` **renders** the cards from it (call +
    reasoning), so re-scaffolding refreshes cards without ever wiping what you wrote — and a
    resumed run recovers the reasoning from one file, not 60 markdown stubs. **Pass
    `--evidence panel_pct_<level>.csv`** (and other scoring tables) so each card also embeds
@@ -284,20 +283,20 @@ first, so a deep recursion never leaves the user lost.
    markdown files is token-heavy, easily skipped, and lost on re-scaffold — the CSV makes it
    durable and lets the step-9 gate verify it. (Card schema: `reference/methodology.md` §4.)
 7. **Assign** a label (normalized to a CL ID) — or, on mutually-exclusive marker
-   co-expression, **sub-cluster and recurse** (`scripts/subcluster.py` — Leiden on the
+   co-expression, **sub-cluster and recurse** (`cta subcluster` — Leiden on the
    anchor embedding + per-sub marker/QC/composition summary); on irreconcilable conflict,
    **mark `Unknown`** (Gate B). **Before defaulting a large/odd cluster to `Unknown`,
-   investigate** it with `scripts/profile_clusters.py` (QC medians + user-named categorical
+   investigate** it with `cta profile-clusters` (QC medians + user-named categorical
    crosstabs + optional spatial) — good-quality cells that resist a clean call are often a
    real early/transitional state, not an artifact. Set `confidence` by judgement, but
-   **calibrate it against `scripts/cluster_confidence.py`** (a COSG-margin + agreement
+   **calibrate it against `cta cluster-confidence`** (a COSG-margin + agreement
    proxy) — a high confidence on a weak-margin cluster is a flag to re-examine.
    **Nesting is mandatory:** a requested hierarchy must nest, so each level's labels must
    **strictly refine the level above** — every finer label maps to exactly one coarser
    label. If a regional split (e.g. ventral telencephalic) cuts across an L1 compartment
    (NPC vs Neuron), *qualify the label by compartment* (`Ventral telencephalic NPC` vs
    `… neuron`) — do NOT reuse one label across two parents. Verify any time with
-   `write_back.py --dry-run` (it runs `cta_io.check_hierarchy_nesting` and refuses a
+   `cta write-back --dry-run` (it runs `cta_io.check_hierarchy_nesting` and refuses a
    non-nested hierarchy); the final write-back enforces it.
 8. **Critic pass.** Spawn independent critic subagents (Agent tool) that read the
    exported **raw tables** (not just the card), re-derive markers, fetch ≥1 external
@@ -305,9 +304,9 @@ first, so a deep recursion never leaves the user lost.
    is the label a coherent refinement of its parent path (flag maturation/regional
    mismatches like an "IPC"/"neuron" L3 under an "NPC" L1 — the kind the deterministic
    nesting check can't catch)? Reconcile; revise or downgrade. (Structural nesting itself
-   is enforced in code — `cta_io.check_hierarchy_nesting` / `write_back.py`.)
+   is enforced in code — `cta_io.check_hierarchy_nesting` / `cta write-back`.)
 9. **Report, gate & checkpoint.** Build the level's HTML report with
-   `scripts/build_report.py` (pass `--adata --cluster-key --viz-key`, plus
+   `cta build-report` (pass `--adata --cluster-key --viz-key`, plus
    `--embedding-key` for the similarity-ordered palette, to embed the numbered
    cell-map + marker dotplot; `--split-by <cols>` — the user's `cat_cols`,
    comma-separated — adds one composition panel per covariate, reusing `uns` colours).
@@ -317,7 +316,7 @@ first, so a deep recursion never leaves the user lost.
    *looking* finished while its reasoning was silently skipped. **Render the report ONCE
    (with `--adata`).** The first `--strict` run before sign-off is *expected* to exit 1
    (gate unsigned) — the report is still written for you to review. After you record the
-   sign-off in `run_state.json`, **clear the gate with `build_report.py --check-only --strict`,
+   sign-off in `run_state.json`, **clear the gate with `cta build-report --check-only --strict`,
    which re-checks read-only and writes nothing — do NOT re-run the renderer to flip the gate**
    (a rebuild that omits `--adata` would needlessly reload the data; figures themselves are
    embedded from the durable PNGs in `plots/`, so they survive such a rebuild either way).
@@ -329,7 +328,7 @@ first, so a deep recursion never leaves the user lost.
 10. **Descend.** Tell the user which parent groups you'll descend into and in what
     order, then recurse at the next level.
 
-**At the end (after the last level): write-back.** Run `scripts/write_back.py --dry-run`
+**At the end (after the last level): write-back.** Run `cta write-back --dry-run`
 first and **show the user its output and the hierarchy-nesting verdict** — that is what
 they're approving. Pass `--embedding-key` (the anchor embedding) so the saved labels get
 the **same similarity-ordered category order and colour palette the reports used**: the
@@ -349,40 +348,41 @@ pseudobulk + PyDESeq2 with a replication requirement, never per-cell. See
 | --- | --- |
 | `reference/methodology.md` | The algorithm, the two gates, evidence cards, critic subagents, sub-cluster decision, panel rules. Read at the start of Stage 3 (Execute). |
 | `reference/artifacts.md` | Working-dir layout, `context.md`/`run_state.json` schemas, report format. Read in Stage 1. |
-| `reference/compute_environments.md` | The three compute profiles, environment detection, the scheduler-handoff convention, GPU caveats. Read in Stage 1 (after `detect_env.py`). |
+| `reference/compute_environments.md` | The three compute profiles, environment detection, the scheduler-handoff convention, GPU caveats. Read in Stage 1 (after `cta detect-env`). |
 | `reference/tool_registry.md` | **Canonical** step→tool→GPU-requirement→profile table. Consult when choosing which tool to run for a step, or whether it needs a GPU. |
 | `reference/marker_tools.md` | decoupler 2.x, pyUCell, COSG, snapseed; scanpy annotation idioms. |
 | `reference/differential_expression.md` | Job A (markers) vs Job B (conditions); exact `rank_genes_groups` call. |
 | `reference/automated_tools.md` | CellTypist, CellMapper, SingleR; what to skip and why. |
 | `reference/knowledge_sources.md` | MCP coverage, CL normalization, Python loaders, atlas references. |
 
-## Scripts
+## Commands (`cta`)
 
-All run through the dedicated venv (`setup_env.sh` first). Each writes durable
-artifacts into the working directory and holds no cross-call state — see headers for
+Every tool is a subcommand of the `cta` CLI, run via **`pixi run cta <command> …`** (add
+`-e gpu` for the GPU tools) after `pixi install` (Stage 1c). Each writes durable artifacts
+into the working directory and holds no cross-call state — run `cta <command> --help` for
 exact arguments. This table is a quick **purpose index**; for which tool serves which step
 and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical map.
 
-| Script | Purpose |
+| Command | Purpose |
 | --- | --- |
-| `scripts/detect_env.py` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
-| `scripts/setup_env.sh` | Bootstrap the reusable uv venv (Python 3.12, scVerse stack). `--profile gpu` also installs the GPU/large-memory extras. |
-| `scripts/inspect_adata.py` | Stage 1: verify keys/layers, dump structure to `context`. |
-| `scripts/prep_slim.py` | Optional: cache a slim AnnData (chosen embedding + X + counts + obs) to avoid reloading huge files. |
-| `scripts/assemble_markers.py` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
-| `scripts/compute_markers.py` | `rank_genes_groups` (wilcoxon, tie_correct) + COSG → marker tables (bottom-up: what defines each cluster). |
-| `scripts/profile_markers.py` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. |
-| `scripts/score_signatures.py` | decoupler `aucell` + pyUCell + DE-overlap; writes z-scored AUCell + a consolidated `crosscheck`. |
-| `scripts/run_celltypist.py` | `list` the remote model index (tissue-gated, no downloads); `predict`/`markers` for a matched model only. |
-| `scripts/reference_map.py` | CellMapper kNN label transfer from a reference (joint CCA/PCA; CPU pynndescent, or GPU `--knn-method rapids` via cuml) — cross-check when no in-object prediction fits. |
-| `scripts/train_reference_model.py` | GPU/large-memory: train (or refine) a scANVI reference model on a labeled atlas (scvi-tools). Reference side of the train-then-map workflow. |
-| `scripts/map_query_scarches.py` | GPU/large-memory: map the query onto a scANVI reference (a model you trained, or a shipped scvi-tools hub model) via scArches surgery — labels + per-cell uncertainty, in the `refmap_*` schema. |
-| `scripts/run_scimilarity.py` | Optional large-memory cross-check: zero-shot per-cell labels via SCimilarity (~64GB RAM + model bundle). Foundation model → additional hypothesis only, never primary. |
-| `scripts/fetch_census_reference.py` | Optional: pull a capped (or, on a large-memory profile, larger) tissue-matched reference subset from CELLxGENE Census (no full-atlas download) to feed `reference_map.py` when the user has no atlas and no CellTypist model fits. Needs the `cellxgene-census` extra + network. |
-| `scripts/crosscheck_obs_pred.py` | Cross-check from an EXISTING in-object prediction column (e.g. a previously-mapped atlas `*_pred`) — no recompute. Prefer over `reference_map.py` when such a column exists and fits the level. |
-| `scripts/subcluster.py` | Refine one/more clusters: Leiden on the anchor embedding + per-sub marker-fraction / QC / composition summary. Standardized sub-clustering (in scope). |
-| `scripts/profile_clusters.py` | QC medians + user-named categorical crosstabs + optional spatial — investigate before `Unknown`. |
-| `scripts/cluster_confidence.py` | Advisory: per-cluster confidence proxy from COSG specificity margin + cross-check agreement — calibrate hand-set confidences against it. |
-| `scripts/scaffold_cards.py` | Render per-cluster evidence cards FROM the labels CSV (`rationale`/`rejected`/`label`/`confidence` columns = single source of truth, so re-scaffold never wipes reasoning); `--evidence <tables>` embeds the ACTUAL numbers behind the call. Sanitizes `/` in ids. |
-| `scripts/build_report.py` | Per-level HTML report from tables + cards; (re)generates the numbered cell-map + marker dotplot + one composition panel per `--split-by` covariate **only with `--adata`**, but always embeds whatever PNGs are in `plots/` (so a no-`--adata` rebuild keeps the figures). `--strict` = the level-completeness gate (labels + filled rationale + signed assumptions gate) before descending; add `--check-only` to re-evaluate the gate read-only (no render, no write) after a sign-off. |
-| `scripts/write_back.py` | Final step (gated): write the per-level labels into `obs` in-place (`--dry-run` first). |
+| `pixi install [-e gpu]` | Bootstrap the env (Stage 1c): `default` = CPU scVerse core; `-e gpu` adds the GPU stack. (Not a `cta` command — pixi builds the env.) |
+| `cta detect-env` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
+| `cta inspect` | Stage 1: verify keys/layers, dump structure to `context`. |
+| `cta prep-slim` | Optional: cache a slim AnnData (chosen embedding + X + counts + obs) to avoid reloading huge files. |
+| `cta assemble-markers` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
+| `cta compute-markers` | `rank_genes_groups` (wilcoxon, tie_correct) + COSG → marker tables (bottom-up: what defines each cluster). |
+| `cta profile-markers` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. |
+| `cta score-signatures` | decoupler `aucell` + pyUCell + DE-overlap; writes z-scored AUCell + a consolidated `crosscheck`. |
+| `cta celltypist` | `list` the remote model index (tissue-gated, no downloads); `predict`/`markers` for a matched model only. |
+| `cta reference-map` | CellMapper kNN label transfer from a reference (joint CCA/PCA; CPU pynndescent, or GPU `--knn-method rapids` via cuml) — cross-check when no in-object prediction fits. |
+| `cta train-reference-model` | GPU/large-memory: train (or refine) a scANVI reference model on a labeled atlas (scvi-tools). Reference side of the train-then-map workflow. |
+| `cta map-scarches` | GPU/large-memory: map the query onto a scANVI reference (a model you trained, or a shipped scvi-tools hub model) via scArches surgery — labels + per-cell uncertainty, in the `refmap_*` schema. |
+| `cta scimilarity` | Optional large-memory cross-check: zero-shot per-cell labels via SCimilarity (~64GB RAM + model bundle). Foundation model → additional hypothesis only, never primary. |
+| `cta fetch-census-reference` | Optional: pull a capped (or, on a large-memory profile, larger) tissue-matched reference subset from CELLxGENE Census (no full-atlas download) to feed `cta reference-map` when the user has no atlas and no CellTypist model fits. Needs the `cellxgene-census` extra + network. |
+| `cta crosscheck-obs-pred` | Cross-check from an EXISTING in-object prediction column (e.g. a previously-mapped atlas `*_pred`) — no recompute. Prefer over `cta reference-map` when such a column exists and fits the level. |
+| `cta subcluster` | Refine one/more clusters: Leiden on the anchor embedding + per-sub marker-fraction / QC / composition summary. Standardized sub-clustering (in scope). |
+| `cta profile-clusters` | QC medians + user-named categorical crosstabs + optional spatial — investigate before `Unknown`. |
+| `cta cluster-confidence` | Advisory: per-cluster confidence proxy from COSG specificity margin + cross-check agreement — calibrate hand-set confidences against it. |
+| `cta scaffold-cards` | Render per-cluster evidence cards FROM the labels CSV (`rationale`/`rejected`/`label`/`confidence` columns = single source of truth, so re-scaffold never wipes reasoning); `--evidence <tables>` embeds the ACTUAL numbers behind the call. Sanitizes `/` in ids. |
+| `cta build-report` | Per-level HTML report from tables + cards; (re)generates the numbered cell-map + marker dotplot + one composition panel per `--split-by` covariate **only with `--adata`**, but always embeds whatever PNGs are in `plots/` (so a no-`--adata` rebuild keeps the figures). `--strict` = the level-completeness gate (labels + filled rationale + signed assumptions gate) before descending; add `--check-only` to re-evaluate the gate read-only (no render, no write) after a sign-off. |
+| `cta write-back` | Final step (gated): write the per-level labels into `obs` in-place (`--dry-run` first). |

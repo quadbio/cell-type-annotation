@@ -27,6 +27,7 @@ test = "python -m pytest"
 python = "3.12.*"
 numpy = ">=2"
 faiss-cpu = "*"
+pytest = "*"
 
 [pypi-dependencies]
 # The skill's own package (the `cta` CLI), installed editable.
