@@ -8,11 +8,14 @@ description: >-
   hierarchy, or interpret scRNA-seq / snRNA-seq / MERSCOPE / Xenium / Visium /
   CosMx clusters — even if they just say "what are these clusters?", "annotate my
   h5ad", "label these cells", or "figure out the cell types". Claude itself is the
-  annotator: it gathers marker evidence, runs scVerse scoring/DE tools on CPU,
-  reasons cluster-by-cluster down a label hierarchy, exposes its assumptions for
-  sign-off, and has critic subagents try to refute every call. CPU/Apple-Silicon,
-  scVerse-first; no GPU or foundation models. Does NOT do normalization, batch
-  correction, or doublet removal (it detects and alerts only).
+  annotator: it gathers marker evidence, runs scVerse scoring/DE tools, reasons
+  cluster-by-cluster down a label hierarchy, exposes its assumptions for sign-off,
+  and has critic subagents try to refute every call. Compute-environment aware:
+  scVerse-first on CPU/Apple-Silicon by default, and when a GPU or large memory is
+  detected it can also download reference atlases, train/refine a reference model and
+  map the query onto it (scANVI/scArches) — every automated call still a hypothesis,
+  never a verdict. Does NOT do normalization, batch correction, or doublet removal
+  (it detects and alerts only).
 license: MIT
 ---
 
@@ -38,7 +41,18 @@ demand). Rationale/algorithm: `reference/methodology.md` §1.
   - **Gate B:** `Unknown` is a first-class label for irreconcilable evidence — a
     justified `Unknown` is a success, not a failure.
 - **Every automated call is a hypothesis, not a verdict.** Flag disagreement between
-  marker reasoning and CellTypist/SingleR/CellMapper; never silently overwrite.
+  marker reasoning and CellTypist/SingleR/CellMapper/scANVI; never silently overwrite.
+  A bigger model (a GPU reference model, a foundation model) earns one more independent
+  opinion to weigh, **not** more authority.
+- **Compute-environment aware.** Detect the environment early and plan accordingly
+  (`reference/compute_environments.md`). On CPU/Apple-Silicon (`local_cpu`) the skill runs
+  exactly as it always has. When a GPU or large memory is present (`local_gpu`), it can also
+  download reference atlases, train/refine a reference model, and map the query onto it
+  (scANVI/scArches), and scale the kNN cross-check on GPU. **Detection only — this skill
+  never submits jobs and never installs the GPU stack unasked.** On a login/submit node
+  (`scheduler`) it writes GPU-heavy steps into the plan to be run via the user's own
+  job-submission mechanism (the artifact-centric scripts run identically inline or submitted)
+  and runs light steps inline.
 - **Artifact-centric.** Heavy compute runs as standalone scripts (via Bash) that
   write durable files; you reason over the files. This is what makes runs resumable
   and lets critic subagents review exported evidence. Keep the working directory
@@ -81,12 +95,34 @@ and `plan.md` in the working directory first, then continue from
   fallback to the `knowledgebase` Europe PMC tools, and offer to proceed.
 - Verify whichever MCPs are present actually respond before proceeding.
 
-**1b. Bootstrap the dedicated venv** (needed before `inspect_adata.py`). Run
+**1b. Detect the compute environment (do this early — it shapes the plan).** Run
+`scripts/detect_env.py` (stdlib-only — works with any python). It reports the accelerator
+(CUDA / Apple-Silicon MPS / none), usable RAM (clamped to cgroup/scheduler limits), any
+batch scheduler, and a **suggested profile**: `local_cpu` / `local_gpu` / `scheduler`.
+**Confirm it with the user** — and you *must* ask in the one ambiguous case the probe flags:
+a host with a scheduler on PATH but no local GPU is **either** a login/submit node whose
+GPUs live on compute nodes (`scheduler`) **or** a plain CPU host (`local_cpu`). Record the
+confirmed `compute` block in `run_state.json` (schema in `reference/artifacts.md`). This is
+**detection only** — never submit a job, never install the GPU stack unasked. Full model:
+`reference/compute_environments.md`.
+
+**1c. Bootstrap the dedicated venv** (needed before `inspect_adata.py`). Run
 `scripts/setup_env.sh` — a reusable Python 3.12 uv venv at
 `~/.cache/cell-type-annotation/venv` (override `$CTA_VENV`) with the scVerse stack,
 **never** touching the user's project environment. All scripts run through this venv.
+On a GPU-capable profile (`local_gpu`/`scheduler`), run `setup_env.sh --profile gpu` to also
+install the GPU / large-memory extras (`requirements-gpu.txt`: scvi-tools, cuml/cudf for
+CellMapper's GPU kNN, scimilarity) — best-effort, and they never downgrade the CPU core.
+**Build the env where the work runs.** `setup_env.sh --profile gpu` only installs the GPU
+extras if a CUDA GPU is visible on the current host; on a login node with no GPU it skips
+them (loudly) and leaves a working CPU core — enough for detection + light steps. So on
+`scheduler`: build the CPU core on the login node, and run `setup_env.sh --profile gpu`
+**inside a GPU job** to add the GPU extras into the *same* venv (put `$CTA_VENV` on a shared
+filesystem — and on a cluster, prefer scratch over a quota-limited home so the multi-GB CUDA
+wheels fit). Pre-staging the GPU extras from a no-GPU host is possible but opt-in
+(`CTA_ALLOW_GPU_BUILD_WITHOUT_GPU=1`). Details: `reference/compute_environments.md`.
 
-**1c. Scene-setting.** Inspect the object first to pre-fill inferred answers, then use
+**1d. Scene-setting.** Inspect the object first to pre-fill inferred answers, then use
 **AskUserQuestion** in **2–3 batched confirm-or-correct rounds** (don't interrogate
 one item at a time) to establish:
 
@@ -125,7 +161,7 @@ one item at a time) to establish:
 - **Write-back target:** the `obs` key/prefix for the final labels (default
   `cta_L1`..`cta_L4`) — confirm now; the actual write is gated to the END of Stage 3.
 
-**1d. Inspect.** Run `scripts/inspect_adata.py` to verify every key/layer exists and
+**1e. Inspect.** Run `scripts/inspect_adata.py` to verify every key/layer exists and
 capture `n_obs`/`n_vars`, cluster sizes, layer stats, `obsm` keys, a
 **normalization fingerprint**, the candidate **`categorical_obs`** (with which have
 `uns` colours), and a **`targeted_panel`** flag. Reconcile any mismatch with the user.
@@ -159,7 +195,16 @@ With the data understood:
 2. **Gather prior knowledge** for the tissue/context via the knowledge stack
    (Zotero first if configured, then the knowledgebase MCP, CellTypist models, curated DBs, the
    user's atlases). See `reference/knowledge_sources.md`.
-3. **Draft the hierarchy** and the per-level vocabulary, and outline the workflow.
+3. **Branch the workflow on the compute profile** (from Stage 1b; full matrix in
+   `reference/compute_environments.md`). On `local_cpu` the plan is exactly as it always has
+   been — say so, and don't burden the user with GPU options. On `local_gpu` / `scheduler`,
+   decide and record in `plan.md`: the **reference strategy** (map onto the user's atlas; pull
+   a tissue-matched **shipped scANVI model** from the scvi-tools hub if one fits; **train**
+   one with `train_reference_model.py`; or a larger Census slice), whether to use the **GPU
+   kNN backend** for `reference_map.py`, and the **execution mode** — on `scheduler`, mark the
+   GPU-heavy steps "submit via your environment's job-submission mechanism" with their exact
+   standalone commands, and never embed a submission command yourself.
+4. **Draft the hierarchy** and the per-level vocabulary, and outline the workflow.
    Write `plan.md`. Present it to the user.
 
 ---
@@ -199,8 +244,15 @@ first, so a deep recursion never leaves the user lost.
      label-transfer / classifier prediction that fits the level (e.g. a previously-mapped
      atlas `*_pred`, a CellTypist `predicted_labels`), use `scripts/crosscheck_obs_pred.py`
      — free, already reconciled with the object, no recompute.
-   - else **Reference mapping:** `scripts/reference_map.py` (CellMapper; CCA cross-modality,
-     PCA same-modality; builds its own joint embedding).
+   - else **Reference-model mapping (GPU profiles — scANVI/scArches):** when on
+     `local_gpu`/`scheduler` and a reference model fits the level — a **shipped** scANVI model
+     pulled from the scvi-tools hub (`map_query_scarches.py --hf-repo …`) or one you trained
+     on the user's atlas (`train_reference_model.py` → `map_query_scarches.py --model-dir …`).
+     scArches surgery transfers labels **with per-cell uncertainty**; prefer this when a
+     well-matched model exists. (`reference/compute_environments.md`.)
+   - else **kNN reference mapping:** `scripts/reference_map.py` (CellMapper; CCA cross-modality,
+     PCA same-modality; builds its own joint embedding). On a GPU profile add
+     `--knn-method rapids` (needs cuml-cu12) to scale to millions of cells.
    - else **CellTypist (tissue-gated):** `run_celltypist.py list` → `predict` only if a
      model fits; **omit if none does** (don't force an ill-fitting model).
    - else **Census reference (fallback):** if the user has no atlas and no CellTypist
@@ -297,6 +349,8 @@ pseudobulk + PyDESeq2 with a replication requirement, never per-cell. See
 | --- | --- |
 | `reference/methodology.md` | The algorithm, the two gates, evidence cards, critic subagents, sub-cluster decision, panel rules. Read at the start of Stage 3 (Execute). |
 | `reference/artifacts.md` | Working-dir layout, `context.md`/`run_state.json` schemas, report format. Read in Stage 1. |
+| `reference/compute_environments.md` | The three compute profiles, environment detection, the scheduler-handoff convention, GPU caveats. Read in Stage 1 (after `detect_env.py`). |
+| `reference/tool_registry.md` | **Canonical** step→tool→GPU-requirement→profile table. Consult when choosing which tool to run for a step, or whether it needs a GPU. |
 | `reference/marker_tools.md` | decoupler 2.x, pyUCell, COSG, snapseed; scanpy annotation idioms. |
 | `reference/differential_expression.md` | Job A (markers) vs Job B (conditions); exact `rank_genes_groups` call. |
 | `reference/automated_tools.md` | CellTypist, CellMapper, SingleR; what to skip and why. |
@@ -306,11 +360,13 @@ pseudobulk + PyDESeq2 with a replication requirement, never per-cell. See
 
 All run through the dedicated venv (`setup_env.sh` first). Each writes durable
 artifacts into the working directory and holds no cross-call state — see headers for
-exact arguments.
+exact arguments. This table is a quick **purpose index**; for which tool serves which step
+and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical map.
 
 | Script | Purpose |
 | --- | --- |
-| `scripts/setup_env.sh` | Bootstrap the reusable uv venv (Python 3.12, scVerse stack). |
+| `scripts/detect_env.py` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
+| `scripts/setup_env.sh` | Bootstrap the reusable uv venv (Python 3.12, scVerse stack). `--profile gpu` also installs the GPU/large-memory extras. |
 | `scripts/inspect_adata.py` | Stage 1: verify keys/layers, dump structure to `context`. |
 | `scripts/prep_slim.py` | Optional: cache a slim AnnData (chosen embedding + X + counts + obs) to avoid reloading huge files. |
 | `scripts/assemble_markers.py` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
@@ -318,8 +374,11 @@ exact arguments.
 | `scripts/profile_markers.py` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. |
 | `scripts/score_signatures.py` | decoupler `aucell` + pyUCell + DE-overlap; writes z-scored AUCell + a consolidated `crosscheck`. |
 | `scripts/run_celltypist.py` | `list` the remote model index (tissue-gated, no downloads); `predict`/`markers` for a matched model only. |
-| `scripts/reference_map.py` | CellMapper kNN label transfer from a reference (joint CCA/PCA, CPU pynndescent) — cross-check when no in-object prediction fits. |
-| `scripts/fetch_census_reference.py` | Optional: pull a capped, tissue-matched reference subset from CELLxGENE Census (no full-atlas download) to feed `reference_map.py` when the user has no atlas and no CellTypist model fits. Needs the `cellxgene-census` extra + network. |
+| `scripts/reference_map.py` | CellMapper kNN label transfer from a reference (joint CCA/PCA; CPU pynndescent, or GPU `--knn-method rapids` via cuml) — cross-check when no in-object prediction fits. |
+| `scripts/train_reference_model.py` | GPU/large-memory: train (or refine) a scANVI reference model on a labeled atlas (scvi-tools). Reference side of the train-then-map workflow. |
+| `scripts/map_query_scarches.py` | GPU/large-memory: map the query onto a scANVI reference (a model you trained, or a shipped scvi-tools hub model) via scArches surgery — labels + per-cell uncertainty, in the `refmap_*` schema. |
+| `scripts/run_scimilarity.py` | Optional large-memory cross-check: zero-shot per-cell labels via SCimilarity (~64GB RAM + model bundle). Foundation model → additional hypothesis only, never primary. |
+| `scripts/fetch_census_reference.py` | Optional: pull a capped (or, on a large-memory profile, larger) tissue-matched reference subset from CELLxGENE Census (no full-atlas download) to feed `reference_map.py` when the user has no atlas and no CellTypist model fits. Needs the `cellxgene-census` extra + network. |
 | `scripts/crosscheck_obs_pred.py` | Cross-check from an EXISTING in-object prediction column (e.g. a previously-mapped atlas `*_pred`) — no recompute. Prefer over `reference_map.py` when such a column exists and fits the level. |
 | `scripts/subcluster.py` | Refine one/more clusters: Leiden on the anchor embedding + per-sub marker-fraction / QC / composition summary. Standardized sub-clustering (in scope). |
 | `scripts/profile_clusters.py` | QC medians + user-named categorical crosstabs + optional spatial — investigate before `Unknown`. |

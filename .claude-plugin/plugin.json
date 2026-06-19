@@ -1,7 +1,7 @@
 {
   "name": "cell-type-annotation",
   "version": "0.1.0",
-  "description": "Evidence-driven, project-agnostic cell-type annotation of pre-clustered single-cell and spatial transcriptomics data. CPU/scVerse-first; Claude is the annotator.",
+  "description": "Evidence-driven, project-agnostic cell-type annotation of pre-clustered single-cell and spatial transcriptomics data. Compute-environment-aware (CPU/Apple-Silicon by default, GPU/large-memory reference-model mapping when available); scVerse-first; Claude is the annotator.",
   "author": {
     "name": "quadbio"
   },
