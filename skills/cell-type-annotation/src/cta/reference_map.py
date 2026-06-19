@@ -32,7 +32,7 @@ import pandas as pd
 import scanpy as sc
 from scipy.sparse import issparse
 
-from cta.io import (eprint, load_adata, require_obs, resolve_expression,
+from cta.io import (aggregate_predictions, eprint, load_adata, require_obs, resolve_expression,
                  resolve_workdir, safe_cluster_id, save_table, split_csv)
 
 MIN_SHARED_GENES = 30
@@ -105,31 +105,6 @@ def _read_reference_subsampled(path, label_cols, max_ref: int, stratify_col: str
     return ref
 
 
-def _aggregate(clusters: np.ndarray, labels: np.ndarray, conf: np.ndarray,
-               method: str) -> pd.DataFrame:
-    """Per cluster: majority label + frac, runner-up + frac, mean confidence."""
-    df = pd.DataFrame({"cluster": clusters, "label": labels, "conf": conf})
-    rows = []
-    for cl, g in df.groupby("cluster", sort=True):
-        counts = g["label"].value_counts()
-        n = counts.sum()
-        top1 = counts.index[0]
-        frac1 = float(counts.iloc[0] / n)
-        if len(counts) > 1:
-            top2 = counts.index[1]
-            frac2 = float(counts.iloc[1] / n)
-        else:
-            top2, frac2 = "", 0.0
-        rows.append({
-            "cluster": cl,
-            "top1": top1,
-            "frac1": round(frac1, 4),
-            "top2": top2,
-            "frac2": round(frac2, 4),
-            "mean_conf": round(float(g["conf"].mean()), 4),
-            "method": method,
-        })
-    return pd.DataFrame(rows)
 
 
 def _shared_genes(query, reference):
@@ -254,7 +229,7 @@ def main():
     for col in label_cols:
         pred = query.obs[f"{col}_pred"].astype(str).values
         conf = np.asarray(query.obs[f"{col}_conf"].values, dtype=float)
-        out = _aggregate(clusters, pred, conf, method)
+        out = aggregate_predictions(clusters, pred, conf, method)
         save_table(out, wd, f"refmap_{args.level}_{safe_cluster_id(col)}.csv")
     eprint(">> done")
 
@@ -283,7 +258,7 @@ def _parse_args():
     ap.add_argument("--knn-method", default="pynndescent",
                     help="CellMapper kNN backend. CPU: 'pynndescent' (default), 'sklearn', "
                          "'faiss-cpu'. GPU: 'rapids' (seconds over millions of cells; needs "
-                         "cuml-cu12 from requirements-gpu.txt) or 'faiss-gpu' (needs a working "
+                         "cuml-cu12 from the gpu env, `pixi install -e gpu`) or 'faiss-gpu' (needs a working "
                          "faiss-gpu build — prefer the conda one; the pip wheel is often ABI-"
                          "broken). On a GPU profile use 'rapids' to scale this cross-check.")
     ap.add_argument("--max-ref", type=int, default=200000)

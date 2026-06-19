@@ -265,3 +265,25 @@ def read_markers_json(path: str) -> dict[str, list[str]]:
     if not isinstance(data, dict):
         raise SystemExit("ERROR: markers JSON must be an object {type: [genes]}")
     return {str(k): list(map(str, v)) for k, v in data.items()}
+
+
+def aggregate_predictions(clusters, labels, conf, method: str) -> pd.DataFrame:
+    """Per-cluster summary of transferred per-cell labels — the shared `refmap_*` schema.
+
+    Used by every label-transfer cross-check (reference_map / map_query_scarches /
+    run_scimilarity) so they emit an identical table:
+    ``cluster, top1, frac1, top2, frac2, mean_conf, method``. `mean_conf` is NaN-safe
+    (blank when no finite confidences exist, e.g. a method with no per-cell score).
+    """
+    df = pd.DataFrame({"cluster": clusters, "label": labels, "conf": conf})
+    rows = []
+    for cl, g in df.groupby("cluster", sort=True):
+        vc = g["label"].value_counts()
+        n = vc.sum()
+        top1, frac1 = vc.index[0], round(float(vc.iloc[0] / n), 4)
+        top2, frac2 = (vc.index[1], round(float(vc.iloc[1] / n), 4)) if len(vc) > 1 else ("", 0.0)
+        c = np.asarray(g["conf"], dtype=float)
+        mean_conf = round(float(np.nanmean(c)), 4) if np.isfinite(c).any() else ""
+        rows.append({"cluster": cl, "top1": top1, "frac1": frac1, "top2": top2,
+                     "frac2": frac2, "mean_conf": mean_conf, "method": method})
+    return pd.DataFrame(rows)

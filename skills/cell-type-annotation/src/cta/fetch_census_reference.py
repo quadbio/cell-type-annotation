@@ -51,17 +51,15 @@ def _import_census():
     """Guarded import: cellxgene_census is an optional extra, not a core dependency.
 
     Absence must be a clean, actionable SystemExit (never a traceback) — it ships in
-    the skill's requirements-extra.txt as a best-effort install.
+    the skill's pixi env (`pixi install`).
     """
     try:
         import cellxgene_census  # noqa: F401
     except ImportError:
         raise SystemExit(
-            "ERROR: cellxgene_census is not installed. It is an optional extra for the "
-            "cell-type-annotation skill. Install it with:\n"
-            "   pip install cellxgene-census\n"
-            "(or via the skill's requirements-extra.txt). It pulls a remote TileDB-SOMA "
-            "store over S3, so a working network connection is also required."
+            "ERROR: cellxgene_census is not installed. It ships in the skill's pixi env — run "
+            "`pixi install` (from the skill dir) to build it. It pulls a remote "
+            "TileDB-SOMA store over S3, so a working network connection is also required."
         )
     return cellxgene_census
 

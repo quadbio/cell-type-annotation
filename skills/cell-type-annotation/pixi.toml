@@ -36,6 +36,10 @@ cta = { path = ".", editable = true }
 # scVerse marker/annotation stack.
 scanpy = ">=1.10"
 anndata = ">=0.10"
+# pandas + scipy are used directly across the package (not just via scanpy) — declare them
+# explicitly so a future scanpy that loosens them can't silently break us.
+pandas = "*"
+scipy = "*"
 decoupler = ">=2.0"
 cosg = "*"
 celltypist = "*"

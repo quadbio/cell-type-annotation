@@ -98,9 +98,9 @@ When the confirmed profile is `scheduler`, the GPU-heavy scripts above run **som
 process can't reach directly**. This skill therefore:
 
 1. **Writes the standalone command** for each heavy step into `plan.md` (and narrates it in
-   chat) — the exact `python <script>.py …` invocation, plus its inputs/outputs in the
-   working dir — so it can be executed by whatever job-submission mechanism the user's
-   environment provides.
+   chat) — the exact `pixi run -e gpu cta <command> …` invocation, plus its inputs/outputs
+   in the working dir — so it can be executed by whatever job-submission mechanism the
+   user's environment provides.
 2. **Marks those steps "submit, don't run inline"** and pauses for the user to run them via
    their own mechanism, then resumes from the durable artifacts (the run is resumable —
    `run_state.json`).

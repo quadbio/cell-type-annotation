@@ -58,10 +58,9 @@ def main():
         import scvi
     except ImportError:
         raise SystemExit(
-            "ERROR: scvi-tools is not installed. It is a GPU/large-memory extra for this "
-            "skill (requirements-gpu.txt). Install with:\n"
-            "   pip install scvi-tools\n"
-            "Then re-run. (CPU works but is slow; CUDA or Apple-Silicon MPS is preferred.)"
+            "ERROR: scvi-tools is not installed. It is in the skill's `gpu` pixi env — run "
+            "`pixi install -e gpu`. (CPU works but is slow; CUDA or Apple-Silicon MPS "
+            "is preferred.)"
         )
 
     accel = _resolve_accelerator(args.accelerator)

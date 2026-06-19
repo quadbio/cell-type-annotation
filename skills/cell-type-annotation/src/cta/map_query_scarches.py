@@ -41,10 +41,9 @@ import argparse
 import platform
 
 import numpy as np
-import pandas as pd
 import scanpy as sc
 
-from cta.io import (eprint, require_obs, resolve_workdir, safe_cluster_id,
+from cta.io import (aggregate_predictions, eprint, require_obs, resolve_workdir, safe_cluster_id,
                     save_table)
 
 
@@ -76,17 +75,6 @@ def _place_counts(query, src_layer: str, ref_layer: str) -> None:
         query.layers[ref_layer] = counts
 
 
-def _aggregate(clusters, labels, conf) -> pd.DataFrame:
-    df = pd.DataFrame({"cluster": clusters, "label": labels, "conf": conf})
-    rows = []
-    for cl, g in df.groupby("cluster", sort=True):
-        vc = g["label"].value_counts()
-        n = vc.sum()
-        top1, frac1 = vc.index[0], round(float(vc.iloc[0] / n), 4)
-        top2, frac2 = (vc.index[1], round(float(vc.iloc[1] / n), 4)) if len(vc) > 1 else ("", 0.0)
-        rows.append(dict(cluster=cl, top1=top1, frac1=frac1, top2=top2, frac2=frac2,
-                         mean_conf=round(float(g["conf"].mean()), 4), method="scarches-scanvi"))
-    return pd.DataFrame(rows)
 
 
 def main():
@@ -98,9 +86,9 @@ def main():
         import scvi
     except ImportError:
         raise SystemExit(
-            "ERROR: scvi-tools is not installed. It is a GPU/large-memory extra for this "
-            "skill (requirements-gpu.txt). Install with:\n   pip install scvi-tools\n"
-            "(scArches surgery ships inside scvi-tools; CUDA or Apple-Silicon MPS preferred.)"
+            "ERROR: scvi-tools is not installed. It is in the skill's `gpu` pixi env — run "
+            "`pixi install -e gpu` (on a GPU host/node). scArches surgery ships inside "
+            "scvi-tools; CUDA or Apple-Silicon MPS preferred."
         )
 
     accel = _resolve_accelerator(args.accelerator)
@@ -149,7 +137,7 @@ def main():
     # Persist the per-cell latent + prediction onto the query is optional; the skill
     # reasons from the per-cluster table, so we only write that (no query mutation on disk).
     clusters = query.obs[args.cluster_key].astype(str).to_numpy()
-    out = _aggregate(clusters, pred, conf)
+    out = aggregate_predictions(clusters, pred, conf, "scarches-scanvi")
     wd = resolve_workdir(args.workdir)
     save_table(out, wd, f"refmap_{args.level}_{safe_cluster_id(args.label_col)}.csv")
     eprint(f">> done. {len(out)} clusters; mean confidence "
