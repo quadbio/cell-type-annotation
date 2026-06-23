@@ -27,28 +27,11 @@ tables/refmodel_summary.csv.
 """
 from __future__ import annotations
 
-import platform
 from typing import Optional
 
 import typer
 
-from cta.io import eprint, require_obs, resolve_workdir, save_table
-
-
-def _resolve_accelerator(choice: str) -> str:
-    """'auto' -> cuda if available, else mps on Apple-Silicon, else cpu."""
-    if choice != "auto":
-        return choice
-    try:
-        import torch
-        if torch.cuda.is_available():
-            return "cuda"
-        if (platform.system() == "Darwin" and platform.machine() == "arm64"
-                and torch.backends.mps.is_available()):
-            return "mps"
-    except Exception:  # noqa: BLE001
-        pass
-    return "cpu"
+from cta.io import eprint, require_obs, resolve_accelerator, resolve_workdir, save_table
 
 
 def cli(
@@ -83,7 +66,7 @@ def cli(
             "is preferred.)"
         )
 
-    accel = _resolve_accelerator(accelerator)
+    accel = resolve_accelerator(accelerator)
     eprint(f">> accelerator: {accel}")
     try:
         scvi.settings.seed = 0  # reproducibility (GPU is still not bit-identical)

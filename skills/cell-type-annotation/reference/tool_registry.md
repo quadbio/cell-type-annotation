@@ -2,8 +2,8 @@
 
 **The single source of truth for tool selection.** One row per tool, in workflow order:
 what step it serves, whether it needs a GPU, which compute profile it belongs to, and the
-method behind it. When you add, remove, or re-scope a script, **update this table** — other
-docs point here rather than restate it (SKILL.md's Scripts table stays a terse index;
+method behind it. When you add, remove, or re-scope a command, **update this table** — other
+docs point here rather than restate it (SKILL.md's Commands table stays a terse index;
 `compute_environments.md` owns the profiles themselves). Profiles are defined in
 `reference/compute_environments.md`; the hypothesis-not-verdict bar in
 `reference/automated_tools.md`.

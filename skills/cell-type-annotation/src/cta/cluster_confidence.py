@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import typer
 
+from cta.constants import (CONFIDENCE_AGREEMENT_BOOST, CONFIDENCE_BANDS, CONFIDENCE_BASE,
+                           CONFIDENCE_CAP)
 from cta.io import eprint, resolve_workdir
 
 
@@ -53,21 +55,16 @@ def cli(
         top2 = scores[1] if len(scores) > 1 else 0.0
         margin = top1 - top2
         n_strong = int(sum(s >= strong_thresh for s in scores))
-        # crude, transparent banding: strong & well-separated -> high; weak -> low
-        conf = 0.5
-        if top1 >= 0.05 and n_strong >= 3:
-            conf = 0.9
-        elif top1 >= 0.03 and n_strong >= 2:
-            conf = 0.8
-        elif top1 >= 0.02:
-            conf = 0.7
-        elif top1 >= 0.01:
-            conf = 0.6
-        else:
-            conf = 0.45
+        # crude, transparent banding (thresholds in cta.constants): strong & well-separated
+        # -> high; weak -> low. First matching band wins; CONFIDENCE_BASE if none.
+        conf = CONFIDENCE_BASE
+        for min_top1, min_strong, band_conf in CONFIDENCE_BANDS:
+            if top1 >= min_top1 and n_strong >= min_strong:
+                conf = band_conf
+                break
         a = agree.get(str(cl)) if agree else None
         if a is not None and not pd.isna(a):
-            conf = min(0.95, conf + 0.05 * (a - 1))   # +0.05 per extra concurring method
+            conf = min(CONFIDENCE_CAP, conf + CONFIDENCE_AGREEMENT_BOOST * (a - 1))
         rows.append(dict(cluster=str(cl), cosg_top1=round(top1, 4),
                          cosg_margin=round(margin, 4), n_strong=n_strong,
                          agree=("" if a is None else a),

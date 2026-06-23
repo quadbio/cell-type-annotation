@@ -35,6 +35,7 @@ from typing import Optional
 import pandas as pd
 import typer
 
+from cta.constants import REPORT_LOW_CONF_THRESHOLD
 from cta.io import eprint, is_unknown_label, resolve_workdir, safe_cluster_id
 
 
@@ -117,7 +118,7 @@ def _status_badge(status: str, conf):
     if status in ("unknown",):
         return '<span class="badge unknown">UNKNOWN</span>'
     try:
-        if conf is not None and float(conf) < 0.6:
+        if conf is not None and float(conf) < REPORT_LOW_CONF_THRESHOLD:
             return '<span class="badge lowconf">LOW CONF</span>'
     except (TypeError, ValueError):
         pass
@@ -269,7 +270,7 @@ def cli(
         if is_unknown_label(str(row.get("label", ""))):
             return True
         try:
-            return float(row.get("confidence", 1)) < 0.6
+            return float(row.get("confidence", 1)) < REPORT_LOW_CONF_THRESHOLD
         except (TypeError, ValueError):
             return False
 

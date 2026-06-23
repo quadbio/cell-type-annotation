@@ -32,7 +32,7 @@ from typing import Optional
 import pandas as pd
 import typer
 
-from cta.io import (eprint, load_adata, require_obs, resolve_expression,
+from cta.io import (adata_with_lognorm_X, eprint, load_adata, require_obs,
                  resolve_workdir, safe_cluster_id, save_table)
 
 app = typer.Typer()
@@ -120,12 +120,9 @@ def predict(
     model = _ensure_model(model)
     adata_obj = load_adata(adata)
     require_obs(adata_obj, cluster_key, "cluster key")
-    X = resolve_expression(adata_obj, lognorm_layer)
-    if lognorm_layer is not None:
-        adata_obj = adata_obj.copy()
-        adata_obj.X = X
+    adata_obj = adata_with_lognorm_X(adata_obj, lognorm_layer)
 
-    # CellTypist expects log1p of 1e4-normalized counts. resolve_expression() already
+    # CellTypist expects log1p of 1e4-normalized counts. adata_with_lognorm_X already
     # warned if the chosen matrix doesn't look log1p; CellTypist itself re-checks.
     # IMPORTANT: pass over_clustering=cluster_key so majority voting is computed over
     # the USER's clusters (else CellTypist runs its own internal Leiden and the

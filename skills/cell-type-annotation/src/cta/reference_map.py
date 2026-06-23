@@ -32,10 +32,9 @@ import pandas as pd
 import typer
 from scipy.sparse import issparse
 
+from cta.constants import MIN_SHARED_GENES, NORMALIZE_TARGET_SUM
 from cta.io import (aggregate_predictions, eprint, load_adata, require_obs, resolve_expression,
                  resolve_workdir, safe_cluster_id, save_table, split_csv)
-
-MIN_SHARED_GENES = 30
 
 
 def _looks_like_counts(X) -> bool:
@@ -56,7 +55,7 @@ def _normalize_reference(ref, ref_counts_flag: bool) -> None:
     do_norm = ref_counts_flag or _looks_like_counts(ref.X)
     if do_norm:
         eprint("   reference looks like counts -> normalize_total(1e4) + log1p")
-        sc.pp.normalize_total(ref, target_sum=1e4)
+        sc.pp.normalize_total(ref, target_sum=NORMALIZE_TARGET_SUM)
         sc.pp.log1p(ref)
     else:
         eprint("   reference treated as already log-normalized (use --ref-counts to force)")

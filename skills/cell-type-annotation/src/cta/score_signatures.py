@@ -39,13 +39,9 @@ import numpy as np
 import pandas as pd
 import typer
 
-from cta.io import (eprint, load_adata, panel_gate, require_obs, resolve_expression,
+from cta.constants import MIN_ON_PANEL_MARKERS
+from cta.io import (adata_with_lognorm_X, eprint, load_adata, panel_gate, require_obs,
                  resolve_workdir, save_table)
-
-# A candidate with fewer than this many on-panel positive markers cannot be
-# meaningfully falsified on this panel — treat it as UNCALLABLE (a contributor to
-# Unknown, per methodology.md §6), not as a low/zero score that reads as "absent".
-MIN_ON_PANEL_MARKERS = 2
 
 
 def _split_pos_neg(markers: dict):
@@ -94,10 +90,7 @@ def cli(
     wd = resolve_workdir(workdir)
     adata_obj = load_adata(adata)
     require_obs(adata_obj, cluster_key, "cluster key")
-    X = resolve_expression(adata_obj, lognorm_layer)
-    if lognorm_layer is not None:
-        adata_obj = adata_obj.copy()
-        adata_obj.X = X
+    adata_obj = adata_with_lognorm_X(adata_obj, lognorm_layer)
     adata_obj.obs[cluster_key] = adata_obj.obs[cluster_key].astype("category")
 
     raw = json.loads(Path(markers).expanduser().read_text())
@@ -184,7 +177,7 @@ def cli(
             # same broad type for every cluster); the z-table is what to compare.
             std = by_cluster.std(ddof=0).replace(0, np.nan)
             z = (by_cluster - by_cluster.mean()) / std
-            save_table(z.reset_index(), wd, f"scores_aucell_z_{args.level}.csv")
+            save_table(z.reset_index(), wd, f"scores_aucell_z_{level}.csv")
         else:
             eprint("   WARN: could not locate aucell result in adata.obsm")
     except Exception as e:  # noqa: BLE001
