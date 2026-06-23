@@ -36,7 +36,9 @@ import pandas as pd
 import typer
 
 from cta.constants import REPORT_LOW_CONF_THRESHOLD
-from cta.io import eprint, is_unknown_label, resolve_workdir, safe_cluster_id
+from cta.io import (
+    LEVEL_REQ_OPT, WORKDIR_OPT, eprint, is_unknown_label, resolve_workdir,
+    safe_cluster_id)
 
 
 def md_to_html(s: str) -> str:
@@ -182,8 +184,8 @@ def _print_gate(problems: list[str], warnings: list[str]) -> None:
 
 
 def cli(
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option(..., help="hierarchy level tag, e.g. L1"),
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_REQ_OPT,
     title: Optional[str] = typer.Option(None, help="report title"),
     adata: Optional[str] = typer.Option(
         None, help="enable plots (UMAP/dotplot/composition)"),

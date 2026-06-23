@@ -33,8 +33,10 @@ import typer
 from scipy.sparse import issparse
 
 from cta.constants import MIN_SHARED_GENES, NORMALIZE_TARGET_SUM
-from cta.io import (aggregate_predictions, eprint, load_adata, require_obs, resolve_expression,
-                 resolve_workdir, safe_cluster_id, save_table, split_csv)
+from cta.io import (
+    CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, aggregate_predictions, eprint,
+    load_adata, require_obs, resolve_expression, resolve_workdir,
+    safe_cluster_id, save_table, split_csv, stratified_subsample_positions)
 
 
 def _looks_like_counts(X) -> bool:
@@ -62,26 +64,16 @@ def _normalize_reference(ref, ref_counts_flag: bool) -> None:
 
 
 def _subsample_indices(obs, n_obs: int, max_ref: int, stratify_col: str | None):
-    """Fixed-seed indices for a <= max_ref subsample, stratified if a column is given."""
-    rng = np.random.default_rng(0)
+    """Fixed-seed row positions for a <= max_ref subsample, stratified if a column is given."""
+    groups = None
     if stratify_col is not None:
         if stratify_col not in obs:
             raise SystemExit(f"ERROR: stratify column '{stratify_col}' not in reference obs")
         groups = obs[stratify_col].astype(str).values
-        cats, counts = np.unique(groups, return_counts=True)
-        alloc = np.maximum(1, np.round(counts / counts.sum() * max_ref).astype(int))
-        picks = []
-        for cat, n_take in zip(cats, alloc):
-            idx = np.flatnonzero(groups == cat)
-            picks.append(rng.choice(idx, size=min(n_take, idx.size), replace=False))
-        sel = np.concatenate(picks)
-        if sel.size > max_ref:
-            sel = rng.choice(sel, size=max_ref, replace=False)
-        eprint(f"   stratified subsample by '{stratify_col}': {n_obs} -> {sel.size} cells")
-    else:
-        sel = rng.choice(n_obs, size=max_ref, replace=False)
-        eprint(f"   random subsample: {n_obs} -> {sel.size} cells")
-    return np.sort(sel)
+    sel = stratified_subsample_positions(n_obs, max_ref, groups)
+    kind = f"stratified subsample by '{stratify_col}'" if stratify_col else "random subsample"
+    eprint(f"   {kind}: {n_obs} -> {sel.size} cells")
+    return sel
 
 
 def _read_reference_subsampled(path, label_cols, max_ref: int, stratify_col: str | None):
@@ -196,11 +188,11 @@ def cli(
         ..., "--query", "--adata",
         help="the query AnnData to annotate (alias: --adata)"),
     reference: str = typer.Option(..., help="reference AnnData with label columns"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    cluster_key: str = CLUSTER_KEY_OPT,
     label_cols: str = typer.Option(
         ..., help="comma-separated reference.obs columns to transfer"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_OPT,
     query_lognorm_layer: Optional[str] = typer.Option(
         None, "--query-lognorm-layer", "--lognorm-layer",
         help="query layer holding log1p data ('X' or a layer name); alias: --lognorm-layer"),

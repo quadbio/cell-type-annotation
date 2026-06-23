@@ -26,17 +26,18 @@ from __future__ import annotations
 import numpy as np
 import typer
 
-from cta.io import (aggregate_predictions, eprint, require_obs, resolve_workdir, safe_cluster_id,
-                    save_table)
+from cta.io import (
+    CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, aggregate_predictions, eprint,
+    require_obs, resolve_workdir, safe_cluster_id, save_table)
 
 
 def cli(
     query: str = typer.Option(
         ..., "--query", "--adata",
         help="the query AnnData to annotate (alias: --adata)"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    cluster_key: str = CLUSTER_KEY_OPT,
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_OPT,
     model_path: str = typer.Option(..., help="downloaded SCimilarity model dir"),
     counts_layer: str = typer.Option(
         "X", help="query layer holding RAW COUNTS ('X' if X is counts)"),

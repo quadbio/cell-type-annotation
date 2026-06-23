@@ -25,13 +25,8 @@ import typer
 from pandas.api.types import is_numeric_dtype
 
 from cta.io import (
-    eprint,
-    load_adata,
-    require_obs,
-    resolve_workdir,
-    save_table,
-    split_csv,
-)
+    ADATA_OPT, CLUSTER_KEY_OPT, WORKDIR_OPT, eprint, load_adata, require_obs,
+    resolve_workdir, save_table, split_csv)
 
 
 def _auto_qc_cols(adata, cluster_key: str) -> list[str]:
@@ -102,9 +97,9 @@ def spatial_profile(adata, cluster_key: str, spatial_key: str | None, workdir, l
 
 
 def cli(
-    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    adata: str = ADATA_OPT,
+    cluster_key: str = CLUSTER_KEY_OPT,
+    workdir: str = WORKDIR_OPT,
     level: str = typer.Option(..., help="hierarchy level tag for filenames"),
     qc_cols: Optional[str] = typer.Option(
         None, help="comma-separated numeric obs columns; auto-detected if omitted"),

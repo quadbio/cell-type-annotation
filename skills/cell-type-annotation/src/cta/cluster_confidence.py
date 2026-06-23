@@ -22,12 +22,12 @@ import typer
 
 from cta.constants import (CONFIDENCE_AGREEMENT_BOOST, CONFIDENCE_BANDS, CONFIDENCE_BASE,
                            CONFIDENCE_CAP)
-from cta.io import eprint, resolve_workdir
+from cta.io import (LEVEL_OPT, WORKDIR_OPT, eprint, resolve_workdir)
 
 
 def cli(
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_OPT,
     strong_thresh: float = typer.Option(
         0.02, help="COSG score above which a marker counts as 'strong'"),
 ) -> None:
