@@ -36,4 +36,7 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--import-mode=importlib"]
+# Exclude the live-network Census test from the default run (it hits CELLxGENE Census over
+# the network). Opt in with `pixi run test-census` / `pytest -m census`.
+addopts = ["--import-mode=importlib", "-m", "not census"]
+markers = ["census: live CELLxGENE Census integration test (network; opt-in)"]
