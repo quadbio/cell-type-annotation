@@ -33,8 +33,10 @@ import pandas as pd
 import scipy.sparse as sp
 import typer
 
-from cta.io import (eprint, load_adata, panel_gate, require_obs, resolve_expression,
-                    resolve_workdir, save_table, split_csv)
+from cta.io import (
+    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, eprint, load_adata,
+    panel_gate, require_obs, resolve_expression, resolve_workdir, save_table,
+    split_csv)
 
 
 def _load_panel(markers: Optional[str], genes_arg: Optional[str],
@@ -69,10 +71,10 @@ def _load_panel(markers: Optional[str], genes_arg: Optional[str],
 
 
 def cli(
-    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    adata: str = ADATA_OPT,
+    cluster_key: str = CLUSTER_KEY_OPT,
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_OPT,
     markers: Optional[str] = typer.Option(
         None, help="marker JSON ({type:[genes]} / pos-neg / list)"),
     genes: Optional[str] = typer.Option(None, help="comma-separated gene list"),

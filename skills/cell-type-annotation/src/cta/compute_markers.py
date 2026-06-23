@@ -11,15 +11,16 @@ from typing import Optional
 
 import typer
 
-from cta.io import (adata_with_lognorm_X, eprint, load_adata, require_obs,
-                    resolve_workdir, save_table, split_csv)
+from cta.io import (
+    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, adata_with_lognorm_X,
+    eprint, load_adata, require_obs, resolve_workdir, save_table, split_csv)
 
 
 def cli(
-    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    adata: str = ADATA_OPT,
+    cluster_key: str = CLUSTER_KEY_OPT,
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_OPT,
     lognorm_layer: Optional[str] = typer.Option(
         None, help="layer with log-normalized data; default uses adata.X"),
     groups: Optional[str] = typer.Option(

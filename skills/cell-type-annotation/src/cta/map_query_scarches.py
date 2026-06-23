@@ -41,8 +41,10 @@ from typing import Optional
 import numpy as np
 import typer
 
-from cta.io import (aggregate_predictions, eprint, require_obs, resolve_accelerator,
-                    resolve_workdir, safe_cluster_id, save_table)
+from cta.io import (
+    CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, aggregate_predictions, eprint,
+    require_obs, resolve_accelerator, resolve_workdir, safe_cluster_id,
+    save_table)
 
 
 def _place_counts(query, src_layer: str, ref_layer: str) -> None:
@@ -63,9 +65,9 @@ def _place_counts(query, src_layer: str, ref_layer: str) -> None:
 def cli(
     query: str = typer.Option(
         ..., "--query", "--adata", help="the query AnnData to annotate (alias: --adata)"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    cluster_key: str = CLUSTER_KEY_OPT,
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_OPT,
     model_dir: Optional[str] = typer.Option(None, help="local scANVI model dir"),
     hf_repo: Optional[str] = typer.Option(
         None, help="scvi-tools HuggingFace hub repo id to pull a shipped model from"),

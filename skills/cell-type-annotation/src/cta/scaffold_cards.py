@@ -26,7 +26,9 @@ from typing import Optional
 import pandas as pd
 import typer
 
-from cta.io import eprint, resolve_workdir, safe_cluster_id, split_csv
+from cta.io import (
+    LEVEL_REQ_OPT, WORKDIR_OPT, eprint, resolve_workdir, safe_cluster_id,
+    split_csv)
 
 TOP_N = 8
 
@@ -274,8 +276,8 @@ def _sizes_map(workdir: Path, level: str) -> dict[str, int]:
 
 
 def cli(
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option(..., help="hierarchy level tag, e.g. L1"),
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_REQ_OPT,
     overwrite: bool = typer.Option(
         False, help="overwrite existing cards (default: skip, preserve reasoning)"),
     evidence: Optional[str] = typer.Option(

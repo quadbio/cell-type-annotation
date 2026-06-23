@@ -41,7 +41,7 @@ import numpy as np
 import pandas as pd
 import typer
 
-from cta.io import eprint, resolve_workdir, save_table
+from cta.io import eprint, resolve_workdir, save_table, stratified_subsample_positions
 
 # soma_joinid is the obs primary key; obs_coords in get_anndata indexes by it.
 JOINID = "soma_joinid"
@@ -101,35 +101,23 @@ def _build_obs_value_filter(obs_value_filter: Optional[str], tissue: Optional[st
 def _choose_joinids(obs: pd.DataFrame, max_cells: int, stratify_by: str) -> np.ndarray:
     """Deterministically pick <= max_cells soma_joinids, stratified by `stratify_by`.
 
-    Fixed-seed (np.random.default_rng(0)) so repeated runs return the same slice. When
-    the matching set already fits under the cap, take all of it. Stratifying by the
-    cell-type column allocates the budget proportionally with a floor of 1 per group, so
-    rare types survive the subsample.
+    Fixed-seed so repeated runs return the same slice; takes all when the matching set
+    already fits. Delegates the proportional, rare-group-preserving allocation to
+    cta.io.stratified_subsample_positions and maps the chosen positions onto soma_joinids.
     """
     n = len(obs)
-    if n <= max_cells:
-        return np.sort(obs[JOINID].to_numpy())
-
-    rng = np.random.default_rng(0)
+    ids = obs[JOINID].to_numpy()
+    groups = None
     if stratify_by and stratify_by in obs.columns:
         groups = obs[stratify_by].astype(str).to_numpy()
-        cats, counts = np.unique(groups, return_counts=True)
-        alloc = np.maximum(1, np.round(counts / counts.sum() * max_cells).astype(int))
-        picks = []
-        for cat, n_take in zip(cats, alloc):
-            ids = obs.loc[groups == cat, JOINID].to_numpy()
-            picks.append(rng.choice(ids, size=min(int(n_take), ids.size), replace=False))
-        sel = np.concatenate(picks)
-        if sel.size > max_cells:  # rounding can overshoot — trim back to the cap
-            sel = rng.choice(sel, size=max_cells, replace=False)
-        eprint(f"   stratified subsample by '{stratify_by}': {n} -> {sel.size} cells")
-    else:
-        if stratify_by:
-            eprint(f"   WARN: stratify col '{stratify_by}' absent from obs; random subsample")
-        all_ids = obs[JOINID].to_numpy()
-        sel = rng.choice(all_ids, size=max_cells, replace=False)
-        eprint(f"   random subsample: {n} -> {sel.size} cells")
-    return np.sort(sel)
+    elif stratify_by:
+        eprint(f"   WARN: stratify col '{stratify_by}' absent from obs; random subsample")
+    sel = np.sort(ids[stratified_subsample_positions(n, max_cells, groups)])
+    if n > max_cells:
+        kind = (f"stratified subsample by '{stratify_by}'" if groups is not None
+                else "random subsample")
+        eprint(f"   {kind}: {n} -> {sel.size} cells")
+    return sel
 
 
 def cli(

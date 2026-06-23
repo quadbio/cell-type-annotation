@@ -39,8 +39,9 @@ from typing import Optional
 import pandas as pd
 import typer
 
-from cta.io import (check_hierarchy_nesting, eprint, label_color_map, load_adata,
-                    require_obs, resolve_workdir, split_csv)
+from cta.io import (
+    CLUSTER_KEY_OPT, WORKDIR_OPT, check_hierarchy_nesting, eprint,
+    label_color_map, load_adata, require_obs, resolve_workdir, split_csv)
 
 # CSV columns that, when present, get mirrored into companion obs columns.
 EXTRA_COLS = ("cl_id", "confidence")
@@ -157,8 +158,8 @@ def map_level(adata, cluster_key: str, df: pd.DataFrame, prefix: str, level: str
 
 def cli(
     adata: str = typer.Option(..., help="path to the .h5ad to annotate"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    workdir: str = WORKDIR_OPT,
+    cluster_key: str = CLUSTER_KEY_OPT,
     embedding_key: Optional[str] = typer.Option(
         None,
         help="obsm key of the anchor embedding, used to order labels by "

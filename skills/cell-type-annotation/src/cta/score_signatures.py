@@ -40,8 +40,9 @@ import pandas as pd
 import typer
 
 from cta.constants import MIN_ON_PANEL_MARKERS
-from cta.io import (adata_with_lognorm_X, eprint, load_adata, panel_gate, require_obs,
-                 resolve_workdir, save_table)
+from cta.io import (
+    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, adata_with_lognorm_X,
+    eprint, load_adata, panel_gate, require_obs, resolve_workdir, save_table)
 
 
 def _split_pos_neg(markers: dict):
@@ -64,18 +65,14 @@ def _net_from_sets(sets: dict) -> pd.DataFrame:
 
 
 def cli(
-    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    adata: str = ADATA_OPT,
+    cluster_key: str = CLUSTER_KEY_OPT,
     markers: str = typer.Option(
         ..., help="JSON {type:[genes]} or {type:{pos,neg}}"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_OPT,
     lognorm_layer: Optional[str] = typer.Option(
         None, help="layer with log-normalized data; default uses adata.X"),
-    markers_csv: Optional[str] = typer.Option(
-        None, help="ranked DE table for the overlap; defaults to "
-                   "<workdir>/tables/markers_<level>.csv (reuses compute_markers.py "
-                   "output to avoid a second Wilcoxon pass)."),
     min_targets: int = typer.Option(
         1, help="decoupler tmin: drop signatures with <= this many on-panel "
                 "genes. Curated marker sets are small, so the default is "
@@ -129,8 +126,7 @@ def cli(
     # only if that table isn't present.
     try:
         ranked: dict[str, list[str]] = {}
-        mk_path = (Path(markers_csv).expanduser() if markers_csv
-                   else wd / "tables" / f"markers_{level}.csv")
+        mk_path = wd / "tables" / f"markers_{level}.csv"
         if mk_path.exists():
             eprint(f"   overlap: reusing {mk_path.name} (skips a redundant Wilcoxon)")
             mk = pd.read_csv(mk_path)

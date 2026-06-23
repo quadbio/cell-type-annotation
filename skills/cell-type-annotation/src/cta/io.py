@@ -14,6 +14,16 @@ from pathlib import Path
 import anndata as ad
 import numpy as np
 import pandas as pd
+import typer
+
+# Shared CLI options — reuse one OptionInfo per recurring flag so help text stays uniform
+# across commands instead of being re-typed (and drifting) in every module. Reuse only for
+# identically-named parameters so Typer infers the right flag name from the parameter.
+WORKDIR_OPT = typer.Option(..., help="annotation-run working directory")
+ADATA_OPT = typer.Option(..., help="path to the .h5ad to analyze")
+CLUSTER_KEY_OPT = typer.Option(..., help="obs column holding the clusters")
+LEVEL_OPT = typer.Option("L1", help="hierarchy level tag, e.g. L1")
+LEVEL_REQ_OPT = typer.Option(..., help="hierarchy level tag, e.g. L1")
 
 
 def eprint(*args, **kwargs):
@@ -40,6 +50,35 @@ def resolve_accelerator(choice: str) -> str:
     except Exception:  # noqa: BLE001
         pass
     return "cpu"
+
+
+def stratified_subsample_positions(n, max_n, groups=None, *, seed=0):
+    """Sorted positions (into `range(n)`) for a deterministic subsample of <= `max_n`.
+
+    Shared by the reference subsamplers (CellMapper reference cap; Census slice cap). If
+    `groups` (a length-`n` array of labels) is given, the budget is allocated across groups
+    proportionally with a **floor of 1** so rare groups survive, then any rounding overshoot
+    is trimmed back to `max_n`; otherwise it's a plain uniform draw. Fixed `seed` → identical
+    selection across runs. Returns all positions when `n <= max_n`. Callers map the returned
+    positions onto their own index domain (row positions, `soma_joinid`s, …).
+    """
+    rng = np.random.default_rng(seed)
+    if n <= max_n:
+        return np.arange(n)
+    if groups is not None:
+        groups = np.asarray(groups)
+        cats, counts = np.unique(groups, return_counts=True)
+        alloc = np.maximum(1, np.round(counts / counts.sum() * max_n).astype(int))
+        picks = []
+        for cat, n_take in zip(cats, alloc):
+            idx = np.flatnonzero(groups == cat)
+            picks.append(rng.choice(idx, size=min(int(n_take), idx.size), replace=False))
+        sel = np.concatenate(picks)
+        if sel.size > max_n:  # rounding can overshoot the cap — trim back
+            sel = rng.choice(sel, size=max_n, replace=False)
+    else:
+        sel = rng.choice(n, size=max_n, replace=False)
+    return np.sort(sel)
 
 
 def load_adata(path: str, backed: str | None = None, prefer_slim: bool = True) -> ad.AnnData:

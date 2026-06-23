@@ -32,8 +32,10 @@ from typing import Optional
 import pandas as pd
 import typer
 
-from cta.io import (adata_with_lognorm_X, eprint, load_adata, require_obs,
-                 resolve_workdir, safe_cluster_id, save_table)
+from cta.io import (
+    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, adata_with_lognorm_X,
+    eprint, load_adata, require_obs, resolve_workdir, safe_cluster_id,
+    save_table)
 
 app = typer.Typer()
 
@@ -106,11 +108,11 @@ def list_models(
 
 @app.command("predict")
 def predict(
-    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    adata: str = ADATA_OPT,
+    cluster_key: str = CLUSTER_KEY_OPT,
     model: str = typer.Option(..., help="CellTypist model name to run"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_OPT,
     lognorm_layer: Optional[str] = typer.Option(
         None, help="layer with log-normalized data; default uses adata.X"),
 ) -> None:
@@ -153,7 +155,7 @@ def predict(
 @app.command("markers")
 def markers(
     model: str = typer.Option(..., help="CellTypist model name to extract markers from"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
+    workdir: str = WORKDIR_OPT,
     n_genes: int = typer.Option(20, help="top marker genes per cell type"),
 ) -> None:
     """Extract top markers from a model WITHOUT predicting (priors)."""

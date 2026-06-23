@@ -22,8 +22,10 @@ import pandas as pd
 import scipy.sparse as sp
 import typer
 
-from cta.io import (eprint, load_adata, read_markers_json, require_obs,
-                    resolve_expression, resolve_workdir, save_table, split_csv)
+from cta.io import (
+    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, eprint, load_adata,
+    read_markers_json, require_obs, resolve_expression, resolve_workdir,
+    save_table, split_csv)
 
 
 def _frac_expressing(adata, genes):
@@ -36,14 +38,14 @@ def _frac_expressing(adata, genes):
 
 
 def cli(
-    adata: str = typer.Option(..., help="path to the .h5ad to analyze"),
-    cluster_key: str = typer.Option(..., help="obs column holding the clusters"),
+    adata: str = ADATA_OPT,
+    cluster_key: str = CLUSTER_KEY_OPT,
     embedding_key: str = typer.Option(
         ..., help="obsm key of the anchor embedding (neighbors built on this)"),
     clusters: str = typer.Option(
         ..., help="comma-separated cluster id(s) to subcluster (pooled if >1)"),
-    workdir: str = typer.Option(..., help="annotation-run working directory"),
-    level: str = typer.Option("L1", help="hierarchy level tag for filenames"),
+    workdir: str = WORKDIR_OPT,
+    level: str = LEVEL_OPT,
     tag: Optional[str] = typer.Option(
         None, help="short name for this refinement (filenames); default from --clusters"),
     resolution: float = typer.Option(0.5, help="Leiden resolution"),

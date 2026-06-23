@@ -20,6 +20,8 @@ platforms = ["osx-arm64", "linux-64"]
 # `pixi run cta <command> …` works directly; this is a convenience for the common probe.
 detect-env = "cta detect-env"
 test = "python -m pytest"
+# Opt-in: the live CELLxGENE Census integration test (needs network).
+test-census = "python -m pytest -m census"
 
 [dependencies]
 # conda-forge for the interpreter, numpy (numba ABI), and faiss (the pip faiss wheels are
