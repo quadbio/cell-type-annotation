@@ -44,16 +44,13 @@ demand). Rationale/algorithm: `reference/methodology.md` §1.
   marker reasoning and CellTypist/SingleR/CellMapper/scANVI; never silently overwrite.
   A bigger model (a GPU reference model, a foundation model) earns one more independent
   opinion to weigh, **not** more authority.
-- **Compute-environment aware.** Detect the environment early and plan accordingly
-  (`reference/compute_environments.md`). On CPU/Apple-Silicon (`local_cpu`) the skill runs
-  exactly as it always has. When a GPU or large memory is present (`local_gpu`), it can also
-  download reference atlases, train/refine a reference model, and map the query onto it
-  (scANVI/scArches), and scale the kNN cross-check on GPU. **Detection only — this skill
-  never submits jobs and never installs the GPU stack unasked.** On a login/submit node
-  (`scheduler`) it writes GPU-heavy steps into the plan to be run via the user's own
-  job-submission mechanism (the artifact-centric scripts run identically inline or submitted)
-  and runs light steps inline.
-- **Artifact-centric.** Heavy compute runs as standalone scripts (via Bash) that
+- **Compute-environment aware.** Detect the environment early and plan accordingly. On
+  CPU/Apple-Silicon (`local_cpu`) the skill runs exactly as it always has; a GPU/large-memory
+  host (`local_gpu`) or login node (`scheduler`) additionally unlocks reference-model
+  training + scArches mapping, GPU kNN, and larger atlases. **Detection only — never submits
+  a job or installs the GPU stack unasked.** Full matrix and the scheduler handoff:
+  `reference/compute_environments.md`.
+- **Artifact-centric.** Heavy compute runs as standalone `cta` commands (via Bash) that
   write durable files; you reason over the files. This is what makes runs resumable
   and lets critic subagents review exported evidence. Keep the working directory
   current. See `reference/artifacts.md`.
@@ -65,9 +62,7 @@ demand). Rationale/algorithm: `reference/methodology.md` §1.
   user should never wonder where they are. At each stage and each hierarchy level,
   *say* what you're about to do, why, and what they'll get; before a potentially slow
   script (scoring a large object, `cta crosscheck reference-map`, the critic fan-out) give a quick
-  heads-up so a quiet terminal reads as "working," not "hung." Announce the three-stage
-  map once up front, and tell the user early that the run is **resumable** (everything is
-  checkpointed to the working dir — a new session can pick up from the last step).
+  heads-up so a quiet terminal reads as "working," not "hung."
 
 ## The workflow: three stages
 
@@ -77,6 +72,8 @@ and draft the label hierarchy for your review; **(3) Execute** — score, cross-
 label cluster-by-cluster down the hierarchy, with a report and your sign-off at each
 level, then write back into your AnnData. No labels are produced until you've signed off
 the assumptions; nothing is written to your file until the very end, after you confirm.
+Tell the user up front that the run is **resumable** — everything is checkpointed to the
+working dir, so a new session can pick up from the last step.
 
 Resuming an interrupted run? Read `run_state.json`, `context.md`, `assumptions.md`,
 and `plan.md` in the working directory first, then continue from
@@ -210,8 +207,9 @@ With the data understood:
 
 ### Stage 3 — Execute (top-down, recursive)
 
-Full algorithm in `reference/methodology.md`. The loop, per hierarchy level and
-recursively within each parent group:
+This is the executable loop, per hierarchy level and recursively within each parent group.
+Rationale, the two gates, the card schema, critic design, and sub-cluster & panel rules:
+`reference/methodology.md` (read it once at the start of this stage).
 
 **At the start of every level/parent-group iteration, orient the user** — state your
 position in the hierarchy and the size of the work, e.g. *"Now annotating L2 within the
@@ -272,40 +270,35 @@ first, so a deep recursion never leaves the user lost.
    append, and re-prompt only on a **materially new** assumption — but in that level's
    report/checkpoint, **tell the user what was appended** so silent additions stay
    visible. Full rules: `reference/methodology.md` §2.
-6. **Write evidence cards — reasoning lives in the labels CSV, not hand-edited markdown.**
-   The labels table `labels/annotation_<level>.csv` is the **single source of truth**: give
-   it `label,cl_id,confidence,rationale,rejected` columns and fill `rationale`/`rejected`
-   per cluster *there*. Then `cta report scaffold-cards` **renders** the cards from it (call +
-   reasoning), so re-scaffolding refreshes cards without ever wiping what you wrote — and a
-   resumed run recovers the reasoning from one file, not 60 markdown stubs. **Pass
-   `--evidence panel_pct_<level>.csv`** (and other scoring tables) so each card also embeds
-   the ACTUAL numbers behind the call. Why this matters: hand-authoring rationale into N
-   markdown files is token-heavy, easily skipped, and lost on re-scaffold — the CSV makes it
-   durable and lets the step-9 gate verify it. (Card schema: `reference/methodology.md` §4.)
-7. **Assign** a label (normalized to a CL ID) — or, on mutually-exclusive marker
-   co-expression, **sub-cluster and recurse** (`cta cluster subcluster` — Leiden on the
-   anchor embedding + per-sub marker/QC/composition summary); on irreconcilable conflict,
-   **mark `Unknown`** (Gate B). **Before defaulting a large/odd cluster to `Unknown`,
-   investigate** it with `cta cluster profile` (QC medians + user-named categorical
-   crosstabs + optional spatial) — good-quality cells that resist a clean call are often a
-   real early/transitional state, not an artifact. Set `confidence` by judgement, but
-   **calibrate it against `cta cluster confidence`** (a COSG-margin + agreement
-   proxy) — a high confidence on a weak-margin cluster is a flag to re-examine.
-   **Nesting is mandatory:** a requested hierarchy must nest, so each level's labels must
-   **strictly refine the level above** — every finer label maps to exactly one coarser
-   label. If a regional split (e.g. ventral telencephalic) cuts across an L1 compartment
-   (NPC vs Neuron), *qualify the label by compartment* (`Ventral telencephalic NPC` vs
-   `… neuron`) — do NOT reuse one label across two parents. Verify any time with
-   `cta report write-back --dry-run` (it runs `cta_io.check_hierarchy_nesting` and refuses a
-   non-nested hierarchy); the final write-back enforces it.
-8. **Critic pass.** Spawn independent critic subagents (Agent tool) that read the
+6. **Assign — filling the labels CSV *is* the assignment.** The per-level table
+   `labels/annotation_<level>.csv` is the single source of truth: fill
+   `label,cl_id,confidence,rationale,rejected` per cluster *there* (label normalized to a
+   **CL ID**), then `cta report scaffold-cards --evidence panel_pct_<level>.csv` **renders**
+   the cards from it — embedding the ACTUAL numbers behind each call and never wiping your
+   reasoning on re-scaffold (a resumed run recovers it from this one file). For a cluster
+   you can't call cleanly: on mutually-exclusive marker co-expression **sub-cluster and
+   recurse** (`cta cluster subcluster` — Leiden on the anchor embedding + per-sub
+   marker/QC/composition summary); on irreconcilable conflict **mark `Unknown`** (Gate B) —
+   but **investigate first** with `cta cluster profile` (QC medians + user-named categorical
+   crosstabs + optional spatial), since good-quality cells that resist a clean call are
+   often a real early/transitional state, not an artifact. Set `confidence` by judgement,
+   **calibrated against `cta cluster confidence`** (a COSG-margin + agreement proxy — high
+   confidence on a weak-margin cluster is a flag to re-examine). **Nesting is mandatory:**
+   each level's labels must **strictly refine the level above** (every finer label maps to
+   exactly one coarser label); if a regional split (e.g. ventral telencephalic) cuts across
+   an L1 compartment (NPC vs Neuron), *qualify the label by compartment*
+   (`Ventral telencephalic NPC` vs `… neuron`) — never reuse one label across two parents.
+   Verify any time with `cta report write-back --dry-run` (runs
+   `cta_io.check_hierarchy_nesting`, refusing a non-nested hierarchy). Why the CSV is the
+   source of truth, and the full card schema: `reference/methodology.md` §4.
+7. **Critic pass.** Spawn independent critic subagents (Agent tool) that read the
    exported **raw tables** (not just the card), re-derive markers, fetch ≥1 external
    hypothesis, and try to **refute** each label — biologically **and hierarchically**:
    is the label a coherent refinement of its parent path (flag maturation/regional
    mismatches like an "IPC"/"neuron" L3 under an "NPC" L1 — the kind the deterministic
    nesting check can't catch)? Reconcile; revise or downgrade. (Structural nesting itself
    is enforced in code — `cta_io.check_hierarchy_nesting` / `cta report write-back`.)
-9. **Report, gate & checkpoint.** Build the level's HTML report with
+8. **Report, gate & descend.** Build the level's HTML report with
    `cta report build` (pass `--adata --cluster-key --viz-key`, plus
    `--embedding-key` for the similarity-ordered palette, to embed the numbered
    cell-map + marker dotplot; `--split-by <cols>` — the user's `cat_cols`,
@@ -321,12 +314,11 @@ first, so a deep recursion never leaves the user lost.
    (a rebuild that omits `--adata` would needlessly reload the data; figures themselves are
    embedded from the durable PNGs in `plots/`, so they survive such a rebuild either way).
    Then update `run_state.json`. **Present the report and pause:** point the user at the
-   flagged clusters, and let them approve descending or request revisions — don't begin the
-   next level in the same turn unless they've said to proceed (or pre-authorized auto-proceed
-   at Stage 2). If a level lands more than ~half its clusters in `Unknown`, stop and consult
-   the user (`reference/methodology.md`).
-10. **Descend.** Tell the user which parent groups you'll descend into and in what
-    order, then recurse at the next level.
+   flagged clusters, and let them **approve descending — and into which parent groups, in
+   what order — or request revisions.** Don't begin the next level in the same turn unless
+   they've said to proceed (or pre-authorized auto-proceed at Stage 2). If a level lands
+   more than ~half its clusters in `Unknown`, stop and consult the user
+   (`reference/methodology.md`). On approval, recurse at the next level.
 
 **At the end (after the last level): write-back.** Run `cta report write-back --dry-run`
 first and **show the user its output and the hierarchy-nesting verdict** — that is what
@@ -346,7 +338,7 @@ pseudobulk + PyDESeq2 with a replication requirement, never per-cell. See
 
 | File | When to read it |
 | --- | --- |
-| `reference/methodology.md` | The algorithm, the two gates, evidence cards, critic subagents, sub-cluster decision, panel rules. Read at the start of Stage 3 (Execute). |
+| `reference/methodology.md` | The *why* behind Stage 3: the two gates, evidence-card & critic design, sub-cluster decision, panel rules, termination/failure handling. (The executable loop is Stage 3 here.) Read at the start of Stage 3 (Execute). |
 | `reference/artifacts.md` | Working-dir layout, `context.md`/`run_state.json` schemas, report format. Read in Stage 1. |
 | `reference/compute_environments.md` | The three compute profiles, environment detection, the scheduler-handoff convention, GPU caveats. Read in Stage 1 (after `cta detect-env`). |
 | `reference/tool_registry.md` | **Canonical** step→tool→GPU-requirement→profile table. Consult when choosing which tool to run for a step, or whether it needs a GPU. |

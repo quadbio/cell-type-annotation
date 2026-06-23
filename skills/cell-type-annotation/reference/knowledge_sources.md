@@ -43,25 +43,20 @@ the `knowledgebase` Europe PMC tools for literature — don't block on it.
 ## Need a small Python loader (no MCP equivalent)
 
 - **CellTypist model markers** (top pick for data-driven markers when a model covers
-  your tissue): **tissue-gate it** — `cta crosscheck celltypist list [--contains <tissue>]`
-  reads the remote index (name + description, NO downloads) so you can check whether a
-  model fits before pulling anything; ~60 models exist (e.g. `Developing_Human_Brain`,
-  `Cells_Intestinal_Tract`, `Immune_All_Low`). If one matches, `extract_top_markers()`
-  for priors / `predict` for a cross-check (it downloads just that model). **If none
-  matches, skip CellTypist.** See `cta crosscheck celltypist`.
+  your tissue): tissue-gate it with `cta crosscheck celltypist list [--contains <tissue>]`
+  (reads the remote index, no downloads; ~60 models, e.g. `Developing_Human_Brain`,
+  `Cells_Intestinal_Tract`, `Immune_All_Low`), and if one matches use `extract_top_markers()`
+  for priors. Full tissue-gating mechanics + caveats: `reference/automated_tools.md`.
 - **CellMarker 2.0** — broadest curated, PMID-backed (CC-BY-4.0 xlsx; the host is
   flaky → cache the file locally once).
 - **ScTypeDB** (`ScTypeDB_full.xlsx`) — a rare source of **negative markers**.
 - **CellxGene Census** (`cellxgene-census`, optional extra) — a remote TileDB-SOMA
   connection over S3: opening it does **not** download the atlas; you fetch only the
-  capped, tissue/organism-filtered slice your query selects (laptop-scale, CPU). Two
-  uses: (a) derive markers on demand for "cell type X in tissue Y" via `get_anndata`
-  + `rank_genes_groups`; (b) when the user has **no reference atlas of their own and no
-  CellTypist model fits**, `cta reference fetch-census` pulls a capped reference
-  subset to feed the `cta crosscheck reference-map` cross-check (see below). Caveat: Census labels
-  are author-supplied and heterogeneous in granularity across datasets, so a transferred
-  Census label is a coarser, noisier hypothesis than a curated single atlas — and it
-  needs network access (degrades cleanly offline).
+  capped, tissue/organism-filtered slice your query selects (laptop-scale, CPU). Here it
+  serves as a **marker source**: derive markers on demand for "cell type X in tissue Y"
+  via `get_anndata` + `rank_genes_groups`. (Its other use — `cta reference fetch-census` as
+  the no-atlas reference-mapping fallback, with the author-supplied-label caveat — lives in
+  `reference/automated_tools.md`.)
 
 ## Reference atlases (compute markers off them — AND map onto them as a cross-check)
 
@@ -75,17 +70,16 @@ platform-matched spatial reference is especially useful.
 
 **No atlas of your own?** When the user has no reference and no CellTypist model fits the
 tissue, fall back to `cta reference fetch-census` to pull a capped, tissue-matched
-subset from CELLxGENE Census and map onto *that* with `cta crosscheck reference-map` — so every tissue
-still gets an automated reference cross-check (with the heterogeneous-label caveat above).
+subset from CELLxGENE Census and map onto *that* with `cta crosscheck reference-map` — so every
+tissue still gets an automated reference cross-check (caveats: `reference/automated_tools.md`).
 
-**On a GPU / large-memory profile** (`reference/compute_environments.md`) two upgrades open
-up here: (1) lift the `cta reference fetch-census --max-cells` cap / download a full curated
-atlas, since the RAM is there to hold it; and (2) prefer a **shipped reference model** —
-pull a tissue-matched scANVI model from the **scvi-tools HuggingFace hub**
-(`scvi.hub`, used by `cta reference map-scarches --hf-repo …`) and map the query onto it
-with scArches surgery — no retraining. When no shipped model fits, train one on the user's
-atlas with `cta reference train-model`. These remain cross-check hypotheses, not
-verdicts (`reference/automated_tools.md`).
+**On a GPU / large-memory profile** (`reference/compute_environments.md`) two reference
+upgrades open up: lift the `cta reference fetch-census --max-cells` cap (or use a full
+curated atlas, since the RAM is there to hold it), and prefer a scANVI reference model
+mapped on via scArches surgery — a shipped scvi-tools HuggingFace-hub model
+(`cta reference map-scarches --hf-repo …`), or one trained on the user's atlas with
+`cta reference train-model`. Mechanics and the hypothesis-not-verdict bar:
+`reference/automated_tools.md`.
 
 ## Default knowledge stack (the order to consult)
 

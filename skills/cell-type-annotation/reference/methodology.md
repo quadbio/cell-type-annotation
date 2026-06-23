@@ -1,14 +1,17 @@
 # Reference: Annotation methodology
 
-This is the *how* — the algorithm Stage 3 (Execute) runs. See `marker_tools.md`,
-`differential_expression.md`, `automated_tools.md`, and `knowledge_sources.md` for
-the tool details; this file is the procedure that orchestrates them.
+This is the *why and how-deep* behind Stage 3 (Execute) — the rationale, the two gates,
+the evidence-card and critic design, and the cross-cutting rules. The **executable
+step-by-step loop itself lives in SKILL.md Stage 3** (with the exact `cta` commands); read
+this file for the reasoning the steps reference. See `marker_tools.md`,
+`differential_expression.md`, `automated_tools.md`, and `knowledge_sources.md` for the
+tool details.
 
 ## Table of contents
 
 1. Core stance
 2. The two hard gates
-3. Top-down recursive algorithm
+3. Top-down recursive algorithm — shape & termination
 4. Evidence cards
 5. The sub-cluster decision
 6. Honest "Unknown"
@@ -74,35 +77,19 @@ noise), the correct label is **`Unknown`**, documented and flagged — not a for
 guess. A well-justified `Unknown` is a *success*, not a failure: it tells the user
 exactly where the data or the panel can't support a call.
 
-## 3. Top-down recursive algorithm
+## 3. Top-down recursive algorithm — shape & termination
 
-For each level of the hierarchy, and within each parent group, repeat:
+The **executable loop** — assemble priors → panel-gate → score → cross-check → Gate A →
+fill the labels CSV (= assign, or sub-cluster / `Unknown`) → critic+reconcile →
+report+gate+descend — is **SKILL.md Stage 3**, with the exact `cta` commands and the
+per-step detail. This section is only what that loop's steps don't spell out: the
+recursion's shape, and how it ends.
 
-1. **Assemble priors.** Pull candidate types for this level/context and their markers
-   from the knowledge stack (consult it in the order owned by `knowledge_sources.md`).
-2. **Panel-gate the markers.** Intersect every marker set with `adata.var_names`.
-   **Record the dropped genes** in the evidence card. A candidate left with fewer than
-   ~2 on-panel markers is **uncallable** on this panel (`cta markers score` flags it)
-   — it contributes to `Unknown`, never to a confident call (§6).
-3. **Score.** Run the scoring tools on the panel-gated sets:
-   - per-cluster overlap: a transparent intersection of each cluster's top-DE genes
-     with each marker set (this is a raw overlap, **not** `decoupler.mt.ora`);
-   - per-cell robust scores: `decoupler.mt.aucell` and/or pyUCell (with negative
-     markers where available).
-   - Compute cluster markers with `rank_genes_groups(method="wilcoxon",
-     tie_correct=True, pts=True)` + COSG for specificity (see
-     `differential_expression.md`).
-4. **Cross-check** against ≥1 automated hypothesis (CellTypist / SingleR /
-   CellMapper) — as a *hypothesis*, flagging agreement/disagreement, never
-   overwriting your marker reasoning.
-5. **Gate A** (§2): extend the assumptions ledger; block for sign-off the first time,
-   thereafter re-prompt only on a materially new assumption.
-6. **Write an evidence card** per cluster (see §4).
-7. **Assign** the label, or descend / sub-cluster / mark Unknown per §5–6.
-8. **Critic pass** (§7): independent subagents try to refute the assigned labels.
-9. **Reconcile**, then **build the HTML report** for this level and **checkpoint**
-   (`run_state.json`).
-10. **Descend** into each assigned parent group and recurse at the next level.
+Annotation runs **top-down through the hierarchy and recursively within each parent
+group** (§1): resolve a parent class before its subtypes, and descend into a group only
+once its parent label is assigned. The numeric gates the steps enforce
+(`MIN_ON_PANEL_MARKERS`, etc.) live in one place, `src/cta/constants.py` — tune them there
+for an unusually small or rich panel.
 
 **Termination & failure handling.**
 
