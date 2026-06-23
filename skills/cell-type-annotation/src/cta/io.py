@@ -20,6 +20,28 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
+def resolve_accelerator(choice: str) -> str:
+    """Resolve a scvi-tools accelerator string.
+
+    'auto' -> cuda if available, else mps on Apple-Silicon, else cpu; any other value is
+    returned as-is. Shared by the scvi-tools commands (reference train-model / map-scarches).
+    torch is imported lazily so importing `cta.io` stays light.
+    """
+    if choice != "auto":
+        return choice
+    import platform
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        if (platform.system() == "Darwin" and platform.machine() == "arm64"
+                and torch.backends.mps.is_available()):
+            return "mps"
+    except Exception:  # noqa: BLE001
+        pass
+    return "cpu"
+
+
 def load_adata(path: str, backed: str | None = None, prefer_slim: bool = True) -> ad.AnnData:
     """Load an AnnData.
 
@@ -227,6 +249,22 @@ def resolve_expression(adata: ad.AnnData, layer: str | None):
     return X
 
 
+def adata_with_lognorm_X(adata: ad.AnnData, layer: str | None) -> ad.AnnData:
+    """Return an AnnData whose `.X` is the log-normalized matrix for marker/scoring jobs.
+
+    Wraps `resolve_expression`: if `layer` is given, returns a COPY with `.X` set to that
+    layer (so the caller's downstream scanpy calls read the right matrix without mutating
+    the original); if `layer` is None, `.X` is already the target, so the object is returned
+    unchanged. Centralizes the copy-only-when-needed pattern shared by the marker tools.
+    """
+    X = resolve_expression(adata, layer)
+    if layer is None:
+        return adata
+    out = adata.copy()
+    out.X = X
+    return out
+
+
 def panel_gate(markers: dict[str, list[str]], var_names) -> tuple[dict, dict]:
     """Intersect each marker set with the genes present (the panel).
 
@@ -243,20 +281,6 @@ def panel_gate(markers: dict[str, list[str]], var_names) -> tuple[dict, dict]:
         if d:
             dropped[ct] = d
     return kept, dropped
-
-
-def load_run_state(workdir: Path) -> dict:
-    f = resolve_workdir(str(workdir)) / "run_state.json"
-    if f.exists():
-        return json.loads(f.read_text())
-    return {}
-
-
-def write_run_state(workdir: Path, state: dict) -> Path:
-    f = resolve_workdir(str(workdir)) / "run_state.json"
-    f.write_text(json.dumps(state, indent=2))
-    eprint(f"   checkpoint -> {f}")
-    return f
 
 
 def read_markers_json(path: str) -> dict[str, list[str]]:

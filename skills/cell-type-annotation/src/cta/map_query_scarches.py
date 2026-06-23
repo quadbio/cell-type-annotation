@@ -36,29 +36,13 @@ Writes tables/refmap_<level>_<label-col>.csv with columns:
 """
 from __future__ import annotations
 
-import platform
 from typing import Optional
 
 import numpy as np
 import typer
 
-from cta.io import (aggregate_predictions, eprint, require_obs, resolve_workdir, safe_cluster_id,
-                    save_table)
-
-
-def _resolve_accelerator(choice: str) -> str:
-    if choice != "auto":
-        return choice
-    try:
-        import torch
-        if torch.cuda.is_available():
-            return "cuda"
-        if (platform.system() == "Darwin" and platform.machine() == "arm64"
-                and torch.backends.mps.is_available()):
-            return "mps"
-    except Exception:  # noqa: BLE001
-        pass
-    return "cpu"
+from cta.io import (aggregate_predictions, eprint, require_obs, resolve_accelerator,
+                    resolve_workdir, safe_cluster_id, save_table)
 
 
 def _place_counts(query, src_layer: str, ref_layer: str) -> None:
@@ -109,7 +93,7 @@ def cli(
             "scvi-tools; CUDA or Apple-Silicon MPS preferred."
         )
 
-    accel = _resolve_accelerator(accelerator)
+    accel = resolve_accelerator(accelerator)
     eprint(f">> accelerator: {accel}")
     try:
         scvi.settings.seed = 0

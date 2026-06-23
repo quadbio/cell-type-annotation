@@ -11,7 +11,7 @@ from typing import Optional
 
 import typer
 
-from cta.io import (eprint, load_adata, require_obs, resolve_expression,
+from cta.io import (adata_with_lognorm_X, eprint, load_adata, require_obs,
                     resolve_workdir, save_table, split_csv)
 
 
@@ -37,10 +37,7 @@ def cli(
     require_obs(adata_obj, cluster_key, "cluster key")
 
     # Use the log-normalized matrix as adata.X for the tests (don't mutate the file).
-    X = resolve_expression(adata_obj, lognorm_layer)
-    if lognorm_layer is not None:
-        adata_obj = adata_obj.copy()
-        adata_obj.X = X
+    adata_obj = adata_with_lognorm_X(adata_obj, lognorm_layer)
 
     adata_obj.obs[cluster_key] = adata_obj.obs[cluster_key].astype("category")
     grps = split_csv(groups) or "all"
