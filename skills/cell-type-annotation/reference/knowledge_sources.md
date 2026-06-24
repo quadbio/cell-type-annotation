@@ -3,7 +3,9 @@
 Prefer **MCP tools** (zero setup, in-session) for knowledge lookups; drop to a Python
 loader only where there is no MCP equivalent. **Insist on proper tooling, two tiers:**
 the **`knowledgebase`** MCP is a *hard requirement* — if it is not configured, STOP and
-ask the user to set it up rather than silently degrading to web-only evidence. The
+ask the user to set it up rather than silently degrading to web-only evidence. This is
+BioContextAI's **Knowledgebase MCP** (`github.com/biocontext-ai/knowledgebase-mcp`;
+registry at `biocontext.ai`) — point the user there for setup. The
 **`zotero`** MCP is *strongly preferred but optional* — if it is missing, say so and
 fall back to the Europe PMC literature tools below, don't stop the run.
 
