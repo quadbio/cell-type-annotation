@@ -9,6 +9,48 @@ import json
 import subprocess
 
 
+def test_celltypist_input_rebuilds_cp10k():
+    """`_celltypist_input` must hand CellTypist log1p(CP10k) regardless of the object's own
+    normalization — reading the precomputed canonical layer, and rebuilding from a counts
+    layer or a non-CP10k log-norm X when that layer is absent."""
+    import anndata as ad
+    import numpy as np
+    import scanpy as sc
+
+    from cta.io import cp10k_log1p_matrix
+    from cta.run_celltypist import _celltypist_input
+
+    rng = np.random.default_rng(0)
+    counts = rng.poisson(1.0, size=(40, 30)).astype("float32")
+    counts[:, 0] = 50  # ensure non-trivial per-cell totals
+
+    # X deliberately normalized to a NON-CP10k target (5000) → CellTypist would warn.
+    a = ad.AnnData(counts.copy())
+    a.layers["counts"] = counts.copy()
+    sc.pp.normalize_total(a, target_sum=5000)
+    sc.pp.log1p(a)
+
+    def per_cell_total(adata):
+        return np.expm1(np.asarray(adata.X)).sum(axis=1).ravel()
+
+    # canonical fast path: a precomputed lognorm_cp10k layer is used as-is (no recompute)
+    a_canon = a.copy()
+    cp, _ = cp10k_log1p_matrix(counts=counts)
+    a_canon.layers["lognorm_cp10k"] = cp
+    out_canon = _celltypist_input(a_canon, None, None)
+    assert np.allclose(per_cell_total(out_canon), 1e4, rtol=1e-3)
+    assert np.allclose(np.asarray(out_canon.X), np.asarray(cp))  # read directly, not rebuilt
+
+    # rebuild from the counts layer (auto-detected, no --counts-layer passed, no cp10k layer)
+    out_counts = _celltypist_input(a, None, None)
+    assert np.allclose(per_cell_total(out_counts), 1e4, rtol=1e-3)
+
+    # counts-absent: re-target the (5000-normalized) log-norm X to CP10k
+    a_nolayer = ad.AnnData(a.X.copy())  # X is the 5000-target log-norm, no counts layer
+    out_lognorm = _celltypist_input(a_nolayer, None, None)
+    assert np.allclose(per_cell_total(out_lognorm), 1e4, rtol=1e-3)
+
+
 def test_markers_compute_end_to_end(tiny_h5ad, tmp_path):
     import pandas as pd
 

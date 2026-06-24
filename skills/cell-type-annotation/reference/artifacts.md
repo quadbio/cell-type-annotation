@@ -136,7 +136,7 @@ Skeleton (keep generic; fill from `cta data inspect`):
 - cluster key (obs): leiden  (14 clusters)
 - embedding key (obsm): X_scvi   |   viz embedding: X_umap
 - gene IDs: symbols (canonicalized from Ensembl via `var['feature_name']`; Ensembl kept in `var['ensembl_id']`)
-- layers: counts = `counts` (raw; pulled from `.raw`) ; log-normalized = `X` (verified by fingerprint)
+- layers: counts = `counts` (raw; pulled from `.raw`) ; log-normalized = `X` (verified by fingerprint) ; `lognorm_cp10k` = log1p(CP10k) precomputed for scale-sensitive classifiers (CellTypist)
 - QC signal: depth/mito + cell-cycle in obs (`cta data qc`; see `qc.json`) — used to set the `state` axis
 
 ## Assay

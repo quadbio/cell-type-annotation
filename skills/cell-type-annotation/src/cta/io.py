@@ -359,6 +359,48 @@ def adata_with_lognorm_X(adata: ad.AnnData, layer: str | None) -> ad.AnnData:
     return out
 
 
+# The canonical layer holding log1p of CP10k (1e4 counts/cell) — what scale-sensitive
+# classifiers (CellTypist) expect. `cta data canonicalize` precomputes it so downstream
+# steps read it directly instead of re-normalizing ad hoc; X stays the user's own log-norm.
+LOGNORM_CP10K_LAYER = "lognorm_cp10k"
+
+
+def cp10k_log1p_matrix(*, counts=None, lognorm=None):
+    """Build a ``log1p(CP10k)`` matrix (1e4 counts/cell) — the input scale-sensitive
+    classifiers like CellTypist expect, regardless of how `adata.X` is normalized.
+
+    Pass exactly one source (counts wins if both given):
+      - ``counts``: raw counts → ``normalize_total(1e4)`` → ``log1p`` (the exact path).
+      - ``lognorm``: an already size-normalized-log1p matrix on some other target →
+        ``expm1`` → ``normalize_total(1e4)`` → ``log1p`` (re-targets to 1e4; valid because
+        the caller verified it is genuine size-normalized log1p).
+
+    Operates on a copy; returns ``(matrix, note)`` where `note` describes the source. Shared
+    by `cta data canonicalize` (writes it to ``layers['lognorm_cp10k']``) and the CellTypist
+    cross-check (fallback when that layer is absent).
+    """
+    import anndata as ad_
+    import scanpy as sc
+    import scipy.sparse as sp
+
+    if counts is not None:
+        base = counts.copy()
+        note = "from raw counts"
+    elif lognorm is not None:
+        base = lognorm.copy()
+        if sp.issparse(base):
+            base.data = np.expm1(base.data)
+        else:
+            base = np.expm1(np.asarray(base))
+        note = "re-targeted from the log-norm matrix"
+    else:
+        raise ValueError("cp10k_log1p_matrix: pass counts= or lognorm=")
+    tmp = ad_.AnnData(base)  # fresh uns → no stale log1p marker
+    sc.pp.normalize_total(tmp, target_sum=1e4)
+    sc.pp.log1p(tmp)
+    return tmp.X, note
+
+
 def panel_gate(markers: dict[str, list[str]], var_names) -> tuple[dict, dict]:
     """Intersect each marker set with the genes present (the panel).
 
