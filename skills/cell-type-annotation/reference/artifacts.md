@@ -127,9 +127,11 @@ Skeleton (keep generic; fill from `cta data inspect`):
 
 ## Data
 - file: /abs/path/to/pbmc.h5ad  (n_obs=12,431, n_vars=480)
+- canonical working file: /abs/path/to/pbmc_cta.h5ad  (`cta data canonicalize`)
 - cluster key (obs): leiden  (14 clusters)
 - embedding key (obsm): X_scvi   |   viz embedding: X_umap
-- layers: counts = `counts` (raw) ; log-normalized = `lognorm` (verified by fingerprint)
+- gene IDs: symbols (canonicalized from Ensembl via `var['feature_name']`; Ensembl kept in `var['ensembl_id']`)
+- layers: counts = `counts` (raw; pulled from `.raw`) ; log-normalized = `X` (verified by fingerprint)
 
 ## Assay
 - platform: Xenium (targeted, 480-gene panel)
@@ -169,8 +171,10 @@ Minimal, machine-readable, the source of truth for resuming:
     "embedding_key": "X_scpoli",
     "viz_embedding_key": "X_umap",
     "counts_layer": "counts",
-    "lognorm_layer": "lognorm"
+    "lognorm_layer": "lognorm",
+    "var_convention": "symbol"
   },
+  "canonical_adata": "/abs/path/to/data_cta.h5ad",
   "panel": {"is_spatial": true, "platform": "MERSCOPE", "n_panel_genes": 500},
   "hierarchy": ["L1_compartment", "L2_lineage", "L3_type", "L4_state"],
   "vocabulary_contract": "free hierarchy; per-level semantics defined in plan.md; normalize to CL",
@@ -196,6 +200,13 @@ Minimal, machine-readable, the source of truth for resuming:
 }
 ```
 
+- `canonical_adata` is the `<stem>_cta.h5ad` written by `cta data canonicalize`; every
+  downstream `load_adata` picks it up transparently, so it is the object the run actually
+  operates on. `keys.var_convention ∈ {symbol, ensembl}` records the canonical `var_names`
+  convention (normally `symbol`, so curated/CellTypist/literature markers panel-gate
+  directly). The command also writes a `canonicalization.json` beside the sidecar recording
+  what it did (var-name source, counts source, genes renamed/unmapped/deduped) — fold its
+  essentials into `context.md`.
 - `stage_reached ∈ {scene_setting, plan, execute}` tells a resuming session which
   artifacts should already exist (e.g. `plan.md` only after `plan`). (The env + MCP gate
   is part of Stage 1 scene-setting now.)
