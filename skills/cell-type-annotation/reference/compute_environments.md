@@ -83,7 +83,9 @@ CPU host that merely has the client tools installed. `cta detect-env` flags it; 
 - **SCimilarity** (`cta crosscheck scimilarity`) is lighter than once assumed: ~16–27 GB RAM
   (measured), CPU, a few minutes, and only the ~9 GB annotation-only bundle on disk (encoder +
   annotation kNN; the full ~41 GB download incl. the cell-search TileDB is NOT needed). Fits a
-  32 GB machine — optional, and HUMAN-only (skip for non-human queries).
+  32 GB machine — optional, and HUMAN-only (skip for non-human queries). Provision the bundle
+  once with `cta reference fetch-scimilarity --dest DIR` (resumable ~30 GB download, extracts
+  annotation-only by default; on a compute node `module load eth_proxy` first).
 
 ## Which tool at which step (and what it needs)
 

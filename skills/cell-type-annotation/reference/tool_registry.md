@@ -38,6 +38,7 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | Cross-check — reference model (3.4) | `cta reference map-scarches` | preferred | local_gpu / scheduler | scArches surgery onto a scANVI model (trained, or a scvi-hub shipped model). Labels + per-cell uncertainty. |
 | Train reference model (3.4 prep) | `cta reference train-model` | preferred | local_gpu / scheduler | scVI→scANVI on a labeled atlas (scvi-tools). Reference side of train-then-map. |
 | Cross-check — foundation model (3.4, opt.) | `cta crosscheck scimilarity` | none · **RAM ~16–27 GB, CPU** | all (HUMAN-only) | SCimilarity zero-shot kNN. Additional hypothesis only, never primary. Human-only; best where no CellTypist/SingleR model fits. |
+| Provision SCimilarity model (before scimilarity) | `cta reference fetch-scimilarity` | none | all (HUMAN-only) | download + extract the model bundle for `cta crosscheck scimilarity`. Annotation-only by default (~9 GB on disk; ~30 GB resumable download, skips the 32 GB cellsearch). Needs network. |
 | Fetch reference (3.4 fallback) | `cta reference fetch-census` | none | all (larger slices on large-mem) | capped, tissue-matched CELLxGENE Census slice → feeds `cta crosscheck reference-map`. Needs network. |
 | Investigate before Unknown (3.7) | `cta cluster profile` | none | all | QC medians + categorical crosstabs + optional spatial. |
 | Sub-cluster (3.7) | `cta cluster subcluster` | none | all | Leiden on the anchor embedding + per-sub summary. |
