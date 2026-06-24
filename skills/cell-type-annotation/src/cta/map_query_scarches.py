@@ -15,26 +15,27 @@ The reference model is EITHER:
                     (e.g. a tissue-matched scANVI atlas) — preferred when one fits, since
                     it needs no retraining.
 
-scVI/scANVI consume RAW COUNTS by default. --counts-layer says where the query's input
-matrix is now; --ref-layer says where the reference model expects it (default 'counts'; our
-trained models use 'counts', many hub models do too — pass 'X' if the model used X). The
-script places the query matrix where the model expects it, aligns genes to the model, runs
-surgery, predicts, and aggregates per cluster.
+The query is the canonical AnnData from `cta data canonicalize` (reference/artifacts.md):
+RAW COUNTS in layers['counts'], LOG-NORM in X. scVI/scANVI consume counts by default, so
+--counts-layer defaults to 'counts' and the script reads from there. --ref-layer says where
+the reference model expects its input (default 'counts'; our trained models use 'counts',
+many hub models do too — pass 'X' if the model used X). The script places the query matrix
+where the model expects it, aligns genes to the model, runs surgery, predicts, aggregates.
 
 LOG-NORM models: if the reference was trained with --gene-likelihood normal (see
-train_reference_model.py), it expects LOG-NORM input, not counts — pass --log-norm and point
---counts-layer at the query's log-norm layer. The script verifies the flag against the
-loaded model's gene_likelihood and errors on a mismatch (a wrong input scale yields garbage).
+train_reference_model.py), it expects LOG-NORM input, not counts — pass --log-norm and
+--counts-layer X (the canonical log-norm lives in X). The script verifies the flag against
+the loaded model's gene_likelihood and errors on a mismatch (a wrong input scale yields garbage).
 
 Usage:
-  # onto a locally-trained model
-  python map_query_scarches.py --query Q.h5ad --cluster-key leiden --workdir DIR \
-      --level L1 --model-dir ./ref_scanvi_model --counts-layer counts [--log-norm] \
+  # onto a locally-trained model (canonical query: counts in layers['counts'])
+  python map_query_scarches.py --query Q_cta.h5ad --cluster-key leiden --workdir DIR \
+      --level L1 --model-dir ./ref_scanvi_model [--log-norm --counts-layer X] \
       [--label-col scanvi] [--max-epochs 100] [--accelerator auto|cuda|mps|cpu]
 
   # onto a shipped hub model
-  python map_query_scarches.py --query Q.h5ad --cluster-key leiden --workdir DIR \
-      --level L1 --hf-repo scvi-tools/<some-atlas-scanvi> --counts-layer counts
+  python map_query_scarches.py --query Q_cta.h5ad --cluster-key leiden --workdir DIR \
+      --level L1 --hf-repo scvi-tools/<some-atlas-scanvi>
 
 Writes tables/refmap_<level>_<label-col>.csv with columns:
   cluster, top1, frac1, top2, frac2, mean_conf, method
@@ -69,6 +70,61 @@ def _place_counts(query, src_layer: str, ref_layer: str, log_norm: bool) -> None
         query.layers[ref_layer] = mat
 
 
+def sanitize_query_against_registry(query, setup_args: dict) -> list[str]:
+    """Make the query compatible with a shipped scANVI model's registered setup before
+    scArches surgery (issue #10).
+
+    Locally-trained models work because the user controls the query setup; shipped hub models
+    register a `batch_key`/`labels_key` the real query atlas does not satisfy, which made
+    `load_query_data` raise (missing batch column → KeyError; out-of-vocab query labels →
+    "Cannot transfer setup without extend_categories"). We reconcile the query against what the
+    model registered:
+
+    - batch_key: if the model registered one and it is ABSENT from the query, inject a single
+      constant 'query' batch — a brand-new category scArches surgery is designed to absorb. If
+      the column is already present we PRESERVE the query's own batches (surgery handles unseen
+      categories within it).
+    - labels_key: set the registered label column to the model's `unlabeled_category` for ALL
+      cells. We want predictions, not to transfer the query's (possibly out-of-vocab) labels,
+      and an absent label column would itself break query setup.
+
+    Mutates `query.obs` in place; returns human-readable notes describing what changed.
+    """
+    notes: list[str] = []
+    batch_key = setup_args.get("batch_key")
+    labels_key = setup_args.get("labels_key")
+    unlabeled = setup_args.get("unlabeled_category")
+
+    if batch_key:
+        if batch_key in query.obs.columns:
+            notes.append(f"batch_key '{batch_key}' already in query.obs — preserved")
+        else:
+            query.obs[batch_key] = "query"
+            notes.append(f"batch_key '{batch_key}' absent in query — injected constant 'query'")
+
+    if labels_key:
+        value = unlabeled if unlabeled is not None else "Unknown"
+        query.obs[labels_key] = value
+        notes.append(
+            f"labels_key '{labels_key}' set to unlabeled_category '{value}' for all cells")
+    return notes
+
+
+def _model_setup_args(scvi, reference_model) -> dict:
+    """Return a scANVI model's registered setup_args (batch_key / labels_key /
+    unlabeled_category / ...), whether `reference_model` is a path (local --model-dir) or an
+    instantiated model (pulled --hf-repo). Returns {} if the registry can't be read."""
+    if isinstance(reference_model, str):
+        registry = scvi.model.SCANVI.load_registry(reference_model)
+    else:
+        registry = getattr(reference_model, "registry_", None)
+        if registry is None:
+            mgr = getattr(reference_model, "adata_manager", None)
+            registry = getattr(mgr, "registry", None) if mgr is not None else None
+    if not registry:
+        return {}
+    return dict(registry.get("setup_args", {}) or {})
+
 
 
 def cli(
@@ -82,14 +138,15 @@ def cli(
         None, help="scvi-tools HuggingFace hub repo id to pull a shipped model from"),
     cache_dir: Optional[str] = typer.Option(None, help="cache dir for the pulled hub model"),
     counts_layer: str = typer.Option(
-        "X", help="query layer holding the input matrix now ('X' if X holds it): RAW COUNTS, "
-        "or LOG-NORM with --log-norm"),
+        "counts", help="query layer holding the model's input: a canonical query keeps RAW "
+        "COUNTS in layers['counts'] (default) and LOG-NORM in 'X' — so pass --counts-layer X "
+        "with --log-norm"),
     ref_layer: str = typer.Option(
         "counts", help="layer name the reference model expects its input in ('X' or a name)"),
     log_norm: bool = typer.Option(
         False, "--log-norm/--no-log-norm",
         help="the reference was trained with --gene-likelihood normal and expects LOG-NORM "
-        "input (verified against the loaded model)"),
+        "input — pair with --counts-layer X (verified against the loaded model)"),
     label_col: str = typer.Option(
         "scanvi", help="name used in the output table filename (refmap_<level>_<col>.csv)"),
     max_epochs: int = typer.Option(100, help="surgery training epochs"),
@@ -141,6 +198,12 @@ def cli(
         eprint(">> --log-norm: treating the query input as LOG-NORM "
                "(reference trained with gene_likelihood=normal)")
     _place_counts(query_obj, counts_layer, ref_layer, log_norm)
+
+    # Reconcile the query with what the model registered (issue #10): shipped hub models carry a
+    # batch_key/labels_key the real query atlas does not satisfy, which otherwise breaks setup.
+    setup_args = _model_setup_args(scvi, reference_model)
+    for note in sanitize_query_against_registry(query_obj, setup_args):
+        eprint(f">> registry-sanitize: {note}")
 
     eprint(">> aligning query genes to the reference model (prepare_query_anndata)")
     scvi.model.SCANVI.prepare_query_anndata(query_obj, reference_model)

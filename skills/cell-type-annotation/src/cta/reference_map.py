@@ -101,12 +101,17 @@ def _read_reference_subsampled(path, label_cols, max_ref: int, stratify_col: str
 
 
 def _shared_genes(query, reference):
+    # NOTE: the canonical query uses gene SYMBOLS (cta data canonicalize); a reference
+    # indexed by Ensembl will share ~nothing here. Aligning the REFERENCE's gene IDs to the
+    # query convention is a known follow-up (not yet automated) — until then, point
+    # --reference at a symbol-indexed object, or pre-map its var_names.
     shared = [g for g in query.var_names if g in set(reference.var_names)]
     if len(shared) < MIN_SHARED_GENES:
         raise SystemExit(
             f"ERROR: only {len(shared)} shared genes between query and reference "
-            f"(need >= {MIN_SHARED_GENES}). Check that var_names use the same "
-            "gene identifier convention in both objects."
+            f"(need >= {MIN_SHARED_GENES}). Check that var_names use the same gene "
+            "identifier convention in both objects — the canonical query is gene SYMBOLS "
+            "(cta data canonicalize), so an Ensembl-indexed reference must be re-mapped."
         )
     eprint(f"   {len(shared)} shared genes between query and reference")
     return shared

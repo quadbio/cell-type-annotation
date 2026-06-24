@@ -85,11 +85,12 @@ def load_adata(path: str, backed: str | None = None, prefer_slim: bool = True) -
     """Load an AnnData.
 
     `backed="r"` reads without materializing X (use it when you only need obs/obsm).
-    `prefer_slim` (default) transparently uses a fresh `<stem>_cta.h5ad` slim sidecar
-    written by prep_slim.py — so large objects aren't re-deserialized in full by every
-    script. The sidecar is used only if it is newer-or-equal to the original; set
-    `CTA_NO_SLIM=1` to disable. Scripts that MUST see the full object or write it back
-    (write_back.py, prep_slim.py) pass `prefer_slim=False`.
+    `prefer_slim` (default) transparently uses a fresh `<stem>_cta.h5ad` canonical sidecar
+    written by canonicalize.py — so large objects aren't re-deserialized in full by every
+    script, and every script sees the same standardized shape (log-norm X, counts layer,
+    symbol var_names). The sidecar is used only if it is newer-or-equal to the original;
+    set `CTA_NO_SLIM=1` to disable. Scripts that MUST see the full object or write it back
+    (write_back.py, canonicalize.py) pass `prefer_slim=False`.
     """
     p = Path(path).expanduser()
     if not p.exists():
@@ -319,7 +320,22 @@ def panel_gate(markers: dict[str, list[str]], var_names) -> tuple[dict, dict]:
         kept[ct] = k
         if d:
             dropped[ct] = d
+    # A total miss when var_names look like Ensembl is the classic ID-convention mismatch
+    # (markers are symbols): point at canonicalization rather than failing opaquely later.
+    if not any(kept.values()) and _looks_like_ensembl(var_names):
+        eprint("   WARN: 0 markers matched and var_names look like Ensembl IDs — run "
+               "`cta data canonicalize` so var_names become gene symbols, then retry.")
     return kept, dropped
+
+
+def _looks_like_ensembl(var_names) -> bool:
+    """True if most var_names match the Ensembl gene-ID pattern (ENSG…, ENSMUSG…)."""
+    import re
+    names = [str(n) for n in var_names]
+    if not names:
+        return False
+    pat = re.compile(r"^ENS[A-Z]*G\d+(\.\d+)?$")
+    return sum(1 for n in names if pat.match(n)) / len(names) > 0.5
 
 
 def read_markers_json(path: str) -> dict[str, list[str]]:

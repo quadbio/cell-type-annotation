@@ -87,5 +87,11 @@ cudf-cu12 = "*"
 # Optional large-memory zero-shot annotator (additional cross-check only).
 scimilarity = "*"
 
+# Needed by scvi.hub for `cta reference map-scarches --hf-repo` (pull a shipped scvi-tools
+# model from the HuggingFace hub). Caps the gpu env's typer to <0.26 (hub dep); default env
+# is unaffected.
+[feature.gpu.pypi-dependencies]
+huggingface-hub = ">=1.20.1, <2"
+
 [environments]
 gpu = ["gpu"]

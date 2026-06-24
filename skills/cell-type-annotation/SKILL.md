@@ -86,8 +86,11 @@ and `plan.md` in the working directory first, then continue from
 **1a. Tooling gate — check this FIRST (fail fast, before the env build).** Two tiers:
 
 - **`knowledgebase` MCP — hard requirement (strict stop).** The grounded marker/ontology
-  evidence. If not configured, **STOP and ask the user to set it up** (don't degrade to
-  web-only — that's the confident-but-unfounded annotation this skill exists to prevent).
+  evidence (BioContextAI's Knowledgebase MCP — PanglaoDB, Cell Ontology/OLS, HPA, Europe
+  PMC, …). If not configured, **STOP and ask the user to set it up** — point them at
+  `github.com/biocontext-ai/knowledgebase-mcp` (registry: `biocontext.ai`) — rather than
+  degrading to web-only, which is the confident-but-unfounded annotation this skill exists
+  to prevent.
 - **`zotero` MCP — strongly preferred, not required.** If missing, say so, note the
   fallback to the `knowledgebase` Europe PMC tools, and offer to proceed.
 - Verify whichever MCPs are present actually respond before proceeding.
@@ -157,18 +160,36 @@ one item at a time) to establish:
 - **Write-back target:** the `obs` key/prefix for the final labels (default
   `cta_L1`..`cta_L4`) — confirm now; the actual write is gated to the END of Stage 3.
 
-**1e. Inspect.** Run `cta data inspect` to verify every key/layer exists and
-capture `n_obs`/`n_vars`, cluster sizes, layer stats, `obsm` keys, a
-**normalization fingerprint**, the candidate **`categorical_obs`** (with which have
-`uns` colours), and a **`targeted_panel`** flag. Reconcile any mismatch with the user.
+**1e. Inspect, then canonicalize.** First run `cta data inspect` to verify every
+key/layer exists and capture `n_obs`/`n_vars`, cluster sizes, layer stats, `obsm` keys, a
+**normalization fingerprint**, the **gene-ID convention** (`gene_ids.var_names_look_like`
++ any symbol var-column), **`.raw`** contents, the candidate **`categorical_obs`** (with
+which have `uns` colours), and a **`targeted_panel`** flag. Reconcile any mismatch with the user.
+
+Then **always run `cta data canonicalize`** (the default Stage-1 data step) to write the
+one canonical working sidecar (`<stem>_cta.h5ad`) every downstream command transparently
+reads — so no step has to re-resolve input variability. It standardizes the object to:
+**symbol `var_names`** (Ensembl IDs kept in `var['ensembl_id']`), **counts in
+`layers['counts']`** (pulled from a layer or from `.raw`), **log-norm in `X`**, and the
+chosen embedding(s) + cluster key. Pass the keys you confirmed
+(`--cluster-key`/`--embedding-key`/`--viz-key`, `--lognorm-layer`, `--counts-layer`).
+
+**Gene symbols — the Ensembl case.** When `inspect` reports `var_names_look_like:
+ensembl`, canonicalize needs a symbol source: it auto-detects a symbol var-column
+(`feature_name`/`gene_symbols`/…); if `inspect` found none, **build the map via the
+knowledgebase MCP** — call `get_ensembl_id_from_gene_symbol` (symbol→Ensembl, its natural
+direction) for your candidate **marker** symbols, write a `symbol_map.tsv`
+(`ensembl<TAB>symbol`, one pair per line), and pass it to canonicalize as
+`--symbol-map symbol_map.tsv`. Only the marker-relevant genes need renaming for
+panel-gating to match; the rest keep their Ensembl id.
 Write `context.md` and seed `run_state.json` (schemas in `reference/artifacts.md`).
 **If `targeted_panel` is true, write a short panel-capability note in `context.md`** —
 which expected identities this panel **cannot** resolve because their canonical markers
 are off-panel (sets it apart from biology you simply didn't find); revisit it as
 `panel_gating_<level>.csv` reports dropped/uncallable sets per level. This sets
 expectations honestly and prevents reading panel gaps as negative biology.
-For a very large object, optionally run `cta data prep-slim` once to cache a slim
-copy (chosen embedding + X + counts + obs) so later scripts don't reload the full file.
+(`cta data canonicalize` also writes the slim sidecar, so later scripts never reload the
+full file — there is no separate slim-cache step.)
 
 **Hard stop on normalization.** If `cta data inspect` reports anything under `fatal`
 — in particular a declared log-normalized layer that fails the fingerprint (e.g.
@@ -359,8 +380,8 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | --- | --- |
 | `pixi install [-e gpu]` | Bootstrap the env (Stage 1c): `default` = CPU scVerse core; `-e gpu` adds the GPU stack. (Not a `cta` command — pixi builds the env.) |
 | `cta detect-env` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
-| `cta data inspect` | Stage 1: verify keys/layers, dump structure to `context`. |
-| `cta data prep-slim` | Optional: cache a slim AnnData (chosen embedding + X + counts + obs) to avoid reloading huge files. |
+| `cta data inspect` | Stage 1: verify keys/layers, gene-ID convention, `.raw`, normalization fingerprint → dump structure to `context`. |
+| `cta data canonicalize` | Stage 1 (default): write the one canonical sidecar every downstream step reads — symbol `var_names` (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, slimmed embeddings/obs. Also avoids reloading the huge file. |
 | `cta markers assemble` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
 | `cta markers compute` | `rank_genes_groups` (wilcoxon, tie_correct) + COSG → marker tables (bottom-up: what defines each cluster). |
 | `cta markers profile` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. |
