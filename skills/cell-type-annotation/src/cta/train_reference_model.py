@@ -96,7 +96,17 @@ def cli(
 
     eprint(">> setting up scVI (raw counts)")
     scvi.model.SCVI.setup_anndata(ref, layer=counts_layer_resolved, batch_key=batch_key or None)
-    vae = scvi.model.SCVI(ref, n_latent=n_latent)
+    # scArches best-practice settings for query mapping (scvi-tools scArches tutorial):
+    # encode_covariates=True is "essential" for mapping a new-batch query; the layer-norm /
+    # batch-norm / deep-injection settings improve nuisance-variation removal during surgery.
+    vae = scvi.model.SCVI(
+        ref,
+        n_latent=n_latent,
+        encode_covariates=True,
+        deeply_inject_covariates=True,
+        use_layer_norm="both",
+        use_batch_norm="none",
+    )
     eprint(f">> training scVI ({max_epochs_scvi} epochs)")
     vae.train(max_epochs=max_epochs_scvi, accelerator=accel)
 
