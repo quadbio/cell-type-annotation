@@ -110,9 +110,12 @@ Each is still a HYPOTHESIS, held to the same bar as the CPU cross-check.
   scANVI or even simple baselines for annotation**, and degrade out-of-distribution on small
   targeted panels — so they are never the primary annotator here. The two that fit a local,
   data-stays-put design and emit a usable per-cell label are **SCimilarity**
-  (`cta crosscheck scimilarity`; zero-shot kNN against a large reference, needs ~64 GB RAM +
-  a multi-GB bundle) and **scPRINT** (CPU-capable, emits ontology IDs) — wire either in only
-  as one more independent opinion to reconcile.
+  (`cta crosscheck scimilarity`; HUMAN-only zero-shot kNN against a ~7M-cell reference, ~16–27 GB
+  RAM, CPU, ~9 GB annotation bundle) and **scPRINT** (CPU-capable, emits ontology IDs) — wire either
+  in only as one more independent opinion to reconcile. SCimilarity's niche (validated on
+  celltype-anno-bench): broad / multi-tissue **human** queries where CellTypist/SingleR have no
+  tissue-matched model and collapse — there it is the strongest automated option; on tissue-matched
+  data it only matches CellTypist, and on mouse it is weak (skip non-human).
 
 ## Skip regardless of profile
 

@@ -37,7 +37,7 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | Cross-check — CellTypist (3.4) | `cta crosscheck celltypist` | none | all | tissue-gated pretrained LR classifier; `list` (no download) then `predict` only if a model fits. |
 | Cross-check — reference model (3.4) | `cta reference map-scarches` | preferred | local_gpu / scheduler | scArches surgery onto a scANVI model (trained, or a scvi-hub shipped model). Labels + per-cell uncertainty. |
 | Train reference model (3.4 prep) | `cta reference train-model` | preferred | local_gpu / scheduler | scVI→scANVI on a labeled atlas (scvi-tools). Reference side of train-then-map. |
-| Cross-check — foundation model (3.4, opt.) | `cta crosscheck scimilarity` | none · **RAM ~64 GB** | large-memory | SCimilarity zero-shot kNN. Additional hypothesis only, never primary. |
+| Cross-check — foundation model (3.4, opt.) | `cta crosscheck scimilarity` | none · **RAM ~16–27 GB, CPU** | all (HUMAN-only) | SCimilarity zero-shot kNN. Additional hypothesis only, never primary. Human-only; best where no CellTypist/SingleR model fits. |
 | Fetch reference (3.4 fallback) | `cta reference fetch-census` | none | all (larger slices on large-mem) | capped, tissue-matched CELLxGENE Census slice → feeds `cta crosscheck reference-map`. Needs network. |
 | Investigate before Unknown (3.7) | `cta cluster profile` | none | all | QC medians + categorical crosstabs + optional spatial. |
 | Sub-cluster (3.7) | `cta cluster subcluster` | none | all | Leiden on the anchor embedding + per-sub summary. |
@@ -55,5 +55,6 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
   `local_cpu` they are skipped or run slowly (CPU/MPS); on `local_gpu` they run inline;
   on `scheduler` they are written into the plan to run via the user's own job-submission
   mechanism (never submitted by this skill — see `compute_environments.md`).
-- **`cta crosscheck scimilarity` needs RAM, not a GPU** — it sits on the large-memory axis, which
-  is independent of the GPU axis.
+- **`cta crosscheck scimilarity` needs moderate RAM, not a GPU** — ~16–27 GB peak (measured;
+  fits a 32 GB machine, CPU-only, a few minutes), so it is NOT large-memory-gated as once assumed.
+  HUMAN-only (the v1.1 model has a fixed human gene order) — skip it for non-human queries.
