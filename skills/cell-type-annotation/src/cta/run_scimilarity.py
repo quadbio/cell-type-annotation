@@ -1,22 +1,29 @@
 #!/usr/bin/env python
-"""Optional zero-shot cross-check via SCimilarity — a large-memory HYPOTHESIS (not a verdict).
+"""Optional zero-shot cross-check via SCimilarity — a HYPOTHESIS (not a verdict).
 
-SCimilarity embeds cells against a large pretrained reference (~tens of millions of cells)
-and returns a per-cell nearest-neighbor cell-type call. It needs the model bundle on disk
-(tens of GB) and a lot of RAM (~64 GB) — so it belongs to the large-memory profile, not the
-CPU default. It is a foundation-model annotator, and 2026 benchmarks show such models rarely
-beat scANVI / simple baselines for annotation, so this is strictly an ADDITIONAL cross-check
-to reconcile against marker evidence, never a primary annotator (reference/automated_tools.md).
+SCimilarity embeds cells against a large pretrained reference (~7M cells) and returns a
+per-cell nearest-neighbor cell-type call. HUMAN-ONLY: the v1.1 model has a fixed human gene
+order, so this is for HUMAN queries — on mouse it is weak even with ortholog mapping (skip it).
+It is a foundation-model annotator, and benchmarks show such models rarely beat scANVI / simple
+baselines, so this is strictly an ADDITIONAL cross-check to reconcile against marker evidence,
+never a primary annotator (reference/automated_tools.md). Its real value is on BROAD / multi-
+tissue human queries where CellTypist/SingleR have no tissue-matched model and collapse.
+
+Cost (measured on celltype-anno-bench, 2026): ~16-27 GB RAM, CPU, a few minutes; the annotation
+path needs only the ~9 GB annotation-only bundle, NOT the full ~41 GB download.
+
+CANONICAL SHAPE. The query is expected in the skill's canonical form (`cta data canonicalize`):
+RAW COUNTS in `layers['counts']`, log-norm in `X`, gene SYMBOLS as var_names. SCimilarity needs
+raw counts (it aligns genes to the model order, then applies its own tp10k log-norm), so this
+reads counts from `layers['counts']` by default (--counts-layer); symbol var_names are what
+align_dataset matches against the model's gene order.
 
 It writes the SAME per-cluster schema reference_map.py emits, so the cards/report pick it
 up as one more cross-check automatically.
 
-SCimilarity expects RAW COUNTS (it aligns genes to the model's gene order and applies its
-own log-normalization). Point --counts-layer at the query's counts.
-
 Usage:
   python run_scimilarity.py --query Q.h5ad --cluster-key leiden --workdir DIR --level L1 \
-      --model-path /path/to/scimilarity_model --counts-layer counts [--label-col scimilarity]
+      --model-path /path/to/scimilarity_model [--counts-layer counts] [--label-col scimilarity]
 
 Writes tables/refmap_<level>_<label-col>.csv with columns:
   cluster, top1, frac1, top2, frac2, mean_conf, method
@@ -28,7 +35,7 @@ import typer
 
 from cta.io import (
     CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, aggregate_predictions, eprint,
-    require_obs, resolve_workdir, safe_cluster_id, save_table)
+    load_adata, require_obs, resolve_workdir, safe_cluster_id, save_table)
 
 
 def cli(
@@ -40,32 +47,36 @@ def cli(
     level: str = LEVEL_OPT,
     model_path: str = typer.Option(..., help="downloaded SCimilarity model dir"),
     counts_layer: str = typer.Option(
-        "X", help="query layer holding RAW COUNTS ('X' if X is counts)"),
+        "counts", help="layer with RAW COUNTS — the canonical 'counts' layer by default "
+        "(pass 'X' only if X itself is counts)"),
     label_col: str = typer.Option(
         "scimilarity", help="name used in the output table filename"),
 ) -> None:
-    """Optional zero-shot cross-check via SCimilarity — a large-memory hypothesis (not a verdict)."""
-    import scanpy as sc
-
+    """Optional zero-shot cross-check via SCimilarity — a hypothesis (not a verdict). HUMAN-only."""
     try:
         from scimilarity import CellAnnotation, align_dataset, lognorm_counts
     except ImportError:
         raise SystemExit(
             "ERROR: scimilarity is not installed. It is in the skill's `gpu` pixi env — run "
-            "`pixi install -e gpu`, then download the model bundle (tens of GB; needs "
-            "~64GB RAM at runtime)."
+            "`pixi install -e gpu`, then download the model bundle (~9 GB annotation-only "
+            "subset is enough; needs ~16-27 GB RAM at runtime, CPU is fine)."
         )
 
     eprint(f">> loading query {query}")
-    query_obj = sc.read_h5ad(query)
+    query_obj = load_adata(query)   # canonical: counts in layers['counts'], symbols as var_names
     require_obs(query_obj, cluster_key, "cluster key")
 
-    # SCimilarity wants raw counts in X.
-    if counts_layer not in (None, "X"):
-        if counts_layer not in (query_obj.layers or {}):
-            raise SystemExit(f"ERROR: --counts-layer '{counts_layer}' not in "
-                             f"query.layers {list(query_obj.layers.keys())}.")
-        query_obj.X = query_obj.layers[counts_layer]
+    # SCimilarity needs RAW COUNTS in layers['counts']: align_dataset carries that layer
+    # through its gene-space concat, and lognorm_counts reads counts from there (NOT X) and
+    # writes its own tp10k log-norm into X. The canonical query already keeps counts in
+    # layers['counts']; --counts-layer X copies X across for a non-canonical input.
+    src = query_obj.X if counts_layer in (None, "X") else query_obj.layers.get(counts_layer)
+    if src is None:
+        raise SystemExit(
+            f"ERROR: --counts-layer '{counts_layer}' not in query.layers "
+            f"{list(query_obj.layers.keys())}. Run `cta data canonicalize` so raw counts land "
+            "in layers['counts'] (and var_names become gene symbols), then retry.")
+    query_obj.layers["counts"] = src
 
     eprint(f">> loading SCimilarity model: {model_path}")
     ca = CellAnnotation(model_path=model_path)
@@ -76,7 +87,9 @@ def cli(
 
     eprint(">> embedding + kNN annotation")
     query_obj.obsm["X_scimilarity"] = ca.get_embeddings(query_obj.X)
-    result = ca.get_predictions_knn(query_obj.obsm["X_scimilarity"])
+    # weighting=True: distance-weighted kNN vote (the unconstrained-annotation default in
+    # SCimilarity's own tutorial); reduces noise vs an unweighted majority.
+    result = ca.get_predictions_knn(query_obj.obsm["X_scimilarity"], weighting=True)
     # API returns (predictions, nn_idxs, nn_dists, nn_stats); be tolerant of arity.
     predictions = result[0] if isinstance(result, (tuple, list)) else result
     pred = np.asarray(getattr(predictions, "values", predictions)).astype(str)
