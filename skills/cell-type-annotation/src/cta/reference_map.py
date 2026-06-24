@@ -16,8 +16,13 @@ Usage:
   python reference_map.py --query Q.h5ad --reference R.h5ad --cluster-key leiden \
       --label-cols cell_type,subtype --workdir /proj/run --level L1 \
       [--query-lognorm-layer X|lognorm] [--ref-counts] \
+      [--ref-symbol-col feature_name] [--ref-symbol-map ensembl_to_symbol.tsv] \
       [--embedding-method cca|pca] [--n-comps 50] \
       [--knn-method pynndescent] [--max-ref 200000] [--stratify-col donor]
+
+The canonical query uses gene SYMBOLS (cta data canonicalize), so the reference's var_names
+are aligned to symbols first (auto-detected symbol var-column, or --ref-symbol-col /
+--ref-symbol-map) — an Ensembl-indexed reference no longer shares ~0 genes with the query.
 
 Per --label-cols column, writes tables/refmap_<level>_<col>.csv with columns:
   cluster, top1, frac1, top2, frac2, mean_conf, method
@@ -32,6 +37,7 @@ import pandas as pd
 import typer
 from scipy.sparse import issparse
 
+from cta.canonicalize import align_var_names_to_symbols
 from cta.constants import MIN_SHARED_GENES, NORMALIZE_TARGET_SUM
 from cta.io import (
     CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, aggregate_predictions, eprint,
@@ -101,17 +107,17 @@ def _read_reference_subsampled(path, label_cols, max_ref: int, stratify_col: str
 
 
 def _shared_genes(query, reference):
-    # NOTE: the canonical query uses gene SYMBOLS (cta data canonicalize); a reference
-    # indexed by Ensembl will share ~nothing here. Aligning the REFERENCE's gene IDs to the
-    # query convention is a known follow-up (not yet automated) — until then, point
-    # --reference at a symbol-indexed object, or pre-map its var_names.
+    # The reference is aligned to gene SYMBOLS (align_var_names_to_symbols, mirroring
+    # `cta data canonicalize`) before we get here, so an Ensembl-indexed reference now
+    # shares the query's symbol var_names. A near-zero count here means the alignment had
+    # no symbol source (the WARN above said so) or a genuinely disjoint panel.
     shared = [g for g in query.var_names if g in set(reference.var_names)]
     if len(shared) < MIN_SHARED_GENES:
         raise SystemExit(
             f"ERROR: only {len(shared)} shared genes between query and reference "
-            f"(need >= {MIN_SHARED_GENES}). Check that var_names use the same gene "
-            "identifier convention in both objects — the canonical query is gene SYMBOLS "
-            "(cta data canonicalize), so an Ensembl-indexed reference must be re-mapped."
+            f"(need >= {MIN_SHARED_GENES}). Both should use gene SYMBOLS now; if the "
+            "reference stayed Ensembl, give it a symbol source via --ref-symbol-col or "
+            "--ref-symbol-map (the skill builds the map via the knowledgebase MCP)."
         )
     eprint(f"   {len(shared)} shared genes between query and reference")
     return shared
@@ -204,6 +210,14 @@ def cli(
     ref_counts: bool = typer.Option(
         False, "--ref-counts",
         help="force normalize_total(1e4)+log1p on the reference"),
+    ref_symbol_col: Optional[str] = typer.Option(
+        None, "--ref-symbol-col",
+        help="reference var column to use as gene symbols (overrides auto-detection) — "
+             "the canonical query is symbol-indexed, so an Ensembl reference is aligned first"),
+    ref_symbol_map: Optional[str] = typer.Option(
+        None, "--ref-symbol-map",
+        help="TSV 'ensembl<TAB>symbol' to align an Ensembl reference's var_names when it has "
+             "no symbol var column (built by the skill via the knowledgebase MCP)"),
     embedding_method: str = typer.Option("cca", help="joint embedding method: cca or pca"),
     n_comps: int = typer.Option(50, help="number of embedding components"),
     knn_method: str = typer.Option(
@@ -230,6 +244,11 @@ def cli(
     eprint(">> loading reference (backed) + subsample-before-materialize")
     reference_obj = _read_reference_subsampled(reference, label_cols_list, max_ref,
                                                stratify_col)
+
+    # Align the reference's gene IDs to the query's symbol convention (no-op if already
+    # symbols) so the var_names intersection below isn't defeated by an Ensembl reference.
+    eprint(">> aligning reference var_names to the query's symbol convention")
+    align_var_names_to_symbols(reference_obj, ref_symbol_col, ref_symbol_map)
 
     # Intersect var_names -> shared genes; subset both.
     shared = _shared_genes(query_obj, reference_obj)

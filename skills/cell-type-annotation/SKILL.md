@@ -168,9 +168,17 @@ one item at a time) to establish:
   to fit the tissue)? Whether to normalize final labels to **CL IDs** (recommended).
 - **Reference datasets:** any to map against? Capture, per reference: **path**, the
   **`obs` label column(s)** to transfer, **whether its X is raw counts or
-  log-normalized** (ask — `cta crosscheck reference-map --ref-counts`), and an optional **`obs`
+  log-normalized** (ask — `cta crosscheck reference-map --ref-counts`), its **gene-ID
+  convention** (Ensembl vs symbols, and any symbol var-column), and an optional **`obs`
   column to stratify the subsample by** (e.g. its cell-type column). These feed
   `cta crosscheck reference-map` (CellMapper) and the CellTypist tissue match.
+  - **Reference gene IDs are aligned to the query's symbols automatically.** Because the
+    canonical query is symbol-indexed, `reference-map` and `markers assemble --reference`
+    rename the reference's `var_names` to symbols (auto-detected symbol var-column,
+    `feature_name`/`gene_symbols`/…) before intersecting — so an Ensembl reference (the
+    common CELLxGENE case) no longer shares ~0 genes. If the reference is Ensembl with **no**
+    symbol var-column, build the map via the knowledgebase MCP exactly as for the query and
+    pass `--ref-symbol-map ensembl_to_symbol.tsv` (or name the column with `--ref-symbol-col`).
 - **Marker sources:** preferred references, the user's own atlases, marker lists.
 - **Write-back target:** the `obs` key/prefix for the final labels (default
   `cta_L1`..`cta_L4`) — confirm now; the actual write is gated to the END of Stage 3.
@@ -440,7 +448,7 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `cta crosscheck reference-map` | CellMapper kNN label transfer from a reference (joint CCA/PCA; CPU pynndescent, or GPU `--knn-method rapids` via cuml) — cross-check when no in-object prediction fits. |
 | `cta reference train-model` | GPU/large-memory: train (or refine) a scANVI reference model on a labeled atlas (scvi-tools). Reference side of the train-then-map workflow. |
 | `cta reference map-scarches` | GPU/large-memory: map the query onto a scANVI reference (a model you trained, or a shipped scvi-tools hub model) via scArches surgery — labels + per-cell uncertainty, in the `refmap_*` schema. |
-| `cta crosscheck scimilarity` | Optional large-memory cross-check: zero-shot per-cell labels via SCimilarity (~64GB RAM + model bundle). Foundation model → additional hypothesis only, never primary. |
+| `cta crosscheck scimilarity` | Optional **HUMAN-only** cross-check: zero-shot per-cell labels via SCimilarity (~16–27 GB RAM, CPU, ~9 GB annotation bundle). Foundation model → additional hypothesis only, never primary; most useful on broad/multi-tissue human queries where no CellTypist/SingleR model fits. |
 | `cta reference fetch-census` | Optional: pull a capped (or, on a large-memory profile, larger) tissue-matched reference subset from CELLxGENE Census (no full-atlas download) to feed `cta crosscheck reference-map` when the user has no atlas and no CellTypist model fits. Needs the `cellxgene-census` extra + network. |
 | `cta crosscheck obs-pred` | Cross-check from an EXISTING in-object prediction column (e.g. a previously-mapped atlas `*_pred`) — no recompute. Prefer over `cta crosscheck reference-map` when such a column exists and fits the level. |
 | `cta cluster subcluster` | Refine one/more clusters: Leiden on the anchor embedding + per-sub marker-fraction / QC / composition summary. Standardized sub-clustering (in scope). |

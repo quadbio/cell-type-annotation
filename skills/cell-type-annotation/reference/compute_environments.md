@@ -80,16 +80,19 @@ CPU host that merely has the client tools installed. `cta detect-env` flags it; 
 - **Large reference atlases / large Census slices** — lifting the laptop-scale cap in
   `cta reference fetch-census --max-cells` (and downloading whole curated atlases) only makes
   sense when RAM allows loading them.
-- **SCimilarity** (`cta crosscheck scimilarity`) needs ~64 GB RAM and a multi-GB model bundle —
-  large-memory only, and optional even there.
+- **SCimilarity** (`cta crosscheck scimilarity`) is lighter than once assumed: ~16–27 GB RAM
+  (measured), CPU, a few minutes, and only the ~9 GB annotation-only bundle on disk (encoder +
+  annotation kNN; the full ~41 GB download incl. the cell-search TileDB is NOT needed). Fits a
+  32 GB machine — optional, and HUMAN-only (skip for non-human queries).
 
 ## Which tool at which step (and what it needs)
 
 The per-tool step / GPU-requirement / profile mapping has **one home**:
 `reference/tool_registry.md`. Read it to decide what to run where. In short: most of the
 pipeline is CPU (`none`); only the reference-mapping cross-check and (optionally)
-large-query scoring touch a GPU, and only `cta crosscheck scimilarity` is gated on RAM rather than
-a GPU. The profile decides *how* the `preferred`/`required` rows execute — inline on
+large-query scoring touch a GPU. `cta crosscheck scimilarity` is CPU too and needs only moderate
+RAM (~16–27 GB), so it runs on any reasonably-sized machine — it is HUMAN-only, not GPU- or
+large-memory-gated. The profile decides *how* the `preferred`/`required` rows execute — inline on
 `local_gpu`, handed off on `scheduler` (next section).
 
 ## The scheduler-handoff convention (stay fully generic)
