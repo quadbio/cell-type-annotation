@@ -6,11 +6,18 @@ own normalize_total(1e4)+log1p, so leaving X as Census raw counts is exactly rig
 
 Laptop-scale / remote model:
   Opening the Census does NOT download the atlas. The Census is a remote TileDB-SOMA
-  store on S3; ``open_soma`` just attaches to it. We FIRST read only the obs metadata
-  for the matching slice (to collect soma_joinids), pick a capped, stratified, fixed-
-  seed subset of those ids, and only THEN fetch the expression matrix for that handful
-  of cells. Nothing unbounded is ever pulled. This requires network access and fails
-  cleanly when offline (the TileDB-SOMA open raises).
+  store on S3; ``open_soma`` just attaches to it. We read the matching obs in two
+  phases so a broad filter (e.g. tissue_general=='blood', millions of cells) never
+  pulls the heavy label column for the full match set:
+
+    1. a CHEAP probe reading only ``soma_joinid`` (one int column) to count matches;
+    2. the label/stratify column read ONLY for a bounded random candidate pool of
+       those ids, capped at POOL_CAP, then a fixed-seed stratified subsample of the
+       pool down to --max-cells.
+
+  Only then do we fetch the expression matrix for that handful of cells. Nothing
+  unbounded is ever pulled. This requires network access and fails cleanly when
+  offline (the TileDB-SOMA open raises).
 
 Caveat on the labels:
   Census ``cell_type`` is CL-backed but AUTHOR-SUPPLIED and heterogeneous across the
@@ -45,6 +52,15 @@ from cta.io import eprint, resolve_workdir, save_table, stratified_subsample_pos
 
 # soma_joinid is the obs primary key; obs_coords in get_anndata indexes by it.
 JOINID = "soma_joinid"
+
+# Fixed seed for the deterministic pool downsample (matches the io subsampler default).
+SEED = 0
+# Candidate-pool cap for the heavy label read: max(max_cells * FACTOR, MIN). Reading the
+# string label column for a broad filter scales with the match set; we instead read it for
+# at most this many cells (a uniform random pre-sample, which preserves group proportions
+# for the stratified draw). Above this, the read is capped and stratification is approximate.
+POOL_FACTOR = 10
+POOL_MIN = 200_000
 
 
 def _import_census():
@@ -152,25 +168,51 @@ def cli(
     eprint(f">> opening CELLxGENE Census (version='{census_version}')")
     eprint("   (remote TileDB-SOMA over S3; the atlas is NOT downloaded)")
     with cellxgene_census.open_soma(census_version=census_version) as census:
-        eprint(f">> reading matching obs metadata (organism='{organism}')")
+        eprint(f">> probing matching obs (organism='{organism}')")
         eprint(f"   obs_value_filter: {obs_filter}")
-        # Read ONLY the obs columns we need to choose joinids — no expression yet.
         obs_cols = list(dict.fromkeys([JOINID, cell_type_col, stratify_by]))
-        obs = cellxgene_census.get_obs(
+        # Phase 1: CHEAP probe — read only soma_joinid (one int column) to count matches.
+        # A broad filter can match millions of cells; we must not pull the label column
+        # for all of them (that read is what hangs on a login node).
+        ids = cellxgene_census.get_obs(
             census,
             organism=organism,
             value_filter=obs_filter,
-            column_names=obs_cols,
-        )
-        if obs is None or len(obs) == 0:
+            column_names=[JOINID],
+        )[JOINID].to_numpy()
+        n_match = ids.size
+        if n_match == 0:
             raise SystemExit(
                 "ERROR: no cells matched the filter. Check the --tissue spelling against "
                 "Census `tissue_general` values, or pass --obs-value-filter with an "
                 "ontology term, e.g. \"tissue_ontology_term_id=='UBERON:0000955'\"."
             )
-        eprint(f"   {len(obs)} cells match before capping")
+        eprint(f"   {n_match} cells match before capping")
 
-        joinids = _choose_joinids(obs, max_cells, stratify_by)
+        if n_match <= max_cells:
+            # Whole match set fits under the cap: take all; no label read needed here
+            # (get_anndata reads the labels for these few cells below).
+            joinids = np.sort(ids)
+        else:
+            # Phase 2: read the label/stratify column ONLY for a bounded candidate pool,
+            # so the heavy read never scales with the full match set.
+            pool_cap = max(max_cells * POOL_FACTOR, POOL_MIN)
+            if n_match > pool_cap:
+                eprint(
+                    f"   WARN: large match set ({n_match} cells); capping the obs read to a "
+                    f"random pool of {pool_cap}. Stratification is approximate over this pool "
+                    "— narrow --tissue/--obs-value-filter for a more representative slice."
+                )
+                pool_ids = np.sort(np.random.default_rng(SEED).choice(ids, size=pool_cap, replace=False))
+            else:
+                pool_ids = np.sort(ids)
+            obs = cellxgene_census.get_obs(
+                census,
+                organism=organism,
+                coords=pool_ids.tolist(),  # restrict the label read to the pool
+                column_names=obs_cols,
+            )
+            joinids = _choose_joinids(obs, max_cells, stratify_by)
 
         eprint(f">> fetching AnnData for {joinids.size} selected cells")
         adata_obj = cellxgene_census.get_anndata(
