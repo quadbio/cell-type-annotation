@@ -39,11 +39,11 @@ def eprint(*args, **kwargs):
 #     emits this once per cluster (scanpy/tools/_rank_genes_groups.py) — internal to
 #     scanpy, no effect on the output, nothing we can fix without patching scanpy.
 FRAGMENTED_FRAME_WARNING = r".*DataFrame is highly fragmented.*"
-#   - PyTorch-Lightning auto-detects SLURM env vars and hints to prepend `srun`. scvi-tools
-#     here trains as a SINGLE process (the skill never launches it under `srun -n>1`), so
-#     this is a false positive. A cleaner fix is to pass a LightningEnvironment() plugin to
-#     the trainer; it's deferred until it can be exercised in the GPU env.
-LIGHTNING_SRUN_WARNING = r".*is available on your system but is not used.*"
+#   - PyTorch-Lightning hints to raise `num_workers` on scvi's DataLoader. We deliberately
+#     keep scvi's default (dl_num_workers=0): maintainers report ~no speedup from raising
+#     it, and high values can DEADLOCK with JAX (os.fork vs JAX's threads). So the hint is a
+#     benign false positive here. (Observed firing on an RTX 4090, scvi 1.4.3.)
+DATALOADER_WORKERS_WARNING = r".*does not have many workers.*"
 
 
 @contextlib.contextmanager
@@ -59,6 +59,29 @@ def suppressed_warnings(*message_patterns: str):
         for pat in message_patterns:
             warnings.filterwarnings("ignore", message=pat)
         yield
+
+
+def apply_scvi_training_best_practices() -> None:
+    """scvi-tools / Lightning training best practices for our single-process, headless runs.
+
+    Validated live on an RTX 4090 (scvi 1.4.3). Call once after `import scvi`, before
+    `train()`. This sets only *global, side-effect-light* defaults; per-call args
+    (`devices=1`, `check_val_every_n_epoch`, the num_workers warning scope) stay at the
+    call site.
+
+    - **Tensor-Core matmul precision.** On Tensor-Core GPUs (RTX 40xx / A100 / …) Lightning
+      warns that float32 matmuls run at full precision and leave throughput on the table;
+      `set_float32_matmul_precision('high')` trades negligible precision for a real speedup.
+      No-op on CPU/MPS.
+    - **DataLoader workers.** We intentionally leave `scvi.settings.dl_num_workers` at its
+      default of 0 (see `DATALOADER_WORKERS_WARNING`): raising it gives ~no speedup and can
+      deadlock with JAX. We don't change it here — this docstring is the rationale.
+    """
+    try:
+        import torch
+        torch.set_float32_matmul_precision("high")
+    except Exception:  # noqa: BLE001 — torch always present in the gpu env; stay defensive
+        pass
 
 
 def resolve_accelerator(choice: str) -> str:

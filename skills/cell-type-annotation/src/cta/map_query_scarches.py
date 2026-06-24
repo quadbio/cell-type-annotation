@@ -42,9 +42,10 @@ import numpy as np
 import typer
 
 from cta.io import (
-    CLUSTER_KEY_OPT, LEVEL_OPT, LIGHTNING_SRUN_WARNING, WORKDIR_OPT,
-    aggregate_predictions, eprint, require_obs, resolve_accelerator,
-    resolve_workdir, safe_cluster_id, save_table, suppressed_warnings)
+    CLUSTER_KEY_OPT, DATALOADER_WORKERS_WARNING, LEVEL_OPT, WORKDIR_OPT,
+    aggregate_predictions, apply_scvi_training_best_practices, eprint, require_obs,
+    resolve_accelerator, resolve_workdir, safe_cluster_id, save_table,
+    suppressed_warnings)
 
 
 def _place_counts(query, src_layer: str, ref_layer: str) -> None:
@@ -97,6 +98,7 @@ def cli(
 
     accel = resolve_accelerator(accelerator)
     eprint(f">> accelerator: {accel}")
+    apply_scvi_training_best_practices()  # Tensor-Core matmul precision (see io.py)
     try:
         scvi.settings.seed = 0
     except Exception:  # noqa: BLE001
@@ -137,11 +139,13 @@ def cli(
 
     eprint(">> scArches surgery (load_query_data + train)")
     q_model = scvi.model.SCANVI.load_query_data(query_obj, reference_model)
-    # Lightning's 'prepend srun' hint is a false positive for this single-process train
-    # (see io.LIGHTNING_SRUN_WARNING); silence exactly that, nothing else.
-    with suppressed_warnings(LIGHTNING_SRUN_WARNING):
-        q_model.train(max_epochs=max_epochs, accelerator=accel,
-                      plan_kwargs={"weight_decay": 0.0})
+    # scArches best practices (scvi tutorial): weight_decay=0.0 keeps the reference latent
+    # space fixed; check_val_every_n_epoch=10 tracks surgery convergence. devices=1 pins
+    # single-device (our single-process design; also avoids DDP/the srun hint on multi-GPU
+    # nodes). The DataLoader-workers hint is benign here (see DATALOADER_WORKERS_WARNING).
+    with suppressed_warnings(DATALOADER_WORKERS_WARNING):
+        q_model.train(max_epochs=max_epochs, accelerator=accel, devices=1,
+                      plan_kwargs={"weight_decay": 0.0}, check_val_every_n_epoch=10)
 
     eprint(">> predicting labels + uncertainty")
     pred = np.asarray(q_model.predict()).astype(str)

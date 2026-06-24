@@ -31,8 +31,9 @@ from typing import Optional
 
 import typer
 
-from cta.io import (LIGHTNING_SRUN_WARNING, eprint, require_obs, resolve_accelerator,
-                    resolve_workdir, save_table, suppressed_warnings)
+from cta.io import (DATALOADER_WORKERS_WARNING, apply_scvi_training_best_practices,
+                    eprint, require_obs, resolve_accelerator, resolve_workdir,
+                    save_table, suppressed_warnings)
 
 
 def cli(
@@ -69,6 +70,7 @@ def cli(
 
     accel = resolve_accelerator(accelerator)
     eprint(f">> accelerator: {accel}")
+    apply_scvi_training_best_practices()  # Tensor-Core matmul precision (see io.py)
     try:
         scvi.settings.seed = 0  # reproducibility (GPU is still not bit-identical)
     except Exception:  # noqa: BLE001
@@ -99,18 +101,19 @@ def cli(
     scvi.model.SCVI.setup_anndata(ref, layer=counts_layer_resolved, batch_key=batch_key or None)
     vae = scvi.model.SCVI(ref, n_latent=n_latent)
     eprint(f">> training scVI ({max_epochs_scvi} epochs)")
-    # Lightning hints to prepend `srun` because it detects SLURM env vars; we train as a
-    # single process here, so it's a false positive (see io.LIGHTNING_SRUN_WARNING).
-    with suppressed_warnings(LIGHTNING_SRUN_WARNING):
-        vae.train(max_epochs=max_epochs_scvi, accelerator=accel)
+    # devices=1: pin single-device training (our design is single-process). On a multi-GPU
+    # node this also stops Lightning attempting DDP — which is what triggers its 'prepend
+    # srun' hint. The DataLoader-workers hint is benign here (see DATALOADER_WORKERS_WARNING).
+    with suppressed_warnings(DATALOADER_WORKERS_WARNING):
+        vae.train(max_epochs=max_epochs_scvi, accelerator=accel, devices=1)
 
     eprint(">> initializing scANVI from the trained scVI model")
     lvae = scvi.model.SCANVI.from_scvi_model(
         vae, adata=ref, labels_key=labels_key,
         unlabeled_category=unlabeled_category)
     eprint(f">> training scANVI ({max_epochs_scanvi} epochs)")
-    with suppressed_warnings(LIGHTNING_SRUN_WARNING):  # single-process; SLURM hint is moot
-        lvae.train(max_epochs=max_epochs_scanvi, accelerator=accel,
+    with suppressed_warnings(DATALOADER_WORKERS_WARNING):  # benign num_workers hint
+        lvae.train(max_epochs=max_epochs_scanvi, accelerator=accel, devices=1,
                    n_samples_per_label=n_samples_per_label)
 
     eprint(f">> saving model to {out_model}")
