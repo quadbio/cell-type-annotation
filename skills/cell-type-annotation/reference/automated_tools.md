@@ -42,6 +42,13 @@ ambiguous progenitor / transitional states that are biologically real and import
   pre-existing joint embedding. CPU kNN via **pynndescent** (scales to millions); gives
   per-cell predictions **with confidence** and `compute_presence_score()`. (Earlier
   guidance to "skip if there's no shared embedding" was wrong for this tool.)
+  - **Gene-ID alignment:** the reference's `var_names` are aligned to the query's symbol
+    convention before the shared-gene intersection (auto-detected symbol var-column, or
+    `--ref-symbol-col` / `--ref-symbol-map` — the skill builds the map via the knowledgebase
+    MCP). An Ensembl-indexed reference therefore maps onto a symbol-canonical query without
+    manual pre-processing. `markers assemble --reference` applies the same alignment so its
+    DE marker names panel-gate against the query. (Symbol coverage is partial — ~25-30% of
+    full-transcriptome genes have no symbol and stay Ensembl; expected, not a failure.)
 - **CELLxGENE Census as an on-demand reference** (`cellxgene-census`, optional extra) —
   when the user has **no atlas of their own and no CellTypist model fits**, this is the
   fallback that keeps the reference cross-check alive. `cta reference fetch-census`

@@ -27,12 +27,12 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | Bootstrap env (1c) | `pixi install [-e gpu]` | none | all | pixi env: `default` (CPU) or `-e gpu` (adds the GPU stack). Not a `cta` command. |
 | Inspect object (1e) | `cta data inspect` | none | all | keys/layers/norm-fingerprint/panel flag/gene-ID convention/`.raw` → `context.md`. |
 | Canonicalize (1e) | `cta data canonicalize` | none | all | write the one canonical sidecar every step reads: symbol var_names (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, slim embeddings/obs. Replaces the old slim-cache step. |
-| Seed markers (3.1, opt.) | `cta markers assemble` | none | all | seed `markers_<level>.json` from a CellTypist model / reference DE. |
+| Seed markers (3.1, opt.) | `cta markers assemble` | none | all | seed `markers_<level>.json` from a CellTypist model / reference DE. A `--reference` is aligned to query symbols first (`--ref-symbol-col`/`--ref-symbol-map`) so its DE marker names panel-gate. |
 | Score — bottom-up (3.3) | `cta markers compute` | none | all | `rank_genes_groups` (wilcoxon) + COSG (CPU). GPU acceleration would need rapids-singlecell (full RAPIDS+dask, not in the default extras) — niche, since the main object isn't re-preprocessed. |
 | Score — top-down (3.3) | `cta markers profile` | none | all | score the curated panel across clusters → pct/mean + dotplot. |
 | Score — signatures (3.3) | `cta markers score` | none | all | decoupler `aucell` + pyUCell + DE-overlap → `crosscheck`. |
 | Cross-check — in-object (3.4) | `cta crosscheck obs-pred` | none | all | summarize an existing `obs` prediction column. Preferred when one fits. |
-| Cross-check — kNN refmap (3.4) | `cta crosscheck reference-map` | optional | all | CellMapper kNN transfer. CPU `pynndescent`/`sklearn`/`faiss-cpu`; GPU `--knn-method rapids` (needs cuml-cu12) scales to millions. (`faiss-gpu` needs a conda build; pip wheel is ABI-broken.) |
+| Cross-check — kNN refmap (3.4) | `cta crosscheck reference-map` | optional | all | CellMapper kNN transfer. Reference `var_names` aligned to query symbols first (`--ref-symbol-col`/`--ref-symbol-map`), so an Ensembl reference shares genes. CPU `pynndescent`/`sklearn`/`faiss-cpu`; GPU `--knn-method rapids` (needs cuml-cu12) scales to millions. (`faiss-gpu` needs a conda build; pip wheel is ABI-broken.) |
 | Cross-check — CellTypist (3.4) | `cta crosscheck celltypist` | none | all | tissue-gated pretrained LR classifier; `list` (no download) then `predict` only if a model fits. |
 | Cross-check — reference model (3.4) | `cta reference map-scarches` | preferred | local_gpu / scheduler | scArches surgery onto a scANVI model (trained, or a scvi-hub shipped model). Labels + per-cell uncertainty. |
 | Train reference model (3.4 prep) | `cta reference train-model` | preferred | local_gpu / scheduler | scVI→scANVI on a labeled atlas (scvi-tools). Reference side of train-then-map. |
