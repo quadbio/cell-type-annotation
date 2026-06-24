@@ -22,6 +22,9 @@ detect-env = "cta detect-env"
 test = "python -m pytest"
 # Opt-in: the live CELLxGENE Census integration test (needs network).
 test-census = "python -m pytest -m census"
+# Lint (ruff config lives in pyproject.toml [tool.ruff]).
+lint = "ruff check src tests"
+format = "ruff format src tests"
 
 [dependencies]
 # conda-forge for the interpreter, numpy (numba ABI), and faiss (the pip faiss wheels are
@@ -30,6 +33,7 @@ python = "3.12.*"
 numpy = ">=2"
 faiss-cpu = "*"
 pytest = "*"
+ruff = "*"  # linter/formatter; config in pyproject.toml [tool.ruff]
 
 [pypi-dependencies]
 # The skill's own package (the `cta` CLI), installed editable.
