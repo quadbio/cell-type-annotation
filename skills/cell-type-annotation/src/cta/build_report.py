@@ -17,7 +17,8 @@ The evidence cards are authored by Claude (the reasoning lives there); this scri
 just packages them for human review — no annotation logic here.
 
 Labels CSV columns (flexible; missing ones are tolerated):
-  cluster, label, cl_id, confidence, status, note
+  cluster, label, state, cl_id, confidence, status, note
+(`state` is the orthogonal cell-state axis: normal / low-quality / cycling / doublet / …)
 
 Usage:
   python build_report.py --workdir /proj/run --level L1 [--title "Level 1 — broad class"]
@@ -317,7 +318,8 @@ def cli(
                            f"<th>#clusters</th><th>avg conf</th><th>clusters</th></tr>{rr}</table>")
 
         # --- compact per-cluster summary (key cols only; full note lives in the card) ---
-        cols = [c for c in ["cluster", "label", "cl_id", "confidence", "top_markers"] if c in labels.columns]
+        cols = [c for c in ["cluster", "label", "state", "cl_id", "confidence", "top_markers"]
+                if c in labels.columns]
         sl = labels.sort_values(
             by=[c for c in ["label", "confidence"] if c in labels.columns]) if cols else labels
         head = "".join(f"<th>{html.escape(c)}</th>" for c in cols)

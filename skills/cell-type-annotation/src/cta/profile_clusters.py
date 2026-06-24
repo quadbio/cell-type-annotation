@@ -6,6 +6,8 @@ Three independent profiles, each written as its own table:
 
   1. QC numeric profile  -- per-cluster median of every QC metric, plus a __global__
      median row, so an off-population cluster (low counts, high mito, ...) stands out.
+     A companion `qc_deviation_<level>.csv` expresses each cluster median as a robust
+     (MAD) z vs the across-cluster norm, so low-quality / cycling clusters pop out.
   2. Categorical composition -- a row-normalized (%) crosstab of cluster x category,
      for EACH user-named obs column (e.g. an unexpected batch/timepoint skew can
      reveal an early-state population rather than an artifact).
@@ -40,6 +42,18 @@ def _auto_qc_cols(adata, cluster_key: str) -> list[str]:
     return cols
 
 
+def _robust_z(per_cluster: pd.DataFrame) -> pd.DataFrame:
+    """Per-column robust z of each cluster's median vs the across-cluster spread:
+    (median - median_over_clusters) / (1.4826 * MAD). Name-agnostic — applied uniformly to
+    every numeric column, so an off-population cluster (low depth, high mito, high cell-cycle
+    score) stands out as a large-magnitude z regardless of which metric it is. Columns with no
+    spread (MAD == 0) yield 0, not inf/nan."""
+    center = per_cluster.median()
+    mad = (per_cluster - center).abs().median() * 1.4826
+    z = (per_cluster - center).divide(mad.where(mad > 0))
+    return z.where(mad > 0, 0.0).round(2)
+
+
 def qc_profile(adata, cluster_key: str, qc_cols: list[str], workdir, level: str):
     if not qc_cols:
         eprint("   QC profile: no numeric obs columns found; skipping.")
@@ -52,6 +66,16 @@ def qc_profile(adata, cluster_key: str, qc_cols: list[str], workdir, level: str)
     out = pd.concat([per_cluster, glob.to_frame().T])
     out.index.name = cluster_key
     save_table(out, workdir, f"qc_profile_{level}.csv", index=True)
+
+    # Companion deviation table: how far each cluster's median sits from the across-cluster
+    # norm, in robust (MAD) units — so low-quality / cycling clusters pop out without the
+    # annotator eyeballing absolute medians. Needs >=3 clusters for a meaningful spread.
+    if per_cluster.shape[0] >= 3:
+        dev = _robust_z(per_cluster)
+        dev.index.name = cluster_key
+        save_table(dev, workdir, f"qc_deviation_{level}.csv", index=True)
+    else:
+        eprint("   QC deviation: <3 clusters; skipping robust-z table.")
 
 
 def categorical_composition(adata, cluster_key: str, cat_cols: list[str], workdir, level: str):

@@ -16,7 +16,7 @@ import typer
 
 from cta import (assemble_markers, build_report, canonicalize, cluster_confidence,
                  compute_markers, crosscheck_obs_pred, detect_env, fetch_census_reference,
-                 inspect_adata, map_query_scarches, profile_clusters, profile_markers,
+                 inspect_adata, map_query_scarches, profile_clusters, profile_markers, qc,
                  reference_map, run_celltypist, run_scimilarity, scaffold_cards,
                  score_signatures, subcluster, train_reference_model, write_back)
 
@@ -24,7 +24,7 @@ from cta import (assemble_markers, build_report, canonicalize, cluster_confidenc
 # function or a nested Typer app (celltypist's list/predict/markers).
 GROUPS: dict[str | None, dict[str, object]] = {
     None: {"detect-env": detect_env.cli},
-    "data": {"inspect": inspect_adata.cli, "canonicalize": canonicalize.cli},
+    "data": {"inspect": inspect_adata.cli, "canonicalize": canonicalize.cli, "qc": qc.cli},
     "markers": {"assemble": assemble_markers.cli, "compute": compute_markers.cli,
                 "profile": profile_markers.cli, "score": score_signatures.cli},
     "crosscheck": {"obs-pred": crosscheck_obs_pred.cli, "reference-map": reference_map.cli,

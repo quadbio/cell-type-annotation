@@ -243,7 +243,7 @@ def _labels_map(workdir: Path, level: str, explicit: str | None) -> dict[str, di
     for _, r in df.iterrows():
         cid = str(r["cluster"]).strip()
         rec = {}
-        for col in ("label", "cl_id", "confidence", "rationale", "rejected"):
+        for col in ("label", "state", "cl_id", "confidence", "rationale", "rejected"):
             if col in df.columns and pd.notna(r.get(col)):
                 rec[col] = r[col]
         out[cid] = rec
@@ -291,7 +291,7 @@ def cli(
         None,
         help="labels CSV to source the per-cluster call + reasoning from "
              "(default: <workdir>/labels/annotation_<level>.csv). Columns "
-             "`label`,`confidence`,`cl_id`,`rationale`,`rejected` are rendered into "
+             "`label`,`state`,`confidence`,`cl_id`,`rationale`,`rejected` are rendered into "
              "each card; this is the single source of truth, so re-scaffolding "
              "after you fill the CSV refreshes the cards without losing reasoning."),
 ) -> None:
@@ -356,6 +356,11 @@ def cli(
         call_bits = []
         if rec.get("label"):
             call_bits.append(f"**Call:** {rec['label']}")
+        # `state` is the orthogonal cell-STATE axis (normal / low-quality / cycling / doublet …),
+        # independent of the cell-TYPE label — surfaced here so a cycling or low-quality cluster
+        # is flagged even when it still carries a confident type call.
+        if str(rec.get("state", "")).strip():
+            call_bits.append(f"state: {str(rec['state']).strip()}")
         if rec.get("cl_id"):
             call_bits.append(f"`{rec['cl_id']}`")
         if rec.get("confidence") not in (None, ""):
