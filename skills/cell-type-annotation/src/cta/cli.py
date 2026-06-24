@@ -16,9 +16,9 @@ import typer
 
 from cta import (assemble_markers, build_report, canonicalize, cluster_confidence,
                  compute_markers, crosscheck_obs_pred, detect_env, fetch_census_reference,
-                 inspect_adata, map_query_scarches, profile_clusters, profile_markers, qc,
-                 reference_map, run_celltypist, run_scimilarity, scaffold_cards,
-                 score_signatures, subcluster, train_reference_model, write_back)
+                 fetch_scimilarity_model, inspect_adata, map_query_scarches, profile_clusters,
+                 profile_markers, qc, reference_map, run_celltypist, run_scimilarity,
+                 scaffold_cards, score_signatures, subcluster, train_reference_model, write_back)
 
 # group -> {command name: leaf command}. group None = top-level. A leaf is either a `cli`
 # function or a nested Typer app (celltypist's list/predict/markers).
@@ -30,6 +30,7 @@ GROUPS: dict[str | None, dict[str, object]] = {
     "crosscheck": {"obs-pred": crosscheck_obs_pred.cli, "reference-map": reference_map.cli,
                    "celltypist": run_celltypist.app, "scimilarity": run_scimilarity.cli},
     "reference": {"fetch-census": fetch_census_reference.cli,
+                  "fetch-scimilarity": fetch_scimilarity_model.cli,
                   "train-model": train_reference_model.cli,
                   "map-scarches": map_query_scarches.cli},
     "cluster": {"subcluster": subcluster.cli, "profile": profile_clusters.cli,
