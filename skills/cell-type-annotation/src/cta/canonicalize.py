@@ -7,8 +7,11 @@ a slim sidecar, but now also *standardizes* what the slim object contains). Down
 scripts call `load_adata`, which transparently picks up this sidecar, and can then
 assume a fixed contract:
 
-  * `X`               — log-normalized expression
+  * `X`               — log-normalized expression (the user's own normalization, kept as-is)
   * `layers['counts']`— integer counts (from a named layer, or pulled out of `.raw`)
+  * `layers['lognorm_cp10k']` — log1p of CP10k (1e4 counts/cell), precomputed so
+                        scale-sensitive classifiers (CellTypist) read their exact input
+                        instead of re-normalizing; from counts when present, else X re-targeted
   * `var_names`       — gene SYMBOLS (curated / CellTypist / literature markers are
                         symbols, so panel-gating matches); the original IDs are kept in
                         `var['ensembl_id']` and the symbol in `var['gene_symbol']`
@@ -47,7 +50,8 @@ from typing import Optional
 
 import typer
 
-from cta.io import _looks_like_ensembl, eprint, load_adata, split_csv
+from cta.io import (LOGNORM_CP10K_LAYER, _looks_like_ensembl, cp10k_log1p_matrix,
+                    eprint, load_adata, split_csv)
 
 # var columns that conventionally hold the gene symbol, best first (CELLxGENE uses
 # `feature_name`; the immune benchmark atlas uses `gene_symbols`).
@@ -314,6 +318,13 @@ def cli(
         index=pd.Index(symbols, name=adata_obj.var_names.name))
 
     layers = {"counts": counts} if counts is not None else {}
+    # Precompute the canonical log1p(CP10k) layer so scale-sensitive classifiers (CellTypist)
+    # have their exact input in place and don't re-normalize ad hoc — X stays the user's own
+    # log-norm. Derived from raw counts when present, else by re-targeting X to 1e4. Both X and
+    # counts are already aligned to the canonical gene order here.
+    cp10k, cp_note = cp10k_log1p_matrix(counts=counts, lognorm=X)
+    layers[LOGNORM_CP10K_LAYER] = cp10k
+    eprint(f"   layers['{LOGNORM_CP10K_LAYER}'] <- log1p(CP10k), {cp_note}")
     slim = ad.AnnData(X=X, obs=obs, var=var, obsm=obsm, layers=layers)
 
     # Resolve duplicate symbols (several Ensembl IDs -> one symbol) deterministically.

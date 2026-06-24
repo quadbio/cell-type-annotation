@@ -6,8 +6,13 @@ write context.md and reconcile any mismatch with the user BEFORE annotation star
 Verifies nothing is silently wrong: cluster key, embedding key, viz embedding, and
 which layer is counts vs log-normalized.
 
+This command does NOT author `context.md` or `run_state.json` — those are written by
+Claude (the annotator) from the report this prints. Pass `--workdir` to also drop the
+machine-readable report at `<workdir>/inspect_report.json` so it is a durable artifact a
+resumed session (or a critic subagent) can re-read.
+
 Usage:
-  python inspect_adata.py --adata path.h5ad \
+  python inspect_adata.py --adata path.h5ad [--workdir DIR] \
       [--cluster-key leiden] [--embedding-key X_scpoli] [--viz-key X_umap] \
       [--counts-layer counts] [--lognorm-layer lognorm] \
       [--json OUT.json]
@@ -19,7 +24,7 @@ from typing import Optional
 import numpy as np
 import typer
 
-from cta.io import _looks_like_ensembl, eprint, load_adata
+from cta.io import _looks_like_ensembl, eprint, load_adata, resolve_workdir
 
 
 def _nonzero_data(X, cap=200_000):
@@ -93,8 +98,12 @@ def cli(
         None, help="layer expected to hold raw counts"),
     lognorm_layer: Optional[str] = typer.Option(
         None, help="layer expected to hold log-normalized data"),
+    workdir: Optional[str] = typer.Option(
+        None, help="annotation-run working dir; if given, also write "
+                   "<workdir>/inspect_report.json (context.md/run_state.json are authored "
+                   "by Claude, not here)"),
     json: Optional[str] = typer.Option(
-        None, help="also write the report to this JSON file"),
+        None, help="also write the report to this explicit JSON path"),
 ) -> None:
     """Inspect an AnnData and verify the keys/layers the skill will rely on."""
     import json as json_mod
@@ -246,6 +255,10 @@ def cli(
         for c in cat_cols if adata_obj.obs[c].nunique() <= 200}
 
     print(json_mod.dumps(report, indent=2))
+    if workdir:
+        out = resolve_workdir(workdir) / "inspect_report.json"
+        out.write_text(json_mod.dumps(report, indent=2))
+        eprint(f"\n>> wrote {out}  (author context.md / run_state.json from this)")
     if json:
         with open(json, "w") as fh:
             json_mod.dump(report, fh, indent=2)

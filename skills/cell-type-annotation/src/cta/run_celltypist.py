@@ -33,11 +33,49 @@ import pandas as pd
 import typer
 
 from cta.io import (
-    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, adata_with_lognorm_X,
-    eprint, load_adata, require_obs, resolve_workdir, safe_cluster_id,
-    save_table)
+    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, LOGNORM_CP10K_LAYER, WORKDIR_OPT,
+    adata_with_lognorm_X, cp10k_log1p_matrix, eprint, load_adata, require_obs,
+    resolve_workdir, safe_cluster_id, save_table)
 
 app = typer.Typer()
+
+
+def _celltypist_input(adata_obj, counts_layer, lognorm_layer):
+    """Return an AnnData whose `.X` is log1p of CP10k — what CellTypist expects.
+
+    CellTypist is scale-sensitive: it logs "invalid expression matrix (expect log1p
+    normalized to 10000 counts)" and silently degrades when `.X` isn't CP10k-log1p, while the
+    rest of the skill's marker tools are rank-based and don't care. `cta data canonicalize`
+    therefore **precomputes** the CP10k matrix into `layers['lognorm_cp10k']` (X stays the
+    user's own log-norm), so the normal path is just to read that layer — no recompute. We
+    only rebuild when it is absent (a non-canonical object), on a COPY, never the user's file:
+
+      - explicit `--counts-layer` (or `layers['counts']`) → from raw counts (the exact input);
+      - else → re-target the log-norm matrix to 1e4.
+    """
+    out = adata_obj.copy()
+    # Canonical object: the precomputed layer is already log1p(CP10k) — use it as-is.
+    if not counts_layer and LOGNORM_CP10K_LAYER in (out.layers or {}):
+        out.X = out.layers[LOGNORM_CP10K_LAYER]
+        eprint(f">> CellTypist input: canonical '{LOGNORM_CP10K_LAYER}' layer (log1p-CP10k)")
+        return out
+
+    src = counts_layer or ("counts" if "counts" in (out.layers or {}) else None)
+    if src:
+        counts = out.X if src == "X" else (out.layers or {}).get(src)
+        if counts is None:
+            raise SystemExit(
+                f"ERROR: --counts-layer '{src}' not in layers "
+                f"{list(adata_obj.layers.keys())} (use 'X' if X holds raw counts).")
+        mat, note = cp10k_log1p_matrix(counts=counts)
+        eprint(f">> CellTypist input: log1p(CP10k) {note} (layer '{src}')")
+    else:
+        base = adata_with_lognorm_X(out, lognorm_layer).X
+        mat, note = cp10k_log1p_matrix(lognorm=base)
+        eprint(f">> CellTypist input: log1p(CP10k) {note} "
+               "(no counts; pass --counts-layer to rebuild from raw counts instead)")
+    out.X = mat
+    return out
 
 
 def _ensure_model(model: str) -> str:
@@ -113,8 +151,14 @@ def predict(
     model: str = typer.Option(..., help="CellTypist model name to run"),
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
+    counts_layer: Optional[str] = typer.Option(
+        None, help="layer with RAW COUNTS ('X' if X is counts). Default auto-uses the "
+                   "canonical layers['counts']; CellTypist's log1p-CP10k input is rebuilt "
+                   "from it (preferred). Counts-absent → the log-norm matrix is re-targeted "
+                   "to 10k."),
     lognorm_layer: Optional[str] = typer.Option(
-        None, help="layer with log-normalized data; default uses adata.X"),
+        None, help="layer with log-normalized data; default uses adata.X "
+                   "(only used as the CP10k source when no counts are available)"),
 ) -> None:
     """Run one CellTypist model with majority voting over the user's clusters."""
     import celltypist
@@ -122,10 +166,10 @@ def predict(
     model = _ensure_model(model)
     adata_obj = load_adata(adata)
     require_obs(adata_obj, cluster_key, "cluster key")
-    adata_obj = adata_with_lognorm_X(adata_obj, lognorm_layer)
+    # CellTypist is scale-sensitive (wants log1p-CP10k); rebuild that for it — the rest of
+    # the skill scores on the user's log-norm unchanged (see _celltypist_input).
+    adata_obj = _celltypist_input(adata_obj, counts_layer, lognorm_layer)
 
-    # CellTypist expects log1p of 1e4-normalized counts. adata_with_lognorm_X already
-    # warned if the chosen matrix doesn't look log1p; CellTypist itself re-checks.
     # IMPORTANT: pass over_clustering=cluster_key so majority voting is computed over
     # the USER's clusters (else CellTypist runs its own internal Leiden and the
     # cluster-vs-prediction crosstab below would compare against the wrong grouping).

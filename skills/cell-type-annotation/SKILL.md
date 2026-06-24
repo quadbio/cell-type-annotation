@@ -44,6 +44,17 @@ demand). Rationale/algorithm: `reference/methodology.md` §1.
     assumptions and re-prompt only when you introduce a materially new one.
   - **Gate B:** `Unknown` is a first-class label for irreconcilable evidence — a
     justified `Unknown` is a success, not a failure.
+- **Interactive by default; non-interactive is an explicit opt-in.** The gates and
+  sign-offs are the skill's core and stay **on** unless the user explicitly asks for an
+  automated/benchmark run **and** supplies, up front, the context the gates would otherwise
+  gather interactively (data keys, biology, label vocabulary, the marker→type assumptions —
+  e.g. a filled `context.md`/`assumptions.md`/`plan.md`, or a clear written brief). Then run
+  end-to-end without `AskUserQuestion`, but **auto-approve-and-record** every gate (write
+  `assumptions.md`, mark `gates.signed_off_levels` with an `auto_approved: non_interactive`
+  note, build every report) so the audit trail is identical to an interactive run.
+  Non-interactive **never removes a gate** — it records a *pre-authorized* decision, and any
+  question the supplied context doesn't answer still stops the run. Default to interactive
+  when in doubt. Full rule: `reference/methodology.md` §2.
 - **Every automated call is a hypothesis, not a verdict.** Flag disagreement between
   marker reasoning and CellTypist/SingleR/CellMapper/scANVI; never silently overwrite.
   A bigger model (a GPU reference model, a foundation model) earns one more independent
@@ -172,17 +183,21 @@ one item at a time) to establish:
 - **Write-back target:** the `obs` key/prefix for the final labels (default
   `cta_L1`..`cta_L4`) — confirm now; the actual write is gated to the END of Stage 3.
 
-**1e. Inspect, then canonicalize.** First run `cta data inspect` to verify every
-key/layer exists and capture `n_obs`/`n_vars`, cluster sizes, layer stats, `obsm` keys, a
-**normalization fingerprint**, the **gene-ID convention** (`gene_ids.var_names_look_like`
-+ any symbol var-column), **`.raw`** contents, the candidate **`categorical_obs`** (with
-which have `uns` colours), and a **`targeted_panel`** flag. Reconcile any mismatch with the user.
+**1e. Inspect, then canonicalize.** First run `cta data inspect --workdir <wd>` (plus
+`--cluster-key`/`--embedding-key`/`--counts-layer`/… so it actually *verifies* them) to
+confirm every key/layer exists and capture `n_obs`/`n_vars`, cluster sizes, layer stats,
+`obsm` keys, a **normalization fingerprint**, the **gene-ID convention**
+(`gene_ids.var_names_look_like` + any symbol var-column), **`.raw`** contents, the candidate
+**`categorical_obs`** (with which have `uns` colours), and a **`targeted_panel`** flag. With
+`--workdir` it drops the report at `<wd>/inspect_report.json`. Reconcile any mismatch with the user.
 
 Then **always run `cta data canonicalize`** (the default Stage-1 data step) to write the
 one canonical working sidecar (`<stem>_cta.h5ad`) every downstream command transparently
 reads — so no step has to re-resolve input variability. It standardizes the object to:
 **symbol `var_names`** (Ensembl IDs kept in `var['ensembl_id']`), **counts in
-`layers['counts']`** (pulled from a layer or from `.raw`), **log-norm in `X`**, and the
+`layers['counts']`** (pulled from a layer or from `.raw`), **log-norm in `X`** (the user's
+own normalization, kept as-is), a precomputed **`layers['lognorm_cp10k']`** (log1p of CP10k,
+for scale-sensitive classifiers like CellTypist), and the
 chosen embedding(s) + cluster key. Pass the keys you confirmed
 (`--cluster-key`/`--embedding-key`/`--viz-key`, `--lognorm-layer`, `--counts-layer`).
 
@@ -194,7 +209,10 @@ direction) for your candidate **marker** symbols, write a `symbol_map.tsv`
 (`ensembl<TAB>symbol`, one pair per line), and pass it to canonicalize as
 `--symbol-map symbol_map.tsv`. Only the marker-relevant genes need renaming for
 panel-gating to match; the rest keep their Ensembl id.
-Write `context.md` and seed `run_state.json` (schemas in `reference/artifacts.md`).
+
+Then **you (Claude) author `context.md` and seed `run_state.json`** from the inspect report —
+`inspect`/`canonicalize` don't write them (they verify/standardize the object and dump the
+structured facts); you supply the tissue/vocabulary prose (schemas in `reference/artifacts.md`).
 **If `targeted_panel` is true, write a short panel-capability note in `context.md`** —
 which expected identities this panel **cannot** resolve because their canonical markers
 are off-panel (sets it apart from biology you simply didn't find); revisit it as
@@ -297,7 +315,10 @@ first, so a deep recursion never leaves the user lost.
      PCA same-modality; builds its own joint embedding). On a GPU profile add
      `--knn-method rapids` (needs cuml-cu12) to scale to millions of cells.
    - else **CellTypist (tissue-gated):** `cta crosscheck celltypist list` → `predict` only if a
-     model fits; **omit if none does** (don't force an ill-fitting model).
+     model fits; **omit if none does** (don't force an ill-fitting model). CellTypist wants
+     log1p-CP10k input specifically; `predict` rebuilds that from the canonical
+     `layers['counts']` automatically (the canonical `X` log-norm isn't necessarily CP10k),
+     so on a canonicalized object you need pass nothing extra.
    - else **Census reference (fallback):** if the user has no atlas and no CellTypist
      model fits, `cta reference fetch-census` pulls a capped, tissue-matched
      subset from CELLxGENE Census (optional `cellxgene-census` extra; network-dependent)
@@ -416,8 +437,8 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | --- | --- |
 | `pixi install [-e gpu]` | Bootstrap the env (Stage 1c): `default` = CPU scVerse core; `-e gpu` adds the GPU stack. (Not a `cta` command — pixi builds the env.) |
 | `cta detect-env` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
-| `cta data inspect` | Stage 1: verify keys/layers, gene-ID convention, `.raw`, normalization fingerprint → dump structure to `context`. |
-| `cta data canonicalize` | Stage 1 (default): write the one canonical sidecar every downstream step reads — symbol `var_names` (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, slimmed embeddings/obs. Also avoids reloading the huge file. |
+| `cta data inspect` | Stage 1: verify keys/layers, gene-ID convention, `.raw`, normalization fingerprint; prints the structured report (and writes `<workdir>/inspect_report.json` with `--workdir`). You author `context.md`/`run_state.json` from it — `inspect` doesn't. |
+| `cta data canonicalize` | Stage 1 (default): write the one canonical sidecar every downstream step reads — symbol `var_names` (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, a precomputed `layers['lognorm_cp10k']` (log1p-CP10k for CellTypist), slimmed embeddings/obs. Also avoids reloading the huge file. |
 | `cta data qc` | Stage 1: compute (only when absent) standard QC into the sidecar obs — depth/mito metrics + cell-cycle `S_score`/`G2M_score`/`phase` — so low-quality / cycling clusters are detectable (read-only; no doublet detection, normalization, or filtering). |
 | `cta markers assemble` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
 | `cta markers compute` | `rank_genes_groups` (wilcoxon, tie_correct) + COSG → marker tables (bottom-up: what defines each cluster). |

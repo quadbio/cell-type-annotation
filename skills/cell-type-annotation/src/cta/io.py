@@ -6,6 +6,7 @@ panel-gating) stay consistent and the run remains resumable and auditable.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -28,6 +29,59 @@ LEVEL_REQ_OPT = typer.Option(..., help="hierarchy level tag, e.g. L1")
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
+
+
+# Exact messages of third-party warnings we have DIAGNOSED as benign-and-unfixable-here,
+# so callers can silence them by the tightest possible scope (one `with` around the one
+# offending call) instead of muting a whole command. Never use these to hide a warning we
+# haven't traced to a specific, harmless cause.
+#   - scanpy builds its rank_genes_groups results frame one column per group, so pandas
+#     emits this once per cluster (scanpy/tools/_rank_genes_groups.py) — internal to
+#     scanpy, no effect on the output, nothing we can fix without patching scanpy.
+FRAGMENTED_FRAME_WARNING = r".*DataFrame is highly fragmented.*"
+#   - PyTorch-Lightning hints to raise `num_workers` on scvi's DataLoader. We deliberately
+#     keep scvi's default (dl_num_workers=0): maintainers report ~no speedup from raising
+#     it, and high values can DEADLOCK with JAX (os.fork vs JAX's threads). So the hint is a
+#     benign false positive here. (Observed firing on an RTX 4090, scvi 1.4.3.)
+DATALOADER_WORKERS_WARNING = r".*does not have many workers.*"
+
+
+@contextlib.contextmanager
+def suppressed_warnings(*message_patterns: str):
+    """Silence specific warning MESSAGES within this block only (and nothing else).
+
+    Wrap the single call known to emit a diagnosed-benign third-party warning, passing its
+    exact message regex (see the module-level constants). Scope it as tightly as possible so
+    unrelated — and genuinely informative — warnings still reach the user.
+    """
+    import warnings
+    with warnings.catch_warnings():
+        for pat in message_patterns:
+            warnings.filterwarnings("ignore", message=pat)
+        yield
+
+
+def apply_scvi_training_best_practices() -> None:
+    """scvi-tools / Lightning training best practices for our single-process, headless runs.
+
+    Validated live on an RTX 4090 (scvi 1.4.3). Call once after `import scvi`, before
+    `train()`. This sets only *global, side-effect-light* defaults; per-call args
+    (`devices=1`, `check_val_every_n_epoch`, the num_workers warning scope) stay at the
+    call site.
+
+    - **Tensor-Core matmul precision.** On Tensor-Core GPUs (RTX 40xx / A100 / …) Lightning
+      warns that float32 matmuls run at full precision and leave throughput on the table;
+      `set_float32_matmul_precision('high')` trades negligible precision for a real speedup.
+      No-op on CPU/MPS.
+    - **DataLoader workers.** We intentionally leave `scvi.settings.dl_num_workers` at its
+      default of 0 (see `DATALOADER_WORKERS_WARNING`): raising it gives ~no speedup and can
+      deadlock with JAX. We don't change it here — this docstring is the rationale.
+    """
+    try:
+        import torch
+        torch.set_float32_matmul_precision("high")
+    except Exception:  # noqa: BLE001 — torch always present in the gpu env; stay defensive
+        pass
 
 
 def resolve_accelerator(choice: str) -> str:
@@ -303,6 +357,48 @@ def adata_with_lognorm_X(adata: ad.AnnData, layer: str | None) -> ad.AnnData:
     out = adata.copy()
     out.X = X
     return out
+
+
+# The canonical layer holding log1p of CP10k (1e4 counts/cell) — what scale-sensitive
+# classifiers (CellTypist) expect. `cta data canonicalize` precomputes it so downstream
+# steps read it directly instead of re-normalizing ad hoc; X stays the user's own log-norm.
+LOGNORM_CP10K_LAYER = "lognorm_cp10k"
+
+
+def cp10k_log1p_matrix(*, counts=None, lognorm=None):
+    """Build a ``log1p(CP10k)`` matrix (1e4 counts/cell) — the input scale-sensitive
+    classifiers like CellTypist expect, regardless of how `adata.X` is normalized.
+
+    Pass exactly one source (counts wins if both given):
+      - ``counts``: raw counts → ``normalize_total(1e4)`` → ``log1p`` (the exact path).
+      - ``lognorm``: an already size-normalized-log1p matrix on some other target →
+        ``expm1`` → ``normalize_total(1e4)`` → ``log1p`` (re-targets to 1e4; valid because
+        the caller verified it is genuine size-normalized log1p).
+
+    Operates on a copy; returns ``(matrix, note)`` where `note` describes the source. Shared
+    by `cta data canonicalize` (writes it to ``layers['lognorm_cp10k']``) and the CellTypist
+    cross-check (fallback when that layer is absent).
+    """
+    import anndata as ad_
+    import scanpy as sc
+    import scipy.sparse as sp
+
+    if counts is not None:
+        base = counts.copy()
+        note = "from raw counts"
+    elif lognorm is not None:
+        base = lognorm.copy()
+        if sp.issparse(base):
+            base.data = np.expm1(base.data)
+        else:
+            base = np.expm1(np.asarray(base))
+        note = "re-targeted from the log-norm matrix"
+    else:
+        raise ValueError("cp10k_log1p_matrix: pass counts= or lognorm=")
+    tmp = ad_.AnnData(base)  # fresh uns → no stale log1p marker
+    sc.pp.normalize_total(tmp, target_sum=1e4)
+    sc.pp.log1p(tmp)
+    return tmp.X, note
 
 
 def panel_gate(markers: dict[str, list[str]], var_names) -> tuple[dict, dict]:

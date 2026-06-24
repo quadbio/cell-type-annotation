@@ -39,7 +39,9 @@ from typing import Optional
 
 import typer
 
-from cta.io import eprint, require_obs, resolve_accelerator, resolve_workdir, save_table
+from cta.io import (DATALOADER_WORKERS_WARNING, apply_scvi_training_best_practices,
+                    eprint, require_obs, resolve_accelerator, resolve_workdir,
+                    save_table, suppressed_warnings)
 
 
 def cli(
@@ -86,6 +88,7 @@ def cli(
 
     accel = resolve_accelerator(accelerator)
     eprint(f">> accelerator: {accel}")
+    apply_scvi_training_best_practices()  # Tensor-Core matmul precision (see io.py)
     if is_lognorm:
         eprint(">> gene_likelihood=normal (Gaussian): training on LOG-NORM data "
                "(counts-absent fallback; raw counts remain best practice)")
@@ -136,15 +139,20 @@ def cli(
         use_batch_norm="none",
     )
     eprint(f">> training scVI ({max_epochs_scvi} epochs)")
-    vae.train(max_epochs=max_epochs_scvi, accelerator=accel)
+    # devices=1: pin single-device training (our design is single-process). On a multi-GPU
+    # node this also stops Lightning attempting DDP — which is what triggers its 'prepend
+    # srun' hint. The DataLoader-workers hint is benign here (see DATALOADER_WORKERS_WARNING).
+    with suppressed_warnings(DATALOADER_WORKERS_WARNING):
+        vae.train(max_epochs=max_epochs_scvi, accelerator=accel, devices=1)
 
     eprint(">> initializing scANVI from the trained scVI model")
     lvae = scvi.model.SCANVI.from_scvi_model(
         vae, adata=ref, labels_key=labels_key,
         unlabeled_category=unlabeled_category)
     eprint(f">> training scANVI ({max_epochs_scanvi} epochs)")
-    lvae.train(max_epochs=max_epochs_scanvi, accelerator=accel,
-               n_samples_per_label=n_samples_per_label)
+    with suppressed_warnings(DATALOADER_WORKERS_WARNING):  # benign num_workers hint
+        lvae.train(max_epochs=max_epochs_scanvi, accelerator=accel, devices=1,
+                   n_samples_per_label=n_samples_per_label)
 
     eprint(f">> saving model to {out_model}")
     lvae.save(out_model, overwrite=True)

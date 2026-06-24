@@ -69,6 +69,29 @@ annotation — into reviewed, recorded decisions. For each level it states, expl
   has not had the chance to see.** This keeps deep (L3/L4) hierarchies from nagging the
   user at every recursion while preserving the gate's purpose.
 
+**Running non-interactively (opt-in — for benchmarks / automated runs).** The gates are
+driven by *you*, the annotator, via `AskUserQuestion`; the `cta` tools are already
+non-interactive. So "non-interactive mode" is a behavioural contract, not a flag, and it is
+**opt-in only** — never the default, never a quiet reduction of the normal flow. It applies
+when the user has **both** (a) explicitly asked for an unattended/benchmark run and (b)
+supplied up front the context each gate would otherwise elicit: the data keys/layers, the
+biology, the label-vocabulary contract, and the marker→type assumptions (a pre-filled
+`context.md` / `assumptions.md` / `plan.md`, or an unambiguous brief). Under that contract:
+
+- **Auto-approve-and-record, don't skip.** Still write `assumptions.md` for every level and
+  still build every level report; record the sign-off in `run_state.json`
+  `gates.signed_off_levels`, tagged so the audit trail shows it was *pre-authorized* (e.g.
+  add `"auto_approved": "non_interactive"` alongside the level). The artifacts a reviewer
+  reads must be indistinguishable from an interactive run — the only difference is that no
+  blocking prompt was rendered.
+- **Gaps still stop.** If the supplied context does not answer a gate — a materially new
+  assumption with no provided basis, a `>~50%`-`Unknown` level, an irreconcilable
+  critic conflict (§7) — **halt and surface it**, exactly as interactively. Non-interactive
+  removes the *prompt for things already answered*, not the gate itself.
+- **Be explicit in the summary.** State that the run was non-interactive and list which
+  gates were auto-approved against which supplied context, so nothing reads as silently
+  decided.
+
 ### Gate B — Honest "Unknown" is a first-class label
 
 When the evidence is genuinely irreconcilable (e.g. mutually exclusive lineage
@@ -264,6 +287,23 @@ it is revised / downgraded to `Unknown`. When a critic raises a substantive conf
 **cannot** resolve from the exported evidence (e.g. two identities equally supported),
 surface the competing interpretations to the user *before* finalizing the level — don't
 silently pick a side or silently downgrade.
+
+**Scaling the critic to many clusters (batch + prioritize).** One subagent per cluster is
+right for a handful of clusters, but a level with dozens makes that a token/latency blowout.
+Scale the fan-out without dropping rigour:
+
+- **Batch.** Hand each critic subagent a *group* of related clusters (e.g. all the clusters
+  competing for one parent identity, or 5–10 at a time) rather than one each — the critic
+  re-derives markers across the batch and can directly contrast neighbours (the most common
+  confusions are between adjacent clusters anyway).
+- **Prioritize, don't uniformly sample.** Spend the most scrutiny where a wrong call is most
+  likely: critic **every** flagged cluster individually — `Unknown`, low confidence, thin
+  top1–top2 margin, an uncallable winner, a hierarchy/maturation mismatch — and batch the
+  clean, high-margin, cross-check-agreeing ones more coarsely. If you cap or sample the
+  confident tier to bound cost, **say so** in the report (which clusters got a full vs. a
+  batched review) — never let a sampled pass read as exhaustive.
+- The reconciliation bar is unchanged: a label that a batched critic challenges
+  substantively still gets the individual follow-up before it is finalized.
 
 ## 8. Panel-aware rules (spatial / targeted panels)
 
