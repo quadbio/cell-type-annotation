@@ -97,6 +97,69 @@ def test_align_no_symbol_source_errors():
     assert "--ref-symbol-map" in str(exc.value)
 
 
+def test_align_integer_varnames_with_symbol_column():
+    """`cta reference fetch-census` writes positional integer var_names ('0','1',…) with
+    real symbols in `var['feature_name']`. Auto-detection must NOT mistake the integer ids
+    for "already symbols" — it must rename from feature_name (regression for the
+    fetch-census -> reference-map "0 shared genes" bug)."""
+    rng = np.random.default_rng(2)
+    n_vars = N_SYMBOLED + N_UNSYMBOLED
+    a = ad.AnnData(rng.random((20, n_vars)).astype("float32"))
+    a.var_names = [str(i) for i in range(n_vars)]  # positional integers, as Census writes
+    symbols = [f"GENE{i}" for i in range(N_SYMBOLED)] + [""] * N_UNSYMBOLED
+    a.var["feature_name"] = symbols
+
+    info = align_var_names_to_symbols(a)
+    assert info["convention"] != "already symbols"
+    assert info["renamed"] == N_SYMBOLED
+    assert list(a.var_names[:N_SYMBOLED]) == symbols[:N_SYMBOLED]
+    # symbol-less tail keeps its original positional id (nothing dropped)
+    assert list(a.var_names[N_SYMBOLED:]) == [str(i) for i in range(N_SYMBOLED, n_vars)]
+
+
+def test_align_integer_varnames_explicit_symbol_col():
+    """An explicit `--ref-symbol-col` is honored UNCONDITIONALLY — even past auto-detection —
+    renaming integer var_names from the named column."""
+    rng = np.random.default_rng(3)
+    a = ad.AnnData(rng.random((8, 3)).astype("float32"))
+    a.var_names = ["0", "1", "2"]
+    a.var["feature_name"] = ["AQP4", "GFAP", "CD3D"]
+    info = align_var_names_to_symbols(a, symbol_col="feature_name")
+    assert info["renamed"] == 3
+    assert list(a.var_names) == ["AQP4", "GFAP", "CD3D"]
+
+
+def test_align_integer_varnames_recovers_shared_genes():
+    """End-to-end regression: an integer-indexed Census reference shares 0 genes verbatim
+    with a symbol query, but clears MIN_SHARED_GENES once aligned via feature_name."""
+    rng = np.random.default_rng(4)
+    n_vars = N_SYMBOLED + N_UNSYMBOLED
+    ref = ad.AnnData(rng.random((20, n_vars)).astype("float32"))
+    ref.var_names = [str(i) for i in range(n_vars)]
+    symbols = [f"GENE{i}" for i in range(N_SYMBOLED)] + [""] * N_UNSYMBOLED
+    ref.var["feature_name"] = symbols
+
+    query = ad.AnnData(np.zeros((5, N_SYMBOLED), dtype="float32"))
+    query.var_names = symbols[:N_SYMBOLED]
+
+    with pytest.raises(SystemExit):  # integer ref vs symbol query: nothing shared
+        _shared_genes(query, ref)
+
+    align_var_names_to_symbols(ref)
+    shared = _shared_genes(query, ref)  # would raise if < MIN_SHARED_GENES
+    assert set(shared) == set(symbols[:N_SYMBOLED])
+
+
+def test_align_explicit_symbol_col_missing_errors():
+    """An explicit `--ref-symbol-col` that isn't in var is a hard error naming the flag —
+    even when var_names would otherwise auto-classify (here, plain symbols)."""
+    a = ad.AnnData(np.zeros((4, 3), dtype="float32"))
+    a.var_names = ["AQP4", "GFAP", "CD3D"]
+    with pytest.raises(SystemExit) as exc:
+        align_var_names_to_symbols(a, symbol_col="feature_name")
+    assert "--ref-symbol-col" in str(exc.value)
+
+
 def test_from_reference_emits_symbol_markers_not_raw_ensembl(tmp_path):
     """`markers assemble --reference` on an Ensembl atlas with an Ensembl `.raw` (CELLxGENE
     shape) must DE on the aligned .X and return SYMBOL marker names — never the Ensembl ids
