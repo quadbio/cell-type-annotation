@@ -14,7 +14,7 @@ tool details.
 3. Top-down recursive algorithm — shape & termination
 4. Evidence cards
 5. The sub-cluster decision
-6. Honest "Unknown"
+6. Honest "Unknown" — and the parallel `state` axis
 7. Critic subagents
 8. Panel-aware rules (spatial / targeted)
 
@@ -136,7 +136,8 @@ cannot see the chat or the `AnnData` can review it).
 
 **Where the reasoning lives — the labels CSV, not the markdown.** The per-level labels
 table `labels/annotation_<level>.csv` is the single source of truth: it carries
-`label,cl_id,confidence,rationale,rejected` columns, and `cta report scaffold-cards` *renders* the
+`label,state,cl_id,confidence,rationale,rejected` columns (`state` = the orthogonal cell-state
+axis, §6), and `cta report scaffold-cards` *renders* the
 cards from it. This is a deliberate design choice — authoring rationale directly into N
 markdown files is token-heavy, trivially skipped, and destroyed by a re-scaffold, which is
 exactly how a run ends up "finished" with empty TODO cards. Filling the CSV columns instead
@@ -177,23 +178,53 @@ below a usable size). If one split does not cleanly separate the competing ident
 **stop and mark `Unknown`** — do not keep re-splitting.
 
 **Doublet caveat — do not invent a "novel type".** Distinguishing a real mixed state
-(a) from a doublet artifact (b) *requires* a doublet signal, but doublet detection is
-**out of scope** (the skill alerts, it does not compute QC). So:
+(a) from a doublet artifact (b) *requires* a doublet signal. The skill computes standard
+QC metrics + a cell-cycle signal (`cta data qc`), but **doublet detection**
+(Scrublet / scDblFinder) stays **out of scope** — by "doublet" here we mean a cluster
+mixing two or more cell types, whose canonical handling is **sub-clustering**, not a
+detector score. So:
 
+- The first move on a mutually-exclusive co-expressing cluster is to **sub-cluster and
+  re-score** (above): a true doublet usually splits into its constituent single types.
 - If a doublet score is already present in `obs` (Scrublet / scDblFinder / DoubletFinder
-  — `cta data inspect` surfaces such columns), use it: high-doublet sub-clusters are
-  artifacts, not types.
-- If **no** doublet score exists, you **cannot** rule out a doublet. Do not promote a
-  mutually-exclusive co-expressing cluster to a confident "novel/transitional type" —
-  either mark it `Unknown` with the doublet ambiguity stated, or ask the user to
-  provide a doublet score (Scrublet is CPU-cheap) before making the call.
+  — `cta data inspect` surfaces such columns), use it as corroboration: high-doublet
+  sub-clusters are artifacts, not types.
+- If a split does **not** separate the identities and you cannot rule out a doublet, do
+  **not** promote the cluster to a confident "novel/transitional type": record it on the
+  **state axis** as `state=doublet` with `label=Unknown` (§6), stating the ambiguity — or
+  ask the user for a doublet score (Scrublet is CPU-cheap) before making any positive call.
 
 Where a split is justified and identities separate cleanly, recurse the algorithm into
 the sub-clusters (subject to the one-split bound above).
 
-## 6. Honest "Unknown"
+## 6. Honest "Unknown" — and the parallel `state` axis
 
-Reach for `Unknown` when: no candidate scores above the noise floor; or two
+**Two axes, not one.** A cluster has a cell-**type** (its lineage identity) *and* a cell-**state**
+(its quality / cycle / artifact status). Forcing both onto a single label is what produced the
+dominant blind-run failures: a cycling cluster mislabeled because cell-cycle genes dominate its
+markers, or a low-quality cluster given a confident type it can't support. So the labels CSV
+carries a `label` **and** a `state` column, written to obs side by side
+(`<prefix>_<level>` and `<prefix>_<level>_state` by `cta report write-back`):
+
+- **`state` is orthogonal to `label`** and **exempt from CL-ID normalization and the
+  hierarchy-nesting check** — it is not a cell type. Recommended vocabulary:
+  `normal` / `low-quality` / `cycling` / `doublet` (extend as the tissue needs, e.g.
+  `stressed`, `activated`). Leave it blank/`normal` for ordinary clusters.
+- **Cycling** is the key win: a proliferating cluster almost always still has a real lineage.
+  Keep the type call and set `state=cycling` — do **not** downgrade it to `Unknown` just
+  because `S_score`/`G2M_score` are high. The cross-check (reference mapping) and
+  cell-cycle-robust markers usually still recover the type.
+- **Low-quality** (low `total_counts`/`n_genes`, high `pct_counts_mt`, off-population on
+  `qc_deviation_<level>.csv`): when the depth/mito profile makes the type unsupportable, set
+  `state=low-quality` and `label=Unknown` — the honest outcome, now *named* rather than guessed.
+- **Doublet**: handled by sub-clustering first (§5); `state=doublet` + `label=Unknown` is the
+  terminal call only when a split can't separate the constituent types.
+
+The evidence for `state` comes from `cta data qc` (read-only QC + cell-cycle written into the
+canonical working copy, never the user's original) surfaced per-cluster by `cta cluster profile`.
+This is detection, not correction — the skill still never normalizes, filters, or removes doublets.
+
+Reach for `Unknown` (the **type** axis) when: no candidate scores above the noise floor; or two
 incompatible identities are equally supported and one split does not separate them
 (§5); or the only fitting candidate is **uncallable** because its defining markers are
 off-panel (`<2` on-panel markers — `cta markers score` flags this), making the call
@@ -283,4 +314,7 @@ Scale the fan-out without dropping rigour:
 - Spatial context (neighborhood composition, niche) is corroborating evidence, not a
   substitute for marker evidence.
 - Detect-and-alert only: if you see signs of unaddressed normalization, batch, or
-  doublet/ambient problems, surface them — the skill does not silently fix QC.
+  doublet/ambient problems, surface them — the skill does not silently fix QC. (It *does*
+  compute read-only QC metrics + a cell-cycle signal via `cta data qc`, into the working
+  copy only, so low-quality/cycling clusters are detectable — computing a metric is not
+  fixing the data, and doublet detection/normalization/filtering remain out of scope.)

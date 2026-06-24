@@ -31,6 +31,7 @@ never inside this plugin repo. Record the chosen path in `run_state.json`.
 │   ├── crosscheck_<level>.csv       # consolidated: each method's top signature + agreement
 │   ├── refmap_<level>_<col>.csv     # CellMapper reference label transfer (per cluster)
 │   ├── qc_profile_<level>.csv       # profile_clusters: per-cluster QC medians vs global
+│   ├── qc_deviation_<level>.csv     # profile_clusters: cluster medians as robust-z vs across-cluster norm
 │   ├── crosstab_<level>_<col>.csv   # profile_clusters: composition over a user-named obs
 │   └── spatial_profile_<level>.csv  # profile_clusters: per-cluster spatial centroid/spread
 ├── evidence/             # one card per cluster per level (markdown; cluster id sanitized)
@@ -46,10 +47,14 @@ never inside this plugin repo. Record the chosen path in `run_state.json`.
 
 No script writes this file — **you** write it, so the columns must be exact or the
 downstream scripts break. Required: **`cluster`**, **`label`**. Recommended:
-`cl_id`, `confidence` (0–1 float), `status`, `note`.
+`state`, `cl_id`, `confidence` (0–1 float), `status`, `note`.
 
-- `cta report build` reads `cluster,label,cl_id,confidence,status,note`; `cta report write-back`
-  hard-requires `cluster`+`label` and also writes `cl_id`/`confidence` if present.
+- `state` is the orthogonal **cell-state** axis (`normal` / `low-quality` / `cycling` /
+  `doublet` / …, `methodology.md` §6) — written *next to* the type label, exempt from CL-ID
+  normalization and the hierarchy-nesting check. Leave blank for ordinary clusters.
+- `cta report build` reads `cluster,label,state,cl_id,confidence,status,note`; `cta report write-back`
+  hard-requires `cluster`+`label` and also writes `state`/`cl_id`/`confidence` as companion
+  obs columns (`<prefix>_<level>_state`, …) if present.
 - **`status` MUST be lowercase**, one of `{assigned, unknown, needs_subcluster, refuted}`
   — the report keys flagging off these exact lowercase strings. Write the *label* as
   `Unknown` (display) but the *status* column as `unknown`. A capitalized `status`
@@ -132,6 +137,7 @@ Skeleton (keep generic; fill from `cta data inspect`):
 - embedding key (obsm): X_scvi   |   viz embedding: X_umap
 - gene IDs: symbols (canonicalized from Ensembl via `var['feature_name']`; Ensembl kept in `var['ensembl_id']`)
 - layers: counts = `counts` (raw; pulled from `.raw`) ; log-normalized = `X` (verified by fingerprint)
+- QC signal: depth/mito + cell-cycle in obs (`cta data qc`; see `qc.json`) — used to set the `state` axis
 
 ## Assay
 - platform: Xenium (targeted, 480-gene panel)
@@ -206,7 +212,9 @@ Minimal, machine-readable, the source of truth for resuming:
   convention (normally `symbol`, so curated/CellTypist/literature markers panel-gate
   directly). The command also writes a `canonicalization.json` beside the sidecar recording
   what it did (var-name source, counts source, genes renamed/unmapped/deduped) — fold its
-  essentials into `context.md`.
+  essentials into `context.md`. `cta data qc` then fills standard QC + cell-cycle into the
+  same sidecar's obs (when absent) and writes a `qc.json` beside it (columns written,
+  mito/ribo gene counts, cell-cycle coverage) — also fold its essentials into `context.md`.
 - `stage_reached ∈ {scene_setting, plan, execute}` tells a resuming session which
   artifacts should already exist (e.g. `plan.md` only after `plan`). (The env + MCP gate
   is part of Stage 1 scene-setting now.)
@@ -217,8 +225,9 @@ Minimal, machine-readable, the source of truth for resuming:
   e.g. `"gates": {"signed_off_levels": ["L1_compartment"], "auto_approved": "non_interactive"}`
   — so the audit trail shows it was approved against user-supplied context, not prompted
   (`methodology.md` §2).
-- `progress.assigned` maps cluster id → `{label, cl_id, confidence, status}` where
-  `status ∈ {assigned, unknown, needs_subcluster, refuted}`.
+- `progress.assigned` maps cluster id → `{label, state, cl_id, confidence, status}` where
+  `status ∈ {assigned, unknown, needs_subcluster, refuted}` and `state` is the optional
+  cell-state axis (`normal` / `low-quality` / `cycling` / `doublet` / …; `methodology.md` §6).
 - `progress.current_step ∈ {score, cross_check, gate_a, evidence, assign, critic,
   report}` is an intra-level cursor (see the resumability contract below).
 - `compute` records the detected, user-confirmed environment (Stage 1;
