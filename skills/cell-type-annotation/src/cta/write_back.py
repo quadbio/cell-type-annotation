@@ -4,7 +4,8 @@
 Reads the per-level label tables produced during annotation
 (`<workdir>/labels/annotation_<level>.csv`) and maps each cluster to its label,
 adding one obs column per level (`<col-prefix>_<level>`, e.g. cta_L1). Optionally
-mirrors the CL ontology id and confidence columns when present in the CSV.
+mirrors the `state` (cell-state axis), CL ontology id, and confidence columns into
+companion obs columns (`<col-prefix>_<level>_state`, …) when present in the CSV.
 
 Each label column is written as an ORDERED pandas Categorical, with categories in the
 same similarity order the HTML reports use, and the matching palette is written to
@@ -43,8 +44,11 @@ from cta.io import (
     CLUSTER_KEY_OPT, WORKDIR_OPT, check_hierarchy_nesting, eprint,
     label_color_map, load_adata, require_obs, resolve_workdir, split_csv)
 
-# CSV columns that, when present, get mirrored into companion obs columns.
-EXTRA_COLS = ("cl_id", "confidence")
+# CSV columns that, when present, get mirrored into companion obs columns. `state` is the
+# orthogonal cell-STATE axis (normal / low-quality / cycling / doublet …) — written next to,
+# not folded into, the cell-TYPE label, and exempt from the CL-ID + nesting machinery (only
+# `label` feeds the hierarchy-nesting check).
+EXTRA_COLS = ("state", "cl_id", "confidence")
 UNASSIGNED = "Unassigned"
 
 

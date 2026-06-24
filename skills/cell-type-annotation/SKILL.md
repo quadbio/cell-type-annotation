@@ -14,8 +14,9 @@ description: >-
   scVerse-first on CPU/Apple-Silicon by default, and when a GPU or large memory is
   detected it can also download reference atlases, train/refine a reference model and
   map the query onto it (scANVI/scArches) — every automated call still a hypothesis,
-  never a verdict. Does NOT do normalization, batch correction, or doublet removal
-  (it detects and alerts only).
+  never a verdict. Computes standard QC metrics + a cell-cycle signal up front so
+  low-quality / cycling clusters are flagged on a parallel `state` axis, but does NOT do
+  normalization, batch correction, or doublet removal (it detects and alerts only).
 license: MIT
 ---
 
@@ -33,7 +34,10 @@ demand). Rationale/algorithm: `reference/methodology.md` §1.
   embedding**, used consistently for scoring, neighbors, sub-clustering, and label
   transfer. Cluster *refinement* (sub-clustering / higher-res Leiden) is in scope.
   Normalization, batch correction, and doublet/ambient removal are **out of scope** —
-  detect and alert, never silently fix.
+  detect and alert, never silently fix. Computing **read-only QC metrics** (depth, mito,
+  a cell-cycle signal) into the canonical working copy IS in scope (`cta data qc`) — so
+  low-quality / cycling clusters are detectable and recordable on the parallel **`state`
+  axis** (normal / low-quality / cycling / doublet / …, alongside the cell-type label).
 - **Two hard gates** (details in `reference/methodology.md`):
   - **Gate A:** keep a *living* assumptions ledger. Get a blocking sign-off (via
     AskUserQuestion) *before* the first labels; at deeper levels, append new
@@ -191,6 +195,19 @@ expectations honestly and prevents reading panel gaps as negative biology.
 (`cta data canonicalize` also writes the slim sidecar, so later scripts never reload the
 full file — there is no separate slim-cache step.)
 
+Then, **unless `cta data inspect` shows depth metrics *and* a cell-cycle signal already in
+`obs`**, run `cta data qc --adata <stem>_cta.h5ad` once on the canonical sidecar. It fills
+(only when absent) the standard QC metrics — `n_genes_by_counts`, `total_counts`,
+`pct_counts_mt` (+ `pct_counts_ribo`) — and a cell-cycle signal (`S_score`, `G2M_score`,
+`phase`, from the Tirosh lists matched case-insensitively, so the same lists serve human
+and mouse). This is **read-only** QC written into the *working copy only* (the user's
+original is never touched), and it is **not** doublet detection / normalization / filtering
+— it exists so low-quality and cycling clusters become detectable. The annotator reads
+these (via `cta cluster profile`, whose `qc_deviation_<level>.csv` flags off-population
+clusters) to set each cluster's **`state`** at assignment time (Stage 3.6). On a targeted
+panel the cell-cycle genes may be off-panel — `cta data qc` then skips the cell-cycle score
+and says so; don't treat its absence as "not cycling".
+
 **Hard stop on normalization.** If `cta data inspect` reports anything under `fatal`
 — in particular a declared log-normalized layer that fails the fingerprint (e.g.
 `log1p` of *un-normalized* counts, raw counts, or scaled data) — **STOP**. Do not
@@ -293,16 +310,27 @@ first, so a deep recursion never leaves the user lost.
    visible. Full rules: `reference/methodology.md` §2.
 6. **Assign — filling the labels CSV *is* the assignment.** The per-level table
    `labels/annotation_<level>.csv` is the single source of truth: fill
-   `label,cl_id,confidence,rationale,rejected` per cluster *there* (label normalized to a
+   `label,state,cl_id,confidence,rationale,rejected` per cluster *there* (label normalized to a
    **CL ID**), then `cta report scaffold-cards --evidence panel_pct_<level>.csv` **renders**
    the cards from it — embedding the ACTUAL numbers behind each call and never wiping your
-   reasoning on re-scaffold (a resumed run recovers it from this one file). For a cluster
-   you can't call cleanly: on mutually-exclusive marker co-expression **sub-cluster and
-   recurse** (`cta cluster subcluster` — Leiden on the anchor embedding + per-sub
-   marker/QC/composition summary); on irreconcilable conflict **mark `Unknown`** (Gate B) —
-   but **investigate first** with `cta cluster profile` (QC medians + user-named categorical
-   crosstabs + optional spatial), since good-quality cells that resist a clean call are
-   often a real early/transitional state, not an artifact. Set `confidence` by judgement,
+   reasoning on re-scaffold (a resumed run recovers it from this one file). The **`state`
+   column is the orthogonal cell-state axis** (`normal` / `low-quality` / `cycling` /
+   `doublet` / `stressed` / … — exempt from CL-ID + nesting): use it to flag a cluster's
+   quality/cycle state *without* sacrificing its lineage call. A **cycling** cluster usually
+   still has a real type — keep the type `label` and set `state=cycling` rather than letting
+   cell-cycle genes mask it. Read the QC evidence from `cta data qc` via `cta cluster
+   profile` (`qc_deviation_<level>.csv` flags clusters off-population on depth/mito/cell-cycle;
+   add `--cat-cols phase` to crosstab cell-cycle phase). For a cluster you can't call cleanly:
+   on mutually-exclusive marker co-expression **sub-cluster and recurse** (`cta cluster
+   subcluster` — Leiden on the anchor embedding + per-sub marker/QC/composition summary) —
+   this is also the canonical route for a suspected **doublet** (a cluster mixing 2+ types);
+   only when a split can't separate them does `state=doublet` (with `label=Unknown`) become
+   the terminal call. When QC shows a cluster is genuinely **low-quality** (low depth / high
+   mito, type unsupportable), set `state=low-quality` and `label=Unknown`. On irreconcilable
+   marker conflict **mark `Unknown`** (Gate B) — but **investigate first** with `cta cluster
+   profile` (QC medians + user-named categorical crosstabs + optional spatial), since
+   good-quality cells that resist a clean call are often a real early/transitional state, not
+   an artifact. Set `confidence` by judgement,
    **calibrated against `cta cluster confidence`** (a COSG-margin + agreement proxy — high
    confidence on a weak-margin cluster is a flag to re-examine). **Nesting is mandatory:**
    each level's labels must **strictly refine the level above** (every finer label maps to
@@ -382,6 +410,7 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `cta detect-env` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
 | `cta data inspect` | Stage 1: verify keys/layers, gene-ID convention, `.raw`, normalization fingerprint → dump structure to `context`. |
 | `cta data canonicalize` | Stage 1 (default): write the one canonical sidecar every downstream step reads — symbol `var_names` (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, slimmed embeddings/obs. Also avoids reloading the huge file. |
+| `cta data qc` | Stage 1: compute (only when absent) standard QC into the sidecar obs — depth/mito metrics + cell-cycle `S_score`/`G2M_score`/`phase` — so low-quality / cycling clusters are detectable (read-only; no doublet detection, normalization, or filtering). |
 | `cta markers assemble` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
 | `cta markers compute` | `rank_genes_groups` (wilcoxon, tie_correct) + COSG → marker tables (bottom-up: what defines each cluster). |
 | `cta markers profile` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. |
@@ -394,7 +423,7 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `cta reference fetch-census` | Optional: pull a capped (or, on a large-memory profile, larger) tissue-matched reference subset from CELLxGENE Census (no full-atlas download) to feed `cta crosscheck reference-map` when the user has no atlas and no CellTypist model fits. Needs the `cellxgene-census` extra + network. |
 | `cta crosscheck obs-pred` | Cross-check from an EXISTING in-object prediction column (e.g. a previously-mapped atlas `*_pred`) — no recompute. Prefer over `cta crosscheck reference-map` when such a column exists and fits the level. |
 | `cta cluster subcluster` | Refine one/more clusters: Leiden on the anchor embedding + per-sub marker-fraction / QC / composition summary. Standardized sub-clustering (in scope). |
-| `cta cluster profile` | QC medians + user-named categorical crosstabs + optional spatial — investigate before `Unknown`. |
+| `cta cluster profile` | QC medians (+ a robust-z `qc_deviation` companion flagging off-population clusters) + user-named categorical crosstabs + optional spatial — investigate before `Unknown` / to set `state`. |
 | `cta cluster confidence` | Advisory: per-cluster confidence proxy from COSG specificity margin + cross-check agreement — calibrate hand-set confidences against it. |
 | `cta report scaffold-cards` | Render per-cluster evidence cards FROM the labels CSV (`rationale`/`rejected`/`label`/`confidence` columns = single source of truth, so re-scaffold never wipes reasoning); `--evidence <tables>` embeds the ACTUAL numbers behind the call. Sanitizes `/` in ids. |
 | `cta report build` | Per-level HTML report from tables + cards; (re)generates the numbered cell-map + marker dotplot + one composition panel per `--split-by` covariate **only with `--adata`**, but always embeds whatever PNGs are in `plots/` (so a no-`--adata` rebuild keeps the figures). `--strict` = the level-completeness gate (labels + filled rationale + signed assumptions gate) before descending; add `--check-only` to re-evaluate the gate read-only (no render, no write) after a sign-off. |

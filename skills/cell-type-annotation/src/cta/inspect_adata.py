@@ -213,6 +213,27 @@ def cli(
             f"targeted panel: only {adata_obj.n_vars} genes — absence != negative; record a "
             "panel-capability note (which identities are uncallable on this panel).")
 
+    # QC signal presence: are the standard depth/mito metrics and a cell-cycle signal already
+    # in obs? When absent, the annotator runs `cta data qc` so low-quality / cycling clusters
+    # become detectable (a confident single-type label on such a cluster is the dominant
+    # blind-run failure mode). Detection only — `inspect` never computes or fixes QC.
+    obs_cols = set(adata_obj.obs.columns)
+    has_depth = bool({"n_genes_by_counts", "total_counts"} & obs_cols)
+    has_cc = bool({"S_score", "G2M_score", "phase"} & obs_cols)
+    report["qc"] = {
+        "metrics_present": sorted(obs_cols & {"n_genes_by_counts", "total_counts",
+                                              "pct_counts_mt", "pct_counts_ribo"}),
+        "cell_cycle_present": sorted(obs_cols & {"S_score", "G2M_score", "phase"}),
+        "has_depth_metrics": has_depth,
+        "has_cell_cycle": has_cc,
+    }
+    if not (has_depth and has_cc):
+        missing = ([] if has_depth else ["depth/mito metrics"]) + \
+                  ([] if has_cc else ["cell-cycle signal"])
+        report["warnings"].append(
+            f"no {' + '.join(missing)} in obs — run `cta data qc` on the canonical sidecar so "
+            "low-quality / cycling clusters are detectable before annotation.")
+
     # Categorical obs columns (candidate composition covariates) + whether each already
     # has a stored colour palette in uns (build_report.py reuses these). Helps the
     # annotator ask the user which covariates to profile composition over (Stage 1c).
