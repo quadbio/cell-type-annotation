@@ -11,14 +11,22 @@ This is heavy compute: GPU strongly preferred (CUDA, or Apple-Silicon MPS for a 
 local option); it runs on CPU but slowly. It NEVER submits a job — on a scheduler profile
 the skill arranges submission elsewhere and just invokes this script there.
 
-scVI/scANVI consume RAW COUNTS — point --counts-layer at the reference's count layer
-(or 'X' if X is counts). Optionally restrict to highly-variable genes (--n-hvg) for a
+scVI/scANVI consume RAW COUNTS by default — point --counts-layer at the reference's count
+layer (or 'X' if X is counts). Optionally restrict to highly-variable genes (--n-hvg) for a
 compact, transferable feature space.
+
+LOG-NORM (Gaussian) fallback for counts-absent data: pass --gene-likelihood normal and the
+model trains on LOG-NORMALIZED data instead (--counts-layer then points at the log-norm
+layer). scANVI.from_scvi_model inherits the scVI module's likelihood, so the semi-supervised
+classifier still trains. Raw counts remain best practice (the zinb/nb/poisson likelihoods
+model count noise properly) — reach for 'normal' only when counts are genuinely unavailable.
+A query mapped onto a 'normal' model MUST also be log-norm (map_query_scarches --log-norm).
 
 Usage:
   python train_reference_model.py --reference atlas.h5ad --labels-key cell_type \
       --counts-layer counts --out-model ./ref_scanvi_model \
       [--batch-key donor] [--n-hvg 3000] [--n-latent 30] \
+      [--gene-likelihood zinb|nb|poisson|normal] \
       [--max-epochs-scvi 200] [--max-epochs-scanvi 20] \
       [--accelerator auto|cuda|mps|cpu] [--workdir DIR]
 
@@ -41,7 +49,8 @@ def cli(
     labels_key: str = typer.Option(..., help="reference.obs label column to learn"),
     out_model: str = typer.Option(..., help="output model DIRECTORY"),
     counts_layer: str = typer.Option(
-        "X", help="layer holding RAW COUNTS ('X' if X is counts)"),
+        "X", help="layer holding the input matrix ('X' if X holds it): RAW COUNTS for "
+        "zinb/nb/poisson, LOG-NORM for --gene-likelihood normal"),
     batch_key: Optional[str] = typer.Option(
         None, help="reference.obs batch column (optional)"),
     n_hvg: Optional[int] = typer.Option(
@@ -50,6 +59,9 @@ def cli(
     max_epochs_scvi: int = typer.Option(200, help="scVI training epochs"),
     max_epochs_scanvi: int = typer.Option(20, help="scANVI training epochs"),
     n_samples_per_label: int = typer.Option(100, help="scANVI samples per label"),
+    gene_likelihood: str = typer.Option(
+        "zinb", help="scVI gene likelihood: zinb|nb|poisson model RAW COUNTS; 'normal' "
+        "(Gaussian) trains on LOG-NORM data — the counts-absent fallback"),
     unlabeled_category: str = typer.Option(
         "Unknown", help="label value treated as 'unlabeled' by scANVI"),
     accelerator: str = typer.Option(
@@ -68,9 +80,18 @@ def cli(
             "is preferred.)"
         )
 
+    allowed_likelihoods = ("zinb", "nb", "poisson", "normal")
+    if gene_likelihood not in allowed_likelihoods:
+        raise SystemExit(
+            f"ERROR: --gene-likelihood '{gene_likelihood}' not in {allowed_likelihoods}.")
+    is_lognorm = gene_likelihood == "normal"
+
     accel = resolve_accelerator(accelerator)
     eprint(f">> accelerator: {accel}")
     apply_scvi_training_best_practices()  # Tensor-Core matmul precision (see io.py)
+    if is_lognorm:
+        eprint(">> gene_likelihood=normal (Gaussian): training on LOG-NORM data "
+               "(counts-absent fallback; raw counts remain best practice)")
     try:
         scvi.settings.seed = 0  # reproducibility (GPU is still not bit-identical)
     except Exception:  # noqa: BLE001
@@ -84,20 +105,26 @@ def cli(
 
     if counts_layer not in (None, "X"):
         if counts_layer not in (ref.layers or {}):
+            expects = "LOG-NORM" if is_lognorm else "RAW COUNTS"
             raise SystemExit(
-                f"ERROR: counts layer '{counts_layer}' not in reference.layers "
-                f"{list(ref.layers.keys())}. scVI needs RAW COUNTS.")
+                f"ERROR: input layer '{counts_layer}' not in reference.layers "
+                f"{list(ref.layers.keys())}. gene_likelihood={gene_likelihood} needs {expects}.")
         counts_layer_resolved = counts_layer
     else:
-        counts_layer_resolved = None  # X holds counts
+        counts_layer_resolved = None  # X holds the input matrix
 
     if n_hvg:
-        eprint(f">> selecting {n_hvg} highly-variable genes (flavor=seurat_v3 on counts)")
-        sc.pp.highly_variable_genes(ref, n_top_genes=n_hvg, flavor="seurat_v3",
+        # seurat_v3 ranks variance on RAW COUNTS; on log-norm data use scanpy's default
+        # 'seurat' flavor (dispersion on log data) instead.
+        hvg_flavor = "seurat" if is_lognorm else "seurat_v3"
+        eprint(f">> selecting {n_hvg} highly-variable genes "
+               f"(flavor={hvg_flavor} on {'log-norm' if is_lognorm else 'counts'})")
+        sc.pp.highly_variable_genes(ref, n_top_genes=n_hvg, flavor=hvg_flavor,
                                     layer=counts_layer_resolved, subset=True,
                                     batch_key=batch_key or None)
 
-    eprint(">> setting up scVI (raw counts)")
+    eprint(f">> setting up scVI ({'log-norm' if is_lognorm else 'raw counts'}, "
+           f"gene_likelihood={gene_likelihood})")
     scvi.model.SCVI.setup_anndata(ref, layer=counts_layer_resolved, batch_key=batch_key or None)
     # scArches best-practice settings for query mapping (scvi-tools scArches tutorial):
     # encode_covariates=True is "essential" for mapping a new-batch query; the layer-norm /
@@ -105,6 +132,7 @@ def cli(
     vae = scvi.model.SCVI(
         ref,
         n_latent=n_latent,
+        gene_likelihood=gene_likelihood,
         encode_covariates=True,
         deeply_inject_covariates=True,
         use_layer_norm="both",
@@ -131,7 +159,8 @@ def cli(
 
     n_labels = ref.obs[labels_key].astype(str).nunique()
     eprint(f">> done. reference={ref.n_obs} cells x {ref.n_vars} genes, "
-           f"{n_labels} labels, latent={n_latent}, accelerator={accel}")
+           f"{n_labels} labels, latent={n_latent}, gene_likelihood={gene_likelihood}, "
+           f"accelerator={accel}")
 
     if workdir:
         wd = resolve_workdir(workdir)
@@ -141,6 +170,7 @@ def cli(
             "n_obs": ref.n_obs, "n_vars": ref.n_vars,
             "labels_key": labels_key, "n_labels": n_labels,
             "batch_key": batch_key or "", "n_latent": n_latent,
+            "gene_likelihood": gene_likelihood,
             "n_hvg": n_hvg or "", "accelerator": accel,
             "epochs_scvi": max_epochs_scvi, "epochs_scanvi": max_epochs_scanvi,
         }]), wd, "refmodel_summary.csv")

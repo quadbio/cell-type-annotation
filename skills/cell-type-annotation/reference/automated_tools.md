@@ -80,7 +80,16 @@ Each is still a HYPOTHESIS, held to the same bar as the CPU cross-check.
   tissue-matched one exists — preferred when available (no training). Writes the same
   `refmap_<level>_<col>.csv` schema, so the cards/report fold it in like any cross-check.
   scvi-tools also runs on Apple-Silicon **MPS** — so a Mac can do this slowly as a deeper
-  local option (offer it; don't default to it).
+  local option (offer it; don't default to it). The canonical query (`cta data canonicalize`)
+  keeps counts in `layers['counts']` and log-norm in `X`, so `map-scarches` reads counts by
+  default (`--counts-layer counts`) — no per-run layer fiddling. Raw counts are best practice
+  (the count likelihoods model the noise properly), but for genuinely **counts-absent data**
+  — `cta data canonicalize` reports `counts_source: none` because no layer and no `.raw` held
+  counts — there is a **log-norm (Gaussian) fallback**: `cta reference train-model
+  --gene-likelihood normal` trains scVI→scANVI on log-norm data, and the matching map step is
+  `cta reference map-scarches --log-norm --counts-layer X` (X being the canonical log-norm;
+  the step verifies the flag against the model's likelihood). Note `canonicalize` surfaces
+  counts hidden in `.raw`, so reach for the fallback only after it still finds none.
 - **GPU kNN reference mapping** — `cta crosscheck reference-map --knn-method rapids`
   scales the existing CellMapper cross-check to **seconds over millions of cells**. Same
   conceptual transfer, GPU backend (needs `cuml-cu12` from the `gpu` pixi env — CellMapper's

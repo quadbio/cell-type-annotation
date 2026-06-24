@@ -15,21 +15,27 @@ The reference model is EITHER:
                     (e.g. a tissue-matched scANVI atlas) — preferred when one fits, since
                     it needs no retraining.
 
-scVI/scANVI consume RAW COUNTS. --counts-layer says where the query's counts are now;
---ref-layer says where the reference model expects them (default 'counts'; our trained
-models use 'counts', many hub models do too — pass 'X' if the model used X). The script
-places the query counts where the model expects them, aligns genes to the model, runs
-surgery, predicts, and aggregates per cluster.
+The query is the canonical AnnData from `cta data canonicalize` (reference/artifacts.md):
+RAW COUNTS in layers['counts'], LOG-NORM in X. scVI/scANVI consume counts by default, so
+--counts-layer defaults to 'counts' and the script reads from there. --ref-layer says where
+the reference model expects its input (default 'counts'; our trained models use 'counts',
+many hub models do too — pass 'X' if the model used X). The script places the query matrix
+where the model expects it, aligns genes to the model, runs surgery, predicts, aggregates.
+
+LOG-NORM models: if the reference was trained with --gene-likelihood normal (see
+train_reference_model.py), it expects LOG-NORM input, not counts — pass --log-norm and
+--counts-layer X (the canonical log-norm lives in X). The script verifies the flag against
+the loaded model's gene_likelihood and errors on a mismatch (a wrong input scale yields garbage).
 
 Usage:
-  # onto a locally-trained model
-  python map_query_scarches.py --query Q.h5ad --cluster-key leiden --workdir DIR \
-      --level L1 --model-dir ./ref_scanvi_model --counts-layer counts \
+  # onto a locally-trained model (canonical query: counts in layers['counts'])
+  python map_query_scarches.py --query Q_cta.h5ad --cluster-key leiden --workdir DIR \
+      --level L1 --model-dir ./ref_scanvi_model [--log-norm --counts-layer X] \
       [--label-col scanvi] [--max-epochs 100] [--accelerator auto|cuda|mps|cpu]
 
   # onto a shipped hub model
-  python map_query_scarches.py --query Q.h5ad --cluster-key leiden --workdir DIR \
-      --level L1 --hf-repo scvi-tools/<some-atlas-scanvi> --counts-layer counts
+  python map_query_scarches.py --query Q_cta.h5ad --cluster-key leiden --workdir DIR \
+      --level L1 --hf-repo scvi-tools/<some-atlas-scanvi>
 
 Writes tables/refmap_<level>_<label-col>.csv with columns:
   cluster, top1, frac1, top2, frac2, mean_conf, method
@@ -48,17 +54,21 @@ from cta.io import (
     suppressed_warnings)
 
 
-def _place_counts(query, src_layer: str, ref_layer: str) -> None:
-    """Put the query's raw counts where the reference model expects them."""
-    counts = query.X if src_layer in (None, "X") else query.layers.get(src_layer)
-    if counts is None:
+def _place_counts(query, src_layer: str, ref_layer: str, log_norm: bool) -> None:
+    """Put the query's input matrix where the reference model expects it.
+
+    Counts for the default likelihoods; log-norm when --log-norm (a 'normal'-likelihood
+    reference). The placement is identical either way — only the expected scale differs."""
+    expects = "LOG-NORM data" if log_norm else "RAW COUNTS"
+    mat = query.X if src_layer in (None, "X") else query.layers.get(src_layer)
+    if mat is None:
         raise SystemExit(
             f"ERROR: --counts-layer '{src_layer}' not found in query.layers "
-            f"{list(query.layers.keys())}. scArches needs RAW COUNTS.")
+            f"{list(query.layers.keys())}. scArches needs {expects}.")
     if ref_layer in (None, "X"):
-        query.X = counts
+        query.X = mat
     else:
-        query.layers[ref_layer] = counts
+        query.layers[ref_layer] = mat
 
 
 def sanitize_query_against_registry(query, setup_args: dict) -> list[str]:
@@ -129,9 +139,15 @@ def cli(
         None, help="scvi-tools HuggingFace hub repo id to pull a shipped model from"),
     cache_dir: Optional[str] = typer.Option(None, help="cache dir for the pulled hub model"),
     counts_layer: str = typer.Option(
-        "X", help="query layer holding RAW COUNTS now ('X' if X is counts)"),
+        "counts", help="query layer holding the model's input: a canonical query keeps RAW "
+        "COUNTS in layers['counts'] (default) and LOG-NORM in 'X' — so pass --counts-layer X "
+        "with --log-norm"),
     ref_layer: str = typer.Option(
-        "counts", help="layer name the reference model expects counts in ('X' or a name)"),
+        "counts", help="layer name the reference model expects its input in ('X' or a name)"),
+    log_norm: bool = typer.Option(
+        False, "--log-norm/--no-log-norm",
+        help="the reference was trained with --gene-likelihood normal and expects LOG-NORM "
+        "input — pair with --counts-layer X (verified against the loaded model)"),
     label_col: str = typer.Option(
         "scanvi", help="name used in the output table filename (refmap_<level>_<col>.csv)"),
     max_epochs: int = typer.Option(100, help="surgery training epochs"),
@@ -180,7 +196,10 @@ def cli(
     eprint(f">> loading query {query}")
     query_obj = sc.read_h5ad(query)
     require_obs(query_obj, cluster_key, "cluster key")
-    _place_counts(query_obj, counts_layer, ref_layer)
+    if log_norm:
+        eprint(">> --log-norm: treating the query input as LOG-NORM "
+               "(reference trained with gene_likelihood=normal)")
+    _place_counts(query_obj, counts_layer, ref_layer, log_norm)
 
     # Reconcile the query with what the model registered (issue #10): shipped hub models carry a
     # batch_key/labels_key the real query atlas does not satisfy, which otherwise breaks setup.
@@ -196,6 +215,18 @@ def cli(
 
     eprint(">> scArches surgery (load_query_data + train)")
     q_model = scvi.model.SCANVI.load_query_data(query_obj, reference_model)
+
+    # The model is now loaded — verify --log-norm matches what it actually expects, since a
+    # wrong input scale (counts into a Gaussian model, or vice versa) yields garbage silently.
+    glik = getattr(getattr(q_model, "module", None), "gene_likelihood", None)
+    if glik is not None:
+        model_wants_lognorm = glik == "normal"
+        if model_wants_lognorm != log_norm:
+            want = "LOG-NORM (pass --log-norm)" if model_wants_lognorm else "RAW COUNTS (drop --log-norm)"
+            raise SystemExit(
+                f"ERROR: the reference model's gene_likelihood='{glik}' expects {want}, but "
+                f"--log-norm={log_norm}. Re-run with the matching input scale.")
+
     # scArches best practices (scvi tutorial): weight_decay=0.0 keeps the reference latent
     # space fixed; check_val_every_n_epoch=10 tracks surgery convergence. devices=1 pins
     # single-device (our single-process design; also avoids DDP/the srun hint on multi-GPU
