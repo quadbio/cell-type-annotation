@@ -60,6 +60,61 @@ def _place_counts(query, src_layer: str, ref_layer: str) -> None:
         query.layers[ref_layer] = counts
 
 
+def sanitize_query_against_registry(query, setup_args: dict) -> list[str]:
+    """Make the query compatible with a shipped scANVI model's registered setup before
+    scArches surgery (issue #10).
+
+    Locally-trained models work because the user controls the query setup; shipped hub models
+    register a `batch_key`/`labels_key` the real query atlas does not satisfy, which made
+    `load_query_data` raise (missing batch column → KeyError; out-of-vocab query labels →
+    "Cannot transfer setup without extend_categories"). We reconcile the query against what the
+    model registered:
+
+    - batch_key: if the model registered one and it is ABSENT from the query, inject a single
+      constant 'query' batch — a brand-new category scArches surgery is designed to absorb. If
+      the column is already present we PRESERVE the query's own batches (surgery handles unseen
+      categories within it).
+    - labels_key: set the registered label column to the model's `unlabeled_category` for ALL
+      cells. We want predictions, not to transfer the query's (possibly out-of-vocab) labels,
+      and an absent label column would itself break query setup.
+
+    Mutates `query.obs` in place; returns human-readable notes describing what changed.
+    """
+    notes: list[str] = []
+    batch_key = setup_args.get("batch_key")
+    labels_key = setup_args.get("labels_key")
+    unlabeled = setup_args.get("unlabeled_category")
+
+    if batch_key:
+        if batch_key in query.obs.columns:
+            notes.append(f"batch_key '{batch_key}' already in query.obs — preserved")
+        else:
+            query.obs[batch_key] = "query"
+            notes.append(f"batch_key '{batch_key}' absent in query — injected constant 'query'")
+
+    if labels_key:
+        value = unlabeled if unlabeled is not None else "Unknown"
+        query.obs[labels_key] = value
+        notes.append(
+            f"labels_key '{labels_key}' set to unlabeled_category '{value}' for all cells")
+    return notes
+
+
+def _model_setup_args(scvi, reference_model) -> dict:
+    """Return a scANVI model's registered setup_args (batch_key / labels_key /
+    unlabeled_category / ...), whether `reference_model` is a path (local --model-dir) or an
+    instantiated model (pulled --hf-repo). Returns {} if the registry can't be read."""
+    if isinstance(reference_model, str):
+        registry = scvi.model.SCANVI.load_registry(reference_model)
+    else:
+        registry = getattr(reference_model, "registry_", None)
+        if registry is None:
+            mgr = getattr(reference_model, "adata_manager", None)
+            registry = getattr(mgr, "registry", None) if mgr is not None else None
+    if not registry:
+        return {}
+    return dict(registry.get("setup_args", {}) or {})
+
 
 
 def cli(
@@ -124,6 +179,12 @@ def cli(
     query_obj = sc.read_h5ad(query)
     require_obs(query_obj, cluster_key, "cluster key")
     _place_counts(query_obj, counts_layer, ref_layer)
+
+    # Reconcile the query with what the model registered (issue #10): shipped hub models carry a
+    # batch_key/labels_key the real query atlas does not satisfy, which otherwise breaks setup.
+    setup_args = _model_setup_args(scvi, reference_model)
+    for note in sanitize_query_against_registry(query_obj, setup_args):
+        eprint(f">> registry-sanitize: {note}")
 
     eprint(">> aligning query genes to the reference model (prepare_query_anndata)")
     scvi.model.SCANVI.prepare_query_anndata(query_obj, reference_model)
