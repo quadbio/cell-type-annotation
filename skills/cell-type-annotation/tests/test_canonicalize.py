@@ -127,3 +127,22 @@ def test_canonicalize_idempotent(ensembl_h5ad, tmp_path):
     assert "counts" in second.layers
     summary = json.loads((out2.with_name("canonicalization.json")).read_text())
     assert summary["var"]["convention"] == "already symbols"
+
+
+def test_canonicalize_writes_cp10k_layer(ensembl_h5ad, tmp_path):
+    """The canonical sidecar carries a precomputed `lognorm_cp10k` layer = log1p(CP10k), so
+    scale-sensitive classifiers (CellTypist) read their exact input with no re-normalization.
+    X itself stays the user's own log-norm."""
+    import scipy.sparse as sp
+
+    src, _ = ensembl_h5ad
+    out = tmp_path / "ens_cta.h5ad"
+    assert _run_canonicalize(src, out).returncode == 0
+    adata = _read(out)
+
+    assert "lognorm_cp10k" in adata.layers
+    cp = adata.layers["lognorm_cp10k"]
+    cp = cp.toarray() if sp.issparse(cp) else np.asarray(cp)
+    # expm1 of a genuine log1p(CP10k) sums to ~1e4 per cell
+    per_cell = np.expm1(cp).sum(axis=1)
+    assert np.allclose(per_cell, 1e4, rtol=1e-3), per_cell[:5]

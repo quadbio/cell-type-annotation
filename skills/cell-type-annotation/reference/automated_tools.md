@@ -32,6 +32,12 @@ ambiguous progenitor / transitional states that are biologically real and import
     `Developing_Human_Hippocampus`). **If none matches the tissue, OMIT CellTypist** —
     don't force an ill-fitting model; use the reference mapping below instead.
   - `model.extract_top_markers()` mines markers **without predicting** (priors).
+  - *Input scale.* CellTypist expects **log1p of CP10k** (1e4 counts/cell) and warns +
+    silently degrades otherwise — unlike the rank-based marker tools, it is scale-sensitive,
+    and `cta data canonicalize` keeps the user's chosen log-norm in `X` (not necessarily
+    CP10k). So `cta crosscheck celltypist predict` rebuilds the CP10k input itself: from the
+    canonical `layers['counts']` (auto-detected, or `--counts-layer`), else by re-targeting
+    the log-norm matrix to 10k. A per-call adapter on a copy — not global re-normalization.
   - *Caveat:* on a limited/targeted panel most model genes are missing → accuracy
     degrades; the output is a hypothesis to reconcile, never an overwrite.
 - **CellMapper** (`pip install cellmapper`) — kNN label / expression / embedding
@@ -111,7 +117,8 @@ Each is still a HYPOTHESIS, held to the same bar as the CPU cross-check.
   targeted panels — so they are never the primary annotator here. The two that fit a local,
   data-stays-put design and emit a usable per-cell label are **SCimilarity**
   (`cta crosscheck scimilarity`; HUMAN-only zero-shot kNN against a ~7M-cell reference, ~16–27 GB
-  RAM, CPU, ~9 GB annotation bundle) and **scPRINT** (CPU-capable, emits ontology IDs) — wire either
+  RAM, CPU, ~9 GB annotation bundle provisioned once via `cta reference fetch-scimilarity`) and
+  **scPRINT** (CPU-capable, emits ontology IDs) — wire either
   in only as one more independent opinion to reconcile. SCimilarity's niche (validated on
   celltype-anno-bench): broad / multi-tissue **human** queries where CellTypist/SingleR have no
   tissue-matched model and collapse — there it is the strongest automated option; on tissue-matched

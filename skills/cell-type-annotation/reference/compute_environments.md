@@ -83,7 +83,9 @@ CPU host that merely has the client tools installed. `cta detect-env` flags it; 
 - **SCimilarity** (`cta crosscheck scimilarity`) is lighter than once assumed: ~16–27 GB RAM
   (measured), CPU, a few minutes, and only the ~9 GB annotation-only bundle on disk (encoder +
   annotation kNN; the full ~41 GB download incl. the cell-search TileDB is NOT needed). Fits a
-  32 GB machine — optional, and HUMAN-only (skip for non-human queries).
+  32 GB machine — optional, and HUMAN-only (skip for non-human queries). Provision the bundle
+  once with `cta reference fetch-scimilarity --dest DIR` (resumable ~30 GB download, extracts
+  annotation-only by default; on a compute node `module load eth_proxy` first).
 
 ## Which tool at which step (and what it needs)
 
@@ -114,6 +116,21 @@ process can't reach directly**. This skill therefore:
 
 Light steps (inspection, marker scoring on moderate data, reading tables) still run inline
 on the login node. Only the genuinely GPU/large-memory steps are handed off.
+
+**scvi-tools training hygiene (validated on an RTX 4090, scvi 1.4.3).** The scvi steps
+(`cta reference train-model` / `map-scarches`) train as a **single process** by design, and
+the scripts encode the matching best practices so a SLURM run stays clean and fast:
+- `devices=1` — pin single-device training. On a multi-GPU node this also prevents Lightning
+  attempting DDP, which is what would trigger its *"prepend `srun`"* hint; pinning the device
+  removes that at the root rather than muting a message.
+- `torch.set_float32_matmul_precision('high')` — Tensor-Core GPUs (RTX 40xx / A100) otherwise
+  warn and run float32 matmuls at full precision; `'high'` is a real speedup for negligible
+  precision loss.
+- DataLoader `num_workers` left at scvi's default **0**: maintainers report ~no speedup from
+  raising it and high values can deadlock with JAX, so Lightning's *"does not have many
+  workers"* hint is a benign false positive (the scripts silence exactly that one message).
+- scArches surgery uses `weight_decay=0.0` (keeps the reference latent fixed) and
+  `check_val_every_n_epoch=10`, per the scvi reference-mapping tutorial.
 
 ## Reproducibility caveats (be honest about GPU non-determinism)
 

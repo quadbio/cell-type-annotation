@@ -45,7 +45,9 @@ def cli(
     cluster_key: str = CLUSTER_KEY_OPT,
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
-    model_path: str = typer.Option(..., help="downloaded SCimilarity model dir"),
+    model_path: str = typer.Option(
+        ..., help="SCimilarity model dir (the <dest>/model_v1.1 from "
+        "`cta reference fetch-scimilarity`)"),
     counts_layer: str = typer.Option(
         "counts", help="layer with RAW COUNTS — the canonical 'counts' layer by default "
         "(pass 'X' only if X itself is counts)"),
@@ -58,8 +60,9 @@ def cli(
     except ImportError:
         raise SystemExit(
             "ERROR: scimilarity is not installed. It is in the skill's `gpu` pixi env — run "
-            "`pixi install -e gpu`, then download the model bundle (~9 GB annotation-only "
-            "subset is enough; needs ~16-27 GB RAM at runtime, CPU is fine)."
+            "`pixi install -e gpu`, then provision the model bundle with "
+            "`cta reference fetch-scimilarity --dest DIR` (~9 GB annotation-only subset; "
+            "needs ~16-27 GB RAM at runtime, CPU is fine)."
         )
 
     eprint(f">> loading query {query}")

@@ -12,8 +12,9 @@ from typing import Optional
 import typer
 
 from cta.io import (
-    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, adata_with_lognorm_X,
-    eprint, load_adata, require_obs, resolve_workdir, save_table, split_csv)
+    ADATA_OPT, CLUSTER_KEY_OPT, FRAGMENTED_FRAME_WARNING, LEVEL_OPT, WORKDIR_OPT,
+    adata_with_lognorm_X, eprint, load_adata, require_obs, resolve_workdir,
+    save_table, split_csv, suppressed_warnings)
 
 
 def cli(
@@ -44,10 +45,15 @@ def cli(
     grps = split_csv(groups) or "all"
 
     eprint(">> rank_genes_groups (wilcoxon, tie_correct=True, pts=True)")
-    sc.tl.rank_genes_groups(
-        adata_obj, groupby=cluster_key, groups=grps,
-        method="wilcoxon", tie_correct=True, pts=True, use_raw=False,
-    )
+    # scanpy assembles its results frame one column per group, so with many clusters pandas
+    # raises 'DataFrame is highly fragmented' once per cluster. It is internal to scanpy
+    # (scanpy/tools/_rank_genes_groups.py) and has no effect on the output — silence exactly
+    # that message for this one call, leaving every other warning visible.
+    with suppressed_warnings(FRAGMENTED_FRAME_WARNING):
+        sc.tl.rank_genes_groups(
+            adata_obj, groupby=cluster_key, groups=grps,
+            method="wilcoxon", tie_correct=True, pts=True, use_raw=False,
+        )
     frames = []
     grp_list = adata_obj.obs[cluster_key].cat.categories if grps == "all" else grps
     for g in grp_list:
