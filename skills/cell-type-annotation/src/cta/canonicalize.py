@@ -78,12 +78,16 @@ def _load_symbol_map(path: str) -> dict[str, str]:
     return out
 
 
-def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str] | None):
+def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str] | None,
+                       *, col_flag: str = "--symbol-col", map_flag: str = "--symbol-map"):
     """Decide canonical var_names (symbols) for `adata`, leaving gene ORDER unchanged.
 
     Returns (symbols, ensembl_ids, info) where `symbols`/`ensembl_ids` are lists aligned
     to `adata.var_names`, and `info` records what happened (for canonicalization.json).
     Genes with no known symbol keep their original id (so nothing is dropped).
+
+    `col_flag`/`map_flag` only set which CLI flag names the error messages name — the
+    reference aligner reuses this with `--ref-symbol-col`/`--ref-symbol-map`.
     """
     orig = [str(n) for n in adata.var_names]
     is_ens = _looks_like_ensembl(orig)
@@ -97,7 +101,7 @@ def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str]
     # var_names look like Ensembl -> we must map to symbols.
     if symbol_col is not None and symbol_col not in adata.var.columns:
         raise SystemExit(
-            f"ERROR: --symbol-col '{symbol_col}' not in var. "
+            f"ERROR: {col_flag} '{symbol_col}' not in var. "
             f"Available var columns: {list(adata.var.columns)}")
     col = symbol_col or _detect_symbol_column(adata)
     symbols = list(orig)  # default: keep Ensembl id where no symbol is known
@@ -120,14 +124,52 @@ def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str]
     else:
         raise SystemExit(
             "ERROR: var_names look like Ensembl IDs but no symbol source was found. "
-            "Provide --symbol-col, ensure a symbol var column exists, or pass "
-            "--symbol-map (the skill builds one via the knowledgebase MCP).")
+            f"Provide {col_flag}, ensure a symbol var column exists, or pass "
+            f"{map_flag} (the skill builds one via the knowledgebase MCP).")
     unmapped = len(orig) - renamed
     info = {"convention": "ensembl->symbol", "source": col or "symbol-map",
             "renamed": renamed, "unmapped": unmapped}
     if unmapped:
         eprint(f"   WARN: {unmapped}/{len(orig)} genes kept their Ensembl id (no symbol found)")
     return symbols, orig, info
+
+
+def align_var_names_to_symbols(
+    adata, symbol_col: str | None = None, symbol_map_path: str | None = None, *,
+    col_flag: str = "--ref-symbol-col", map_flag: str = "--ref-symbol-map",
+) -> dict:
+    """Rename `adata.var_names` to gene SYMBOLS in place — the same standardization
+    `cta data canonicalize` applies to the query, so a REFERENCE lives in the query's
+    convention before its genes are intersected (reference-map) or DE'd (markers assemble).
+
+    No-op when var_names already look like symbols. Otherwise resolves symbols exactly like
+    Stage-1 canonicalize: explicit `symbol_col` -> auto-detected symbol var-column
+    (feature_name/gene_symbols/…) -> `symbol_map_path` TSV (the skill builds it via the
+    knowledgebase MCP). Genes with no symbol keep their Ensembl id (nothing dropped); the
+    original ids are preserved in `var['ensembl_id']`. Returns the same `info` dict
+    canonicalize records (convention/renamed/unmapped/deduped).
+    """
+    import pandas as pd
+
+    smap = _load_symbol_map(symbol_map_path) if symbol_map_path else None
+    symbols, ensembl_ids, info = _canonical_symbols(
+        adata, symbol_col, smap, col_flag=col_flag, map_flag=map_flag)
+    if info["convention"] == "already symbols":
+        eprint("   reference var_names already look like symbols — no alignment needed")
+        info["deduped"] = 0
+        return info
+
+    adata.var["ensembl_id"] = ensembl_ids
+    adata.var_names = pd.Index([str(s) for s in symbols], name=adata.var_names.name)
+    n_dup = int(adata.var_names.duplicated().sum())
+    if n_dup:
+        adata.var_names_make_unique()  # deterministic, mirrors canonicalize's query dedup
+    info["deduped"] = n_dup
+    eprint(
+        f"   reference var_names -> symbols: {info['renamed']} renamed, "
+        f"{info['unmapped']} kept Ensembl"
+        + (f", {n_dup} de-duplicated" if n_dup else ""))
+    return info
 
 
 def _resolve_lognorm(adata, layer: str | None):

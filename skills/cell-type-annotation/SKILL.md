@@ -157,9 +157,17 @@ one item at a time) to establish:
   to fit the tissue)? Whether to normalize final labels to **CL IDs** (recommended).
 - **Reference datasets:** any to map against? Capture, per reference: **path**, the
   **`obs` label column(s)** to transfer, **whether its X is raw counts or
-  log-normalized** (ask — `cta crosscheck reference-map --ref-counts`), and an optional **`obs`
+  log-normalized** (ask — `cta crosscheck reference-map --ref-counts`), its **gene-ID
+  convention** (Ensembl vs symbols, and any symbol var-column), and an optional **`obs`
   column to stratify the subsample by** (e.g. its cell-type column). These feed
   `cta crosscheck reference-map` (CellMapper) and the CellTypist tissue match.
+  - **Reference gene IDs are aligned to the query's symbols automatically.** Because the
+    canonical query is symbol-indexed, `reference-map` and `markers assemble --reference`
+    rename the reference's `var_names` to symbols (auto-detected symbol var-column,
+    `feature_name`/`gene_symbols`/…) before intersecting — so an Ensembl reference (the
+    common CELLxGENE case) no longer shares ~0 genes. If the reference is Ensembl with **no**
+    symbol var-column, build the map via the knowledgebase MCP exactly as for the query and
+    pass `--ref-symbol-map ensembl_to_symbol.tsv` (or name the column with `--ref-symbol-col`).
 - **Marker sources:** preferred references, the user's own atlases, marker lists.
 - **Write-back target:** the `obs` key/prefix for the final labels (default
   `cta_L1`..`cta_L4`) — confirm now; the actual write is gated to the END of Stage 3.
