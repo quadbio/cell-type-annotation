@@ -19,6 +19,12 @@ Laptop-scale / remote model:
   unbounded is ever pulled. This requires network access and fails cleanly when
   offline (the TileDB-SOMA open raises).
 
+Reproducibility:
+  ``--census-version`` defaults to 'stable' (the friendly LTS alias), which advances every
+  ~6 months. We resolve it to the dated build (e.g. '2025-11-08') and stamp it into
+  ``adata.uns['census_provenance']`` alongside the organism/filter/counts, so the slice is
+  reproducible. Pass that date back as ``--census-version`` to refetch the exact release.
+
 Caveat on the labels:
   Census ``cell_type`` is CL-backed but AUTHOR-SUPPLIED and heterogeneous across the
   many datasets that make up a tissue slice — granularity and naming differ between
@@ -78,6 +84,23 @@ def _import_census():
             "TileDB-SOMA store over S3, so a working network connection is also required."
         )
     return cellxgene_census
+
+
+def _resolve_census_build(cellxgene_census, census_version: str) -> str:
+    """Resolve a moving alias ('stable'/'latest') to the dated LTS build (YYYY-MM-DD).
+
+    Census best practice is to pin `census_version` to a dated release for reproducibility
+    (the alias 'stable' advances every ~6 months). We keep 'stable' as the friendly default
+    but resolve and RECORD the concrete build so the written slice is reproducible. Best-effort:
+    fall back to the raw string if the version directory can't be read (e.g. transient network).
+    """
+    try:
+        entry = cellxgene_census.get_census_version_directory().get(census_version)
+        if entry and entry.get("release_build"):
+            return entry["release_build"]
+    except Exception:  # noqa: BLE001 — provenance must never break the fetch
+        pass
+    return census_version
 
 
 def _normalize_organism(organism: str) -> str:
@@ -168,6 +191,10 @@ def cli(
     eprint(f">> opening CELLxGENE Census (version='{census_version}')")
     eprint("   (remote TileDB-SOMA over S3; the atlas is NOT downloaded)")
     with cellxgene_census.open_soma(census_version=census_version) as census:
+        census_build = _resolve_census_build(cellxgene_census, census_version)
+        if census_build != census_version:
+            eprint(f"   resolved '{census_version}' -> build {census_build} "
+                   f"(pin --census-version {census_build} to reproduce this slice)")
         eprint(f">> probing matching obs (organism='{organism}')")
         eprint(f"   obs_value_filter: {obs_filter}")
         obs_cols = list(dict.fromkeys([JOINID, cell_type_col, stratify_by]))
@@ -226,10 +253,22 @@ def cli(
     if adata_obj.n_obs == 0:
         raise SystemExit("ERROR: fetched AnnData is empty after applying obs_coords.")
 
+    # Stamp provenance so the slice is self-describing and reproducible (Census best
+    # practice: record the dated build, not just the moving 'stable' alias).
+    adata_obj.uns["census_provenance"] = {
+        "census_version": census_build,
+        "census_version_requested": census_version,
+        "organism": organism,
+        "obs_value_filter": obs_filter,
+        "n_matched": int(n_match),
+        "n_fetched": int(adata_obj.n_obs),
+    }
+
     # --- summary ---
     eprint(">> done")
     eprint(f"   reference : n_obs={adata_obj.n_obs}  n_vars={adata_obj.n_vars}  (X = raw counts)")
     eprint(f"   organism  : {organism}")
+    eprint(f"   census    : build {census_build}")
     eprint(f"   filter    : {obs_filter}")
     counts = adata_obj.obs[cell_type_col].astype(str).value_counts()
     eprint(f"   '{cell_type_col}' value_counts ({counts.size} types):")
