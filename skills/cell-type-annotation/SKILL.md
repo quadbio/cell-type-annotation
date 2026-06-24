@@ -86,8 +86,11 @@ and `plan.md` in the working directory first, then continue from
 **1a. Tooling gate — check this FIRST (fail fast, before the env build).** Two tiers:
 
 - **`knowledgebase` MCP — hard requirement (strict stop).** The grounded marker/ontology
-  evidence. If not configured, **STOP and ask the user to set it up** (don't degrade to
-  web-only — that's the confident-but-unfounded annotation this skill exists to prevent).
+  evidence (BioContextAI's Knowledgebase MCP — PanglaoDB, Cell Ontology/OLS, HPA, Europe
+  PMC, …). If not configured, **STOP and ask the user to set it up** — point them at
+  `github.com/biocontext-ai/knowledgebase-mcp` (registry: `biocontext.ai`) — rather than
+  degrading to web-only, which is the confident-but-unfounded annotation this skill exists
+  to prevent.
 - **`zotero` MCP — strongly preferred, not required.** If missing, say so, note the
   fallback to the `knowledgebase` Europe PMC tools, and offer to proceed.
 - Verify whichever MCPs are present actually respond before proceeding.
