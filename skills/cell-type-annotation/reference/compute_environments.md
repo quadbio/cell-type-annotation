@@ -112,6 +112,12 @@ process can't reach directly**. This skill therefore:
 Light steps (inspection, marker scoring on moderate data, reading tables) still run inline
 on the login node. Only the genuinely GPU/large-memory steps are handed off.
 
+When a scvi-tools step (`cta reference train-model` / `map-scarches`) runs **inside** a SLURM
+allocation, PyTorch-Lightning prints a *"the `srun` command is available … prepend `srun`"*
+hint. It is **benign here** — this skill submits nothing and runs the script as a single
+process by design; the scripts suppress that hint so it doesn't read as an error. (How the
+job itself is launched is the user's submission mechanism's concern, not this skill's.)
+
 ## Reproducibility caveats (be honest about GPU non-determinism)
 
 - GPU results are **not bit-identical** to CPU, and deep models (scVI/scANVI) are

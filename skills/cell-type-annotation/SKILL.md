@@ -40,6 +40,17 @@ demand). Rationale/algorithm: `reference/methodology.md` §1.
     assumptions and re-prompt only when you introduce a materially new one.
   - **Gate B:** `Unknown` is a first-class label for irreconcilable evidence — a
     justified `Unknown` is a success, not a failure.
+- **Interactive by default; non-interactive is an explicit opt-in.** The gates and
+  sign-offs are the skill's core and stay **on** unless the user explicitly asks for an
+  automated/benchmark run **and** supplies, up front, the context the gates would otherwise
+  gather interactively (data keys, biology, label vocabulary, the marker→type assumptions —
+  e.g. a filled `context.md`/`assumptions.md`/`plan.md`, or a clear written brief). Then run
+  end-to-end without `AskUserQuestion`, but **auto-approve-and-record** every gate (write
+  `assumptions.md`, mark `gates.signed_off_levels` with an `auto_approved: non_interactive`
+  note, build every report) so the audit trail is identical to an interactive run.
+  Non-interactive **never removes a gate** — it records a *pre-authorized* decision, and any
+  question the supplied context doesn't answer still stops the run. Default to interactive
+  when in doubt. Full rule: `reference/methodology.md` §2.
 - **Every automated call is a hypothesis, not a verdict.** Flag disagreement between
   marker reasoning and CellTypist/SingleR/CellMapper/scANVI; never silently overwrite.
   A bigger model (a GPU reference model, a foundation model) earns one more independent
@@ -157,11 +168,16 @@ one item at a time) to establish:
 - **Write-back target:** the `obs` key/prefix for the final labels (default
   `cta_L1`..`cta_L4`) — confirm now; the actual write is gated to the END of Stage 3.
 
-**1e. Inspect.** Run `cta data inspect` to verify every key/layer exists and
+**1e. Inspect.** Run `cta data inspect --workdir <wd>` (plus `--cluster-key`/`--embedding-key`/
+`--counts-layer`/… so it actually *verifies* them) to confirm every key/layer exists and
 capture `n_obs`/`n_vars`, cluster sizes, layer stats, `obsm` keys, a
 **normalization fingerprint**, the candidate **`categorical_obs`** (with which have
-`uns` colours), and a **`targeted_panel`** flag. Reconcile any mismatch with the user.
-Write `context.md` and seed `run_state.json` (schemas in `reference/artifacts.md`).
+`uns` colours), and a **`targeted_panel`** flag. With `--workdir` it drops the report at
+`<wd>/inspect_report.json`. Reconcile any mismatch with the user. Then **you (Claude)
+author `context.md` and seed `run_state.json` from that report** — `inspect` does not write
+them (it has no business inventing the tissue/vocabulary prose); it only verifies the
+object and dumps the structured facts you write those files from (schemas in
+`reference/artifacts.md`).
 **If `targeted_panel` is true, write a short panel-capability note in `context.md`** —
 which expected identities this panel **cannot** resolve because their canonical markers
 are off-panel (sets it apart from biology you simply didn't find); revisit it as
@@ -359,7 +375,7 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | --- | --- |
 | `pixi install [-e gpu]` | Bootstrap the env (Stage 1c): `default` = CPU scVerse core; `-e gpu` adds the GPU stack. (Not a `cta` command — pixi builds the env.) |
 | `cta detect-env` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
-| `cta data inspect` | Stage 1: verify keys/layers, dump structure to `context`. |
+| `cta data inspect` | Stage 1: verify keys/layers + normalization fingerprint; prints the structured report (and writes `<workdir>/inspect_report.json` with `--workdir`). You author `context.md`/`run_state.json` from it — `inspect` doesn't. |
 | `cta data prep-slim` | Optional: cache a slim AnnData (chosen embedding + X + counts + obs) to avoid reloading huge files. |
 | `cta markers assemble` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
 | `cta markers compute` | `rank_genes_groups` (wilcoxon, tie_correct) + COSG → marker tables (bottom-up: what defines each cluster). |

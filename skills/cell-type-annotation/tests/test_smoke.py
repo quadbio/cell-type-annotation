@@ -27,6 +27,23 @@ def test_markers_compute_end_to_end(tiny_h5ad, tmp_path):
     assert set(df["cluster"].astype(str)) == {"0", "1", "2"}
 
 
+def test_inspect_writes_report_to_workdir(tiny_h5ad, tmp_path):
+    """`cta data inspect --workdir` drops inspect_report.json (the file Claude authors
+    context.md/run_state.json from) — guards the issue-#14 'No such option: --workdir' fix."""
+    workdir = tmp_path / "run"
+    r = subprocess.run(
+        ["cta", "data", "inspect", "--adata", str(tiny_h5ad),
+         "--cluster-key", "leiden", "--workdir", str(workdir)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    report = workdir / "inspect_report.json"
+    assert report.exists(), f"inspect_report.json not written; stderr:\n{r.stderr}"
+    data = json.loads(report.read_text())
+    assert data["n_obs"] == 240 and data["n_vars"] == 60
+    assert data["n_clusters"] == 3
+
+
 def test_markers_score_end_to_end(tiny_h5ad, tmp_path):
     """Exercise `cta markers score` incl. the AUCell z-score path (regressions: that
     branch once referenced an undefined `args.level` and crashed)."""

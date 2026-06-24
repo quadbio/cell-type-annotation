@@ -6,6 +6,7 @@ panel-gating) stay consistent and the run remains resumable and auditable.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -28,6 +29,36 @@ LEVEL_REQ_OPT = typer.Option(..., help="hierarchy level tag, e.g. L1")
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
+
+
+# Exact messages of third-party warnings we have DIAGNOSED as benign-and-unfixable-here,
+# so callers can silence them by the tightest possible scope (one `with` around the one
+# offending call) instead of muting a whole command. Never use these to hide a warning we
+# haven't traced to a specific, harmless cause.
+#   - scanpy builds its rank_genes_groups results frame one column per group, so pandas
+#     emits this once per cluster (scanpy/tools/_rank_genes_groups.py) — internal to
+#     scanpy, no effect on the output, nothing we can fix without patching scanpy.
+FRAGMENTED_FRAME_WARNING = r".*DataFrame is highly fragmented.*"
+#   - PyTorch-Lightning auto-detects SLURM env vars and hints to prepend `srun`. scvi-tools
+#     here trains as a SINGLE process (the skill never launches it under `srun -n>1`), so
+#     this is a false positive. A cleaner fix is to pass a LightningEnvironment() plugin to
+#     the trainer; it's deferred until it can be exercised in the GPU env.
+LIGHTNING_SRUN_WARNING = r".*is available on your system but is not used.*"
+
+
+@contextlib.contextmanager
+def suppressed_warnings(*message_patterns: str):
+    """Silence specific warning MESSAGES within this block only (and nothing else).
+
+    Wrap the single call known to emit a diagnosed-benign third-party warning, passing its
+    exact message regex (see the module-level constants). Scope it as tightly as possible so
+    unrelated — and genuinely informative — warnings still reach the user.
+    """
+    import warnings
+    with warnings.catch_warnings():
+        for pat in message_patterns:
+            warnings.filterwarnings("ignore", message=pat)
+        yield
 
 
 def resolve_accelerator(choice: str) -> str:

@@ -42,9 +42,9 @@ import numpy as np
 import typer
 
 from cta.io import (
-    CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, aggregate_predictions, eprint,
-    require_obs, resolve_accelerator, resolve_workdir, safe_cluster_id,
-    save_table)
+    CLUSTER_KEY_OPT, LEVEL_OPT, LIGHTNING_SRUN_WARNING, WORKDIR_OPT,
+    aggregate_predictions, eprint, require_obs, resolve_accelerator,
+    resolve_workdir, safe_cluster_id, save_table, suppressed_warnings)
 
 
 def _place_counts(query, src_layer: str, ref_layer: str) -> None:
@@ -125,13 +125,23 @@ def cli(
     require_obs(query_obj, cluster_key, "cluster key")
     _place_counts(query_obj, counts_layer, ref_layer)
 
+    # scvi-tools is about to report it is 'filling in' the query's labels with the
+    # reference's unlabeled category. That message is EXPECTED, not an error, so we
+    # pre-empt it with context rather than hiding it: the query is unlabeled by definition
+    # and scANVI predicts its labels below — that is the whole point of scArches mapping.
     eprint(">> aligning query genes to the reference model (prepare_query_anndata)")
+    eprint("   NOTE: the query has no reference label column, so scvi will say it is "
+           "filling it with the 'unlabeled' category — expected; the labels come from "
+           "the surgery + prediction below, not from the query.")
     scvi.model.SCANVI.prepare_query_anndata(query_obj, reference_model)
 
     eprint(">> scArches surgery (load_query_data + train)")
     q_model = scvi.model.SCANVI.load_query_data(query_obj, reference_model)
-    q_model.train(max_epochs=max_epochs, accelerator=accel,
-                  plan_kwargs={"weight_decay": 0.0})
+    # Lightning's 'prepend srun' hint is a false positive for this single-process train
+    # (see io.LIGHTNING_SRUN_WARNING); silence exactly that, nothing else.
+    with suppressed_warnings(LIGHTNING_SRUN_WARNING):
+        q_model.train(max_epochs=max_epochs, accelerator=accel,
+                      plan_kwargs={"weight_decay": 0.0})
 
     eprint(">> predicting labels + uncertainty")
     pred = np.asarray(q_model.predict()).astype(str)

@@ -15,7 +15,8 @@ never inside this plugin repo. Record the chosen path in `run_state.json`.
 
 ```
 <dataset>-annotation-run/
-├── context.md            # the data: paths, keys, layers, assay, panel, tissue
+├── inspect_report.json   # `cta data inspect --workdir` dump (the facts context.md is written from)
+├── context.md            # the data: paths, keys, layers, assay, panel, tissue (you author it)
 ├── assumptions.md        # Gate A ledger — signed off before any labels
 ├── plan.md               # the hierarchy, vocabulary contract, planned workflow
 ├── run_state.json        # machine-readable checkpoint (resume from here)
@@ -102,10 +103,13 @@ Append an analogous block per level (L2, L3, …) as you descend; re-prompt for 
 only on a materially new assumption (`methodology.md` §2). Omit the panel-caveats table
 on non-targeted (dissociated whole-transcriptome) data.
 
-## `context.md` (Stage 1 output)
+## `context.md` (Stage 1 output — Claude authors it)
 
 Plain-language record of what the data *is*, captured from the scene-setting
-questions and verified against the object by `cta data inspect`:
+questions and verified against the object by `cta data inspect`. **You write this file**
+(and `run_state.json`) from the inspect report — `cta data inspect` only verifies the
+object and prints/`--workdir`-dumps the structured facts (`inspect_report.json`); it does
+not author the narrative files. Contents:
 
 - file path(s); `n_obs`, `n_vars`;
 - the **cluster key** (`obs` column with the pre-existing Leiden/Louvain);
@@ -197,7 +201,11 @@ Minimal, machine-readable, the source of truth for resuming:
   is part of Stage 1 scene-setting now.)
 - `gates.signed_off_levels` is the list of hierarchy levels whose assumptions the user
   has explicitly signed off (Gate A is a *living* ledger — see `methodology.md` §2).
-  A level not in this list must not have labels assigned yet.
+  A level not in this list must not have labels assigned yet. In a **non-interactive**
+  (opt-in benchmark) run the gate is still recorded here but tagged as pre-authorized —
+  e.g. `"gates": {"signed_off_levels": ["L1_compartment"], "auto_approved": "non_interactive"}`
+  — so the audit trail shows it was approved against user-supplied context, not prompted
+  (`methodology.md` §2).
 - `progress.assigned` maps cluster id → `{label, cl_id, confidence, status}` where
   `status ∈ {assigned, unknown, needs_subcluster, refuted}`.
 - `progress.current_step ∈ {score, cross_check, gate_a, evidence, assign, critic,

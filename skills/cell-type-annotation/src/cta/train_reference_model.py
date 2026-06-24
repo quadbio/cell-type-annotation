@@ -31,7 +31,8 @@ from typing import Optional
 
 import typer
 
-from cta.io import eprint, require_obs, resolve_accelerator, resolve_workdir, save_table
+from cta.io import (LIGHTNING_SRUN_WARNING, eprint, require_obs, resolve_accelerator,
+                    resolve_workdir, save_table, suppressed_warnings)
 
 
 def cli(
@@ -98,15 +99,19 @@ def cli(
     scvi.model.SCVI.setup_anndata(ref, layer=counts_layer_resolved, batch_key=batch_key or None)
     vae = scvi.model.SCVI(ref, n_latent=n_latent)
     eprint(f">> training scVI ({max_epochs_scvi} epochs)")
-    vae.train(max_epochs=max_epochs_scvi, accelerator=accel)
+    # Lightning hints to prepend `srun` because it detects SLURM env vars; we train as a
+    # single process here, so it's a false positive (see io.LIGHTNING_SRUN_WARNING).
+    with suppressed_warnings(LIGHTNING_SRUN_WARNING):
+        vae.train(max_epochs=max_epochs_scvi, accelerator=accel)
 
     eprint(">> initializing scANVI from the trained scVI model")
     lvae = scvi.model.SCANVI.from_scvi_model(
         vae, adata=ref, labels_key=labels_key,
         unlabeled_category=unlabeled_category)
     eprint(f">> training scANVI ({max_epochs_scanvi} epochs)")
-    lvae.train(max_epochs=max_epochs_scanvi, accelerator=accel,
-               n_samples_per_label=n_samples_per_label)
+    with suppressed_warnings(LIGHTNING_SRUN_WARNING):  # single-process; SLURM hint is moot
+        lvae.train(max_epochs=max_epochs_scanvi, accelerator=accel,
+                   n_samples_per_label=n_samples_per_label)
 
     eprint(f">> saving model to {out_model}")
     lvae.save(out_model, overwrite=True)
