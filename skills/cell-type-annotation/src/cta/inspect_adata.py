@@ -19,7 +19,7 @@ from typing import Optional
 import numpy as np
 import typer
 
-from cta.io import eprint, load_adata
+from cta.io import _looks_like_ensembl, eprint, load_adata
 
 
 def _nonzero_data(X, cap=200_000):
@@ -116,6 +116,35 @@ def cli(
     # X stats
     report["X"] = _matrix_stats(adata_obj.X)
     report["layer_stats"] = {l: _matrix_stats(adata_obj.layers[l]) for l in adata_obj.layers}
+
+    # .raw often hides raw counts on CELLxGENE atlases — inspect it so a counts-in-.raw
+    # object isn't misread as missing counts (and doesn't false-trip the lognorm STOP).
+    if adata_obj.raw is not None:
+        rfp = _fingerprint(adata_obj.raw.X)
+        report["raw"] = {"n_vars": int(adata_obj.raw.n_vars),
+                         **_matrix_stats(adata_obj.raw.X), "fingerprint": rfp["verdict"]}
+        if rfp["integer_valued"]:
+            report["warnings"].append(
+                ".raw.X holds integer counts — `cta data canonicalize` pulls them into "
+                "layers['counts'] (so counts aren't reported as missing).")
+    else:
+        report["raw"] = None
+
+    # Gene-ID convention: marker sources are SYMBOLS, so Ensembl-indexed var_names must be
+    # canonicalized or every marker panel-gates to nothing.
+    from cta.canonicalize import _detect_symbol_column
+    looks_ens = _looks_like_ensembl(adata_obj.var_names)
+    sym_col = _detect_symbol_column(adata_obj)
+    report["gene_ids"] = {
+        "var_names_look_like": "ensembl" if looks_ens else "symbol",
+        "symbol_column": sym_col}
+    if looks_ens:
+        report["warnings"].append(
+            "var_names look like Ensembl IDs; markers are gene symbols. Run "
+            "`cta data canonicalize`"
+            + (f" (symbol column '{sym_col}' available)" if sym_col else
+               " (no symbol var column — skill supplies --symbol-map via the knowledgebase MCP)")
+            + " before marker steps.")
 
     def check(label, ok, detail=""):
         report["checks"][label] = {"ok": bool(ok), "detail": detail}

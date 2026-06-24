@@ -25,8 +25,8 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | --- | --- | --- | --- | --- |
 | Detect environment (1b) | `cta detect-env` | none | all | stdlib probe of `torch`/`nvidia-smi`/`psutil`/scheduler. Detection only. |
 | Bootstrap env (1c) | `pixi install [-e gpu]` | none | all | pixi env: `default` (CPU) or `-e gpu` (adds the GPU stack). Not a `cta` command. |
-| Inspect object (1e) | `cta data inspect` | none | all | keys/layers/norm-fingerprint/panel flag → `context.md`. |
-| Slim cache (1e, opt.) | `cta data prep-slim` | none | all | cache embedding+X+counts+obs to avoid reloading huge files. |
+| Inspect object (1e) | `cta data inspect` | none | all | keys/layers/norm-fingerprint/panel flag/gene-ID convention/`.raw` → `context.md`. |
+| Canonicalize (1e) | `cta data canonicalize` | none | all | write the one canonical sidecar every step reads: symbol var_names (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, slim embeddings/obs. Replaces the old slim-cache step. |
 | Seed markers (3.1, opt.) | `cta markers assemble` | none | all | seed `markers_<level>.json` from a CellTypist model / reference DE. |
 | Score — bottom-up (3.3) | `cta markers compute` | none | all | `rank_genes_groups` (wilcoxon) + COSG (CPU). GPU acceleration would need rapids-singlecell (full RAPIDS+dask, not in the default extras) — niche, since the main object isn't re-preprocessed. |
 | Score — top-down (3.3) | `cta markers profile` | none | all | score the curated panel across clusters → pct/mean + dotplot. |
