@@ -15,16 +15,21 @@ The reference model is EITHER:
                     (e.g. a tissue-matched scANVI atlas) — preferred when one fits, since
                     it needs no retraining.
 
-scVI/scANVI consume RAW COUNTS. --counts-layer says where the query's counts are now;
---ref-layer says where the reference model expects them (default 'counts'; our trained
-models use 'counts', many hub models do too — pass 'X' if the model used X). The script
-places the query counts where the model expects them, aligns genes to the model, runs
+scVI/scANVI consume RAW COUNTS by default. --counts-layer says where the query's input
+matrix is now; --ref-layer says where the reference model expects it (default 'counts'; our
+trained models use 'counts', many hub models do too — pass 'X' if the model used X). The
+script places the query matrix where the model expects it, aligns genes to the model, runs
 surgery, predicts, and aggregates per cluster.
+
+LOG-NORM models: if the reference was trained with --gene-likelihood normal (see
+train_reference_model.py), it expects LOG-NORM input, not counts — pass --log-norm and point
+--counts-layer at the query's log-norm layer. The script verifies the flag against the
+loaded model's gene_likelihood and errors on a mismatch (a wrong input scale yields garbage).
 
 Usage:
   # onto a locally-trained model
   python map_query_scarches.py --query Q.h5ad --cluster-key leiden --workdir DIR \
-      --level L1 --model-dir ./ref_scanvi_model --counts-layer counts \
+      --level L1 --model-dir ./ref_scanvi_model --counts-layer counts [--log-norm] \
       [--label-col scanvi] [--max-epochs 100] [--accelerator auto|cuda|mps|cpu]
 
   # onto a shipped hub model
@@ -47,17 +52,21 @@ from cta.io import (
     save_table)
 
 
-def _place_counts(query, src_layer: str, ref_layer: str) -> None:
-    """Put the query's raw counts where the reference model expects them."""
-    counts = query.X if src_layer in (None, "X") else query.layers.get(src_layer)
-    if counts is None:
+def _place_counts(query, src_layer: str, ref_layer: str, log_norm: bool) -> None:
+    """Put the query's input matrix where the reference model expects it.
+
+    Counts for the default likelihoods; log-norm when --log-norm (a 'normal'-likelihood
+    reference). The placement is identical either way — only the expected scale differs."""
+    expects = "LOG-NORM data" if log_norm else "RAW COUNTS"
+    mat = query.X if src_layer in (None, "X") else query.layers.get(src_layer)
+    if mat is None:
         raise SystemExit(
             f"ERROR: --counts-layer '{src_layer}' not found in query.layers "
-            f"{list(query.layers.keys())}. scArches needs RAW COUNTS.")
+            f"{list(query.layers.keys())}. scArches needs {expects}.")
     if ref_layer in (None, "X"):
-        query.X = counts
+        query.X = mat
     else:
-        query.layers[ref_layer] = counts
+        query.layers[ref_layer] = mat
 
 
 
@@ -73,9 +82,14 @@ def cli(
         None, help="scvi-tools HuggingFace hub repo id to pull a shipped model from"),
     cache_dir: Optional[str] = typer.Option(None, help="cache dir for the pulled hub model"),
     counts_layer: str = typer.Option(
-        "X", help="query layer holding RAW COUNTS now ('X' if X is counts)"),
+        "X", help="query layer holding the input matrix now ('X' if X holds it): RAW COUNTS, "
+        "or LOG-NORM with --log-norm"),
     ref_layer: str = typer.Option(
-        "counts", help="layer name the reference model expects counts in ('X' or a name)"),
+        "counts", help="layer name the reference model expects its input in ('X' or a name)"),
+    log_norm: bool = typer.Option(
+        False, "--log-norm/--no-log-norm",
+        help="the reference was trained with --gene-likelihood normal and expects LOG-NORM "
+        "input (verified against the loaded model)"),
     label_col: str = typer.Option(
         "scanvi", help="name used in the output table filename (refmap_<level>_<col>.csv)"),
     max_epochs: int = typer.Option(100, help="surgery training epochs"),
@@ -123,13 +137,27 @@ def cli(
     eprint(f">> loading query {query}")
     query_obj = sc.read_h5ad(query)
     require_obs(query_obj, cluster_key, "cluster key")
-    _place_counts(query_obj, counts_layer, ref_layer)
+    if log_norm:
+        eprint(">> --log-norm: treating the query input as LOG-NORM "
+               "(reference trained with gene_likelihood=normal)")
+    _place_counts(query_obj, counts_layer, ref_layer, log_norm)
 
     eprint(">> aligning query genes to the reference model (prepare_query_anndata)")
     scvi.model.SCANVI.prepare_query_anndata(query_obj, reference_model)
 
     eprint(">> scArches surgery (load_query_data + train)")
     q_model = scvi.model.SCANVI.load_query_data(query_obj, reference_model)
+
+    # The model is now loaded — verify --log-norm matches what it actually expects, since a
+    # wrong input scale (counts into a Gaussian model, or vice versa) yields garbage silently.
+    glik = getattr(getattr(q_model, "module", None), "gene_likelihood", None)
+    if glik is not None:
+        model_wants_lognorm = glik == "normal"
+        if model_wants_lognorm != log_norm:
+            want = "LOG-NORM (pass --log-norm)" if model_wants_lognorm else "RAW COUNTS (drop --log-norm)"
+            raise SystemExit(
+                f"ERROR: the reference model's gene_likelihood='{glik}' expects {want}, but "
+                f"--log-norm={log_norm}. Re-run with the matching input scale.")
     q_model.train(max_epochs=max_epochs, accelerator=accel,
                   plan_kwargs={"weight_decay": 0.0})
 
