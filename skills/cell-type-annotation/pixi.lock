@@ -47,6 +47,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/python-3.12.13-hd63d673_0_cpython.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.12-8_cp312.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-h853b02a_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ruff-0.15.19-h6a952e8_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h366c992_103.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tomli-2.4.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_extensions-4.15.0-pyhcf101f3_0.conda
@@ -76,7 +77,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/7f/05/8b12bd9a9436eed33172af69f3d255ce436513c7374f45a0c7106cbbb9e0/celldex-0.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/11/e2/f93f59bef254d011985c8a267494b990e2ddd1cb109af8d1d598de3784ad/cellmapper-0.2.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/92/6c/12f14d20ccd49bfe8709cebd1b77a244f019e44a8702d3962021b618812e/celltypist-1.7.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/37/bd/5c8053260a951bbffb26ab9e837fc5ac3cac1c9250e3b739aa49b8a225a4/cellxgene_census-1.17.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/81/a4/07c6c3db30dfb3dda5bc8ed5476c0ae42e345414a304178c2d0762218c36/cellxgene_census-1.18.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ef/2f/c5464532e965badff2f4c4c1a3a83f5697f0d7c407ed0cda44aaa99bb451/certifi-2026.6.17-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4b/f8/d0118a2f5f23b02cd166fa385c60f9b0d4f9194f574e2b31cef350ad7223/charset_normalizer-3.4.7-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/c7/0d/67e5b4109ea4a837e80daa87c2c696711955e40449a97e8926672534def2/click-8.4.1-py3-none-any.whl
@@ -257,6 +258,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-3.12.13-h8561d8f_0_cpython.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.12-8_cp312.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/readline-8.3-h46df422_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ruff-0.15.19-h80928e0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tk-8.6.13-h010d191_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tomli-2.4.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_extensions-4.15.0-pyhcf101f3_0.conda
@@ -285,7 +287,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/7f/05/8b12bd9a9436eed33172af69f3d255ce436513c7374f45a0c7106cbbb9e0/celldex-0.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/11/e2/f93f59bef254d011985c8a267494b990e2ddd1cb109af8d1d598de3784ad/cellmapper-0.2.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/92/6c/12f14d20ccd49bfe8709cebd1b77a244f019e44a8702d3962021b618812e/celltypist-1.7.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/37/bd/5c8053260a951bbffb26ab9e837fc5ac3cac1c9250e3b739aa49b8a225a4/cellxgene_census-1.17.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/81/a4/07c6c3db30dfb3dda5bc8ed5476c0ae42e345414a304178c2d0762218c36/cellxgene_census-1.18.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ef/2f/c5464532e965badff2f4c4c1a3a83f5697f0d7c407ed0cda44aaa99bb451/certifi-2026.6.17-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/eb/4fc8d0a7110eb5fc9cc161723a34a8a6c200ce3b4fbf681bc86feee22308/charset_normalizer-3.4.7-cp312-cp312-macosx_10_13_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/c7/0d/67e5b4109ea4a837e80daa87c2c696711955e40449a97e8926672534def2/click-8.4.1-py3-none-any.whl
@@ -479,6 +481,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/python-3.12.13-hd63d673_0_cpython.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.12-8_cp312.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-h853b02a_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ruff-0.15.19-h6a952e8_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h366c992_103.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tomli-2.4.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_extensions-4.15.0-pyhcf101f3_0.conda
@@ -512,7 +515,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/7f/05/8b12bd9a9436eed33172af69f3d255ce436513c7374f45a0c7106cbbb9e0/celldex-0.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/11/e2/f93f59bef254d011985c8a267494b990e2ddd1cb109af8d1d598de3784ad/cellmapper-0.2.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/92/6c/12f14d20ccd49bfe8709cebd1b77a244f019e44a8702d3962021b618812e/celltypist-1.7.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/37/bd/5c8053260a951bbffb26ab9e837fc5ac3cac1c9250e3b739aa49b8a225a4/cellxgene_census-1.17.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/81/a4/07c6c3db30dfb3dda5bc8ed5476c0ae42e345414a304178c2d0762218c36/cellxgene_census-1.18.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ef/2f/c5464532e965badff2f4c4c1a3a83f5697f0d7c407ed0cda44aaa99bb451/certifi-2026.6.17-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/4b/f8/d0118a2f5f23b02cd166fa385c60f9b0d4f9194f574e2b31cef350ad7223/charset_normalizer-3.4.7-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/aa/d8/0abcfb8629cc529e12df60e8bd73717c2588588f0744415158bde9d94ebf/circlify-0.15.1-py3-none-any.whl
@@ -760,6 +763,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/python-3.12.13-h8561d8f_0_cpython.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/python_abi-3.12-8_cp312.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/readline-8.3-h46df422_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/ruff-0.15.19-h80928e0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tk-8.6.13-h010d191_3.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/tomli-2.4.1-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/typing_extensions-4.15.0-pyhcf101f3_0.conda
@@ -789,7 +793,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/7f/05/8b12bd9a9436eed33172af69f3d255ce436513c7374f45a0c7106cbbb9e0/celldex-0.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/11/e2/f93f59bef254d011985c8a267494b990e2ddd1cb109af8d1d598de3784ad/cellmapper-0.2.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/92/6c/12f14d20ccd49bfe8709cebd1b77a244f019e44a8702d3962021b618812e/celltypist-1.7.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/37/bd/5c8053260a951bbffb26ab9e837fc5ac3cac1c9250e3b739aa49b8a225a4/cellxgene_census-1.17.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/81/a4/07c6c3db30dfb3dda5bc8ed5476c0ae42e345414a304178c2d0762218c36/cellxgene_census-1.18.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ef/2f/c5464532e965badff2f4c4c1a3a83f5697f0d7c407ed0cda44aaa99bb451/certifi-2026.6.17-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0c/eb/4fc8d0a7110eb5fc9cc161723a34a8a6c200ce3b4fbf681bc86feee22308/charset_normalizer-3.4.7-cp312-cp312-macosx_10_13_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/c7/0d/67e5b4109ea4a837e80daa87c2c696711955e40449a97e8926672534def2/click-8.4.1-py3-none-any.whl
@@ -1484,10 +1488,10 @@ packages:
   - scanpy>=1.7.0
   - leidenalg>=0.9.0
   requires_python: '>=3.6'
-- pypi: https://files.pythonhosted.org/packages/37/bd/5c8053260a951bbffb26ab9e837fc5ac3cac1c9250e3b739aa49b8a225a4/cellxgene_census-1.17.0-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/81/a4/07c6c3db30dfb3dda5bc8ed5476c0ae42e345414a304178c2d0762218c36/cellxgene_census-1.18.0-py3-none-any.whl
   name: cellxgene-census
-  version: 1.17.0
-  sha256: c63449f2cfd694d5b2d67690cd9f3873136c36ac5018390e1ba6565b04b83aed
+  version: 1.18.0
+  sha256: 9e577ad913d4602cdb18a61e6f94230eefc105881cba7aece1491ec23cd760ba
   requires_dist:
   - tiledbsoma>=1.15.3
   - anndata
@@ -1495,19 +1499,16 @@ packages:
   - requests
   - typing-extensions
   - s3fs>=2021.6.1
-  - torch ; extra == 'experimental'
-  - torchdata~=0.7,<0.10 ; extra == 'experimental'
-  - scikit-learn>=1.2 ; extra == 'experimental'
   - scikit-misc>=0.3 ; extra == 'experimental'
   - tiledb-vector-search~=0.11 ; extra == 'experimental'
   - psutil ; extra == 'experimental'
-  - spatialdata>=0.2.5 ; extra == 'spatial'
+  - spatialdata>=0.5.0 ; extra == 'spatial'
   - nbsphinx ; extra == 'doc'
   - myst-parser ; extra == 'doc'
   - sphinx-rtd-theme ; extra == 'doc'
   - gitpython ; extra == 'doc'
   - sphinx<7.0.0 ; extra == 'doc'
-  requires_python: '>=3.10,<3.13'
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/ef/2f/c5464532e965badff2f4c4c1a3a83f5697f0d7c407ed0cda44aaa99bb451/certifi-2026.6.17-py3-none-any.whl
   name: certifi
   version: 2026.6.17
@@ -5831,6 +5832,37 @@ packages:
   version: 2026.5.1
   sha256: b6825cc329b290e93c5f6a9be2393118a763f6ccf6abd83704e0c102ca583644
   requires_python: '>=3.11'
+- conda: https://conda.anaconda.org/conda-forge/linux-64/ruff-0.15.19-h6a952e8_0.conda
+  noarch: python
+  sha256: 6791056748e4c4d06a286d1b591b2543764988b85d91ae12284635ae7f81de80
+  md5: a7fb4598acb68a071b45d53820ff8812
+  depends:
+  - python
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  constrains:
+  - __glibc >=2.17
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/ruff?source=compressed-mapping
+  size: 9506544
+  timestamp: 1782288610637
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/ruff-0.15.19-h80928e0_0.conda
+  noarch: python
+  sha256: 7916eb37206fe9726db28f722f14fe2da5e64b68b3747ae5bf92a9df6245c79f
+  md5: 2639d46decb4c0ef9eca4f8fd2f5803e
+  depends:
+  - python
+  - __osx >=11.0
+  constrains:
+  - __osx >=11.0
+  license: MIT
+  license_family: MIT
+  purls:
+  - pkg:pypi/ruff?source=compressed-mapping
+  size: 8644257
+  timestamp: 1782288982578
 - pypi: https://files.pythonhosted.org/packages/a5/0b/f68a968b49876eae0f2a515387093cebb2eb9451380a96741cc20efac0d0/s3fs-2026.6.0-py3-none-any.whl
   name: s3fs
   version: 2026.6.0

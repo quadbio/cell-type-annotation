@@ -434,6 +434,20 @@ def _looks_like_ensembl(var_names) -> bool:
     return sum(1 for n in names if pat.match(n)) / len(names) > 0.5
 
 
+def _looks_like_symbols(var_names) -> bool:
+    """True if most var_names plausibly are gene SYMBOLS — i.e. contain a letter.
+
+    Gene symbols always carry alphabetic characters (CD3D, AQP4, HLA-DRA). Pure-numeric
+    or positional ids ('0', '1', '2', …) — as written by `cta reference fetch-census`,
+    which keeps symbols in `var['feature_name']` — carry none, so they are NOT symbols and
+    must be renamed from a symbol column, never waved through as "already symbols".
+    """
+    names = [str(n) for n in var_names]
+    if not names:
+        return False
+    return sum(1 for n in names if any(c.isalpha() for c in n)) / len(names) > 0.5
+
+
 def read_markers_json(path: str) -> dict[str, list[str]]:
     """Marker sets as {cell_type: [genes]} from a JSON file."""
     data = json.loads(Path(path).expanduser().read_text())

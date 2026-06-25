@@ -21,10 +21,11 @@ Big objects (millions of cells) carry graphs, alternative embeddings, scaled mat
 and varm/obsp/varp the skill never touches; this drops all of that so later jobs don't
 re-deserialize the full file.
 
-GENE SYMBOLS. var_names that already look like symbols are kept as-is. var_names that
-look like Ensembl IDs are renamed using, in order: a `--symbol-col` you name, an
-auto-detected symbol var-column (feature_name / gene_symbols / symbol / gene_name), or
-a `--symbol-map` TSV (ensembl<TAB>symbol). When none exists the skill builds that map
+GENE SYMBOLS. var_names that already look like symbols are kept as-is. var_names that are
+NOT symbols — Ensembl IDs, or positional integer ids ('0','1',… as `fetch-census` writes,
+symbols living in a var column) — are renamed using, in order: a `--symbol-col` you name
+(honored unconditionally), an auto-detected symbol var-column (feature_name / gene_symbols
+/ symbol / gene_name), or a `--symbol-map` TSV (ensembl<TAB>symbol). When none exists the skill builds that map
 via the knowledgebase MCP (symbol -> Ensembl, the tool's natural direction) for the
 marker genes and passes it as `--symbol-map`; the CLI itself never calls an MCP.
 
@@ -50,8 +51,8 @@ from typing import Optional
 
 import typer
 
-from cta.io import (LOGNORM_CP10K_LAYER, _looks_like_ensembl, cp10k_log1p_matrix,
-                    eprint, load_adata, split_csv)
+from cta.io import (LOGNORM_CP10K_LAYER, _looks_like_ensembl, _looks_like_symbols,
+                    cp10k_log1p_matrix, eprint, load_adata, split_csv)
 
 # var columns that conventionally hold the gene symbol, best first (CELLxGENE uses
 # `feature_name`; the immune benchmark atlas uses `gene_symbols`).
@@ -92,23 +93,31 @@ def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str]
 
     `col_flag`/`map_flag` only set which CLI flag names the error messages name — the
     reference aligner reuses this with `--ref-symbol-col`/`--ref-symbol-map`.
+
+    An explicit `symbol_col` is honored UNCONDITIONALLY, ahead of any heuristic: if given,
+    var_names are renamed from that column whatever they currently look like (a missing
+    column is a hard error). The "already symbols" short-circuit fires only with NO explicit
+    column AND var_names that actually look like symbols — Ensembl ids and pure-positional
+    integer ids (e.g. `cta reference fetch-census`, symbols in `var['feature_name']`) both
+    fall through to mapping rather than being mistaken for symbols.
     """
     orig = [str(n) for n in adata.var_names]
-    is_ens = _looks_like_ensembl(orig)
-    if not is_ens:
+    if symbol_col is not None and symbol_col not in adata.var.columns:
+        raise SystemExit(
+            f"ERROR: {col_flag} '{symbol_col}' not in var. "
+            f"Available var columns: {list(adata.var.columns)}")
+
+    if symbol_col is None and not _looks_like_ensembl(orig) and _looks_like_symbols(orig):
         # var_names already look like symbols — keep them; surface any Ensembl column.
         ens_col = next((c for c in ("ensembl_id", "ensembl", "gene_ids", "gene_id")
                         if c in adata.var.columns), None)
         ensembl = [str(x) for x in adata.var[ens_col]] if ens_col else [""] * len(orig)
         return orig, ensembl, {"convention": "already symbols", "renamed": 0, "unmapped": 0}
 
-    # var_names look like Ensembl -> we must map to symbols.
-    if symbol_col is not None and symbol_col not in adata.var.columns:
-        raise SystemExit(
-            f"ERROR: {col_flag} '{symbol_col}' not in var. "
-            f"Available var columns: {list(adata.var.columns)}")
+    # var_names need mapping to symbols (explicit col, Ensembl ids, or positional integers).
+    src_kind = "ensembl" if _looks_like_ensembl(orig) else "id"
     col = symbol_col or _detect_symbol_column(adata)
-    symbols = list(orig)  # default: keep Ensembl id where no symbol is known
+    symbols = list(orig)  # default: keep the original id where no symbol is known
     renamed = 0
     if col is not None:
         eprint(f"   symbols <- var['{col}']")
@@ -127,14 +136,14 @@ def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str]
                 renamed += 1
     else:
         raise SystemExit(
-            "ERROR: var_names look like Ensembl IDs but no symbol source was found. "
+            "ERROR: var_names are not gene symbols but no symbol source was found. "
             f"Provide {col_flag}, ensure a symbol var column exists, or pass "
             f"{map_flag} (the skill builds one via the knowledgebase MCP).")
     unmapped = len(orig) - renamed
-    info = {"convention": "ensembl->symbol", "source": col or "symbol-map",
+    info = {"convention": f"{src_kind}->symbol", "source": col or "symbol-map",
             "renamed": renamed, "unmapped": unmapped}
     if unmapped:
-        eprint(f"   WARN: {unmapped}/{len(orig)} genes kept their Ensembl id (no symbol found)")
+        eprint(f"   WARN: {unmapped}/{len(orig)} genes kept their original id (no symbol found)")
     return symbols, orig, info
 
 
