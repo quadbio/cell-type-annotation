@@ -1,0 +1,25 @@
+name: Lint
+
+# Enforces the root .pre-commit-config.yaml on every push to main and every PR — the same
+# hooks `pixi run pre-commit` runs locally. (If you adopt the pre-commit.ci GitHub App, this
+# workflow becomes redundant and can be removed; see .pre-commit-config.yaml `ci:`.)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: pre-commit/action@v3.0.1
