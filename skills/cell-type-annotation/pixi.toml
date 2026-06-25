@@ -24,7 +24,7 @@ test = "python -m pytest"
 test-census = "python -m pytest -m census"
 # Lint / format. These mirror exactly what the root `.pre-commit-config.yaml` and CI run, so
 # `pixi run lint` locally and the hooks/CI always agree. `lint` is check-only (the CI gate);
-# `lint-fix` applies safe autofixes; `format` rewrites style.
+# `lint-fix` applies safe autofixes; `format` rewrites style. (ruff config in pyproject.toml.)
 lint = { cmd = "ruff check . && ruff format --check ." }
 lint-fix = "ruff check --fix ."
 format = "ruff format ."
@@ -39,8 +39,8 @@ python = "3.12.*"
 numpy = ">=2"
 faiss-cpu = "*"
 pytest = "*"
-# Dev tooling. Pinned-ish so local `pixi run lint` matches the versions in
-# `.pre-commit-config.yaml` / CI; bump both together.
+# Dev tooling. ruff is pinned-ish so local `pixi run lint` matches the versions in
+# `.pre-commit-config.yaml` / CI; bump both together. (ruff config in pyproject.toml.)
 ruff = ">=0.15"
 pre-commit = "*"
 
@@ -90,6 +90,18 @@ cellxgene-census = "*"
 [feature.gpu.pypi-options]
 extra-index-urls = ["https://pypi.nvidia.com"]
 
+# scimilarity pulls hnswlib, but its PyPI wheel is the problem: the 0.8.0 cp312 wheel is built
+# with AVX-512 and SIGILLs `cta crosscheck scimilarity` when SCimilarity loads its prebuilt
+# hnswlib kNN index on AVX2-only CPUs (verified crashing on Euler's AMD EPYC 7763 / Intel Xeon
+# E3-1284L v4 — neither has AVX-512). The fix is to source hnswlib from conda-forge instead:
+# conda-forge builds it portably (baseline microarch, no `-march=native`), so the same 0.8.0
+# runs on any CPU (verified: the conda-forge .so has zero AVX-512/AVX2 ops and the full
+# Index/load_index/knn_query path runs clean on an AVX2 node). Declaring it as a conda dep lets
+# the conda binary satisfy scimilarity's PyPI `hnswlib>=0.8.0`, so uv never pulls the bad wheel
+# — no override, no source build, no build-host `-march=native` fragility.
+[feature.gpu.target.linux-64.dependencies]
+hnswlib = ">=0.8"
+
 [feature.gpu.target.linux-64.pypi-dependencies]
 # Reference-model option (scANVI/scArches + scvi-hub). torch+OpenMP coexist fine with the
 # conda stack on Linux (validated on an RTX 4090); on a GPU it actually uses CUDA.
@@ -97,7 +109,8 @@ scvi-tools = "*"
 # CellMapper's `rapids` GPU k-NN backend calls cuML directly (validated on an RTX 4090).
 cuml-cu12 = "*"
 cudf-cu12 = "*"
-# Optional large-memory zero-shot annotator (additional cross-check only).
+# Optional large-memory zero-shot annotator (additional cross-check only). Its hnswlib dep is
+# pinned to the portable conda-forge build above (see comment) to avoid the AVX-512 wheel SIGILL.
 scimilarity = "*"
 
 # Needed by scvi.hub for `cta reference map-scarches --hf-repo` (pull a shipped scvi-tools
