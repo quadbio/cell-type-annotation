@@ -26,25 +26,31 @@ Usage:
   python build_report.py --workdir /proj/run --level L1 --adata A.h5ad \
       --cluster-key leiden --viz-key X_umap [--lognorm-layer lognorm] [--split-by sample]
 """
+
 from __future__ import annotations
 
 import base64
 import html
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 import typer
 
 from cta.constants import REPORT_LOW_CONF_THRESHOLD
 from cta.io import (
-    LEVEL_REQ_OPT, WORKDIR_OPT, eprint, is_unknown_label, resolve_workdir,
-    safe_cluster_id)
+    LEVEL_REQ_OPT,
+    WORKDIR_OPT,
+    eprint,
+    is_unknown_label,
+    resolve_workdir,
+    safe_cluster_id,
+)
 
 
 def md_to_html(s: str) -> str:
     try:
         import markdown as _md
+
         return _md.markdown(s, extensions=["tables", "fenced_code"])
     except Exception:  # markdown is optional; fall back to <pre>
         return f"<pre>{html.escape(s)}</pre>"
@@ -148,6 +154,7 @@ def _cluster_sizes(adata_path, cluster_key) -> dict[str, int]:
         return {}
     try:
         import anndata as ad
+
         obs = ad.read_h5ad(adata_path, backed="r").obs
         if cluster_key not in obs:
             return {}
@@ -187,34 +194,36 @@ def _print_gate(problems: list[str], warnings: list[str]) -> None:
 def cli(
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_REQ_OPT,
-    title: Optional[str] = typer.Option(None, help="report title"),
-    adata: Optional[str] = typer.Option(
-        None, help="enable plots (UMAP/dotplot/composition)"),
-    cluster_key: Optional[str] = typer.Option(None, help="obs column holding the clusters"),
-    viz_key: Optional[str] = typer.Option(
-        None, help="obsm key for the UMAP/tSNE viz embedding"),
-    embedding_key: Optional[str] = typer.Option(
+    title: str | None = typer.Option(None, help="report title"),
+    adata: str | None = typer.Option(None, help="enable plots (UMAP/dotplot/composition)"),
+    cluster_key: str | None = typer.Option(None, help="obs column holding the clusters"),
+    viz_key: str | None = typer.Option(None, help="obsm key for the UMAP/tSNE viz embedding"),
+    embedding_key: str | None = typer.Option(
         None,
         help="obsm key of the anchor embedding (used to ORDER labels by "
-             "similarity so similar types get adjacent colors; defaults to --viz-key)"),
-    lognorm_layer: Optional[str] = typer.Option(None, help="layer with log-normalized data"),
-    split_by: Optional[str] = typer.Option(
+        "similarity so similar types get adjacent colors; defaults to --viz-key)",
+    ),
+    lognorm_layer: str | None = typer.Option(None, help="layer with log-normalized data"),
+    split_by: str | None = typer.Option(
         None,
         help="OPTIONAL categorical obs to split composition by — comma-separated "
-             "for multiple panels (e.g. 'condition,week'); reuses uns colors. "
-             "Generic; never assume a specific column exists."),
+        "for multiple panels (e.g. 'condition,week'); reuses uns colors. "
+        "Generic; never assume a specific column exists.",
+    ),
     strict: bool = typer.Option(
         False,
         help="treat an incomplete level as an error (exit 1): every cluster must "
-             "have a non-blank label AND a filled (non-TODO) rationale. This is the "
-             "gate to run before descending — it catches the silent-skip failure "
-             "mode where a level is 'done' but its reasoning was never written."),
+        "have a non-blank label AND a filled (non-TODO) rationale. This is the "
+        "gate to run before descending — it catches the silent-skip failure "
+        "mode where a level is 'done' but its reasoning was never written.",
+    ),
     check_only: bool = typer.Option(
         False,
         help="re-evaluate the completeness gate WITHOUT rendering or writing the "
-             "report (read-only). Use this to re-check after recording a sign-off "
-             "— never re-run the renderer just to flip the gate. With --strict it "
-             "exits 1 when the level is incomplete; it writes nothing."),
+        "report (read-only). Use this to re-check after recording a sign-off "
+        "— never re-run the renderer just to flip the gate. With --strict it "
+        "exits 1 when the level is incomplete; it writes nothing.",
+    ),
 ) -> None:
     """Assemble a self-contained HTML report for one hierarchy level."""
     from cta.report_plots import discover_plots, make_plots
@@ -235,8 +244,7 @@ def cli(
     # This is how you re-check after recording a sign-off — never re-run the renderer just to
     # flip the gate (omitting --adata on such a re-run is what silently dropped the figures).
     if check_only:
-        problems, warnings = _level_completeness(
-            wd, level, labels, _find_card_files(wd, level))
+        problems, warnings = _level_completeness(wd, level, labels, _find_card_files(wd, level))
         _print_gate(problems, warnings)
         raise SystemExit(1 if (problems and strict) else 0)
 
@@ -245,20 +253,35 @@ def cli(
     # existing figures instead of silently dropping them.
     if adata:
         make_plots(
-            adata_path=adata, cluster_key=cluster_key, viz_key=viz_key,
-            embedding_key=embedding_key, lognorm_layer=lognorm_layer,
-            split_by=split_by, level=level, labels=labels, wd=wd)
+            adata_path=adata,
+            cluster_key=cluster_key,
+            viz_key=viz_key,
+            embedding_key=embedding_key,
+            lognorm_layer=lognorm_layer,
+            split_by=split_by,
+            level=level,
+            labels=labels,
+            wd=wd,
+        )
     plot_items = discover_plots(wd, level)
     plots_inner = ""
     for heading, caption, p in plot_items:
         try:
             cap = f'<p class="figcap">{html.escape(caption)}</p>' if caption else ""
-            plots_inner += (f'<figure class="plot"><h3>{html.escape(heading)}</h3>'
-                            f'<img src="{_b64_img(p)}" alt="{html.escape(heading)}">{cap}</figure>')
+            plots_inner += (
+                f'<figure class="plot"><h3>{html.escape(heading)}</h3>'
+                f'<img src="{_b64_img(p)}" alt="{html.escape(heading)}">{cap}</figure>'
+            )
         except Exception:  # noqa: BLE001
             pass
-    plots_html = (f'<details class="plotbox" open><summary>Figures (cell map / markers / '
-                  f'composition)</summary>{plots_inner}</details>') if plots_inner else ""
+    plots_html = (
+        (
+            f'<details class="plotbox" open><summary>Figures (cell map / markers / '
+            f"composition)</summary>{plots_inner}</details>"
+        )
+        if plots_inner
+        else ""
+    )
 
     # evidence cards (scaffold_cards.py writes "L<level>_cluster<id>.md")
     card_files = _find_card_files(wd, level)
@@ -300,28 +323,48 @@ def cli(
                 cls_ids = [str(c) for c in sub["cluster"]]
                 ncell = sum(sizes.get(c, 0) for c in cls_ids)
                 nflag = sum(c in flagged_clusters for c in cls_ids)
-                confs = pd.to_numeric(sub.get("confidence"), errors="coerce") if "confidence" in sub else None
+                confs = (
+                    pd.to_numeric(sub.get("confidence"), errors="coerce")
+                    if "confidence" in sub
+                    else None
+                )
                 cavg = f"{confs.mean():.2f}" if confs is not None and confs.notna().any() else "—"
                 rollup.append((lab, ncell, len(cls_ids), cavg, nflag, cls_ids))
             # order by cells desc when known, else by #clusters desc
             rollup.sort(key=lambda r: (-(r[1]), -r[2]))
             has_cells = total_cells > 0
             for lab, ncell, ncl, cavg, nflag, cls_ids in rollup:
-                cell_td = (f"<td class='conf'>{ncell:,}</td><td class='conf'>"
-                           f"{100*ncell/total_cells:.1f}%</td>") if has_cells else ""
+                cell_td = (
+                    (
+                        f"<td class='conf'>{ncell:,}</td><td class='conf'>"
+                        f"{100 * ncell / total_cells:.1f}%</td>"
+                    )
+                    if has_cells
+                    else ""
+                )
                 flag_txt = f'<span class="badge lowconf">{nflag} flagged</span>' if nflag else ""
-                rr += (f"<tr><td>{html.escape(str(lab))}</td>{cell_td}"
-                       f"<td class='conf'>{ncl}</td><td class='conf'>{cavg}</td>"
-                       f"<td><code>{html.escape(', '.join(cls_ids))}</code> {flag_txt}</td></tr>")
+                rr += (
+                    f"<tr><td>{html.escape(str(lab))}</td>{cell_td}"
+                    f"<td class='conf'>{ncl}</td><td class='conf'>{cavg}</td>"
+                    f"<td><code>{html.escape(', '.join(cls_ids))}</code> {flag_txt}</td></tr>"
+                )
             cell_hdr = "<th>cells</th><th>%</th>" if has_cells else ""
-            rollup_html = (f"<h2>Labels overview</h2><table><tr><th>label</th>{cell_hdr}"
-                           f"<th>#clusters</th><th>avg conf</th><th>clusters</th></tr>{rr}</table>")
+            rollup_html = (
+                f"<h2>Labels overview</h2><table><tr><th>label</th>{cell_hdr}"
+                f"<th>#clusters</th><th>avg conf</th><th>clusters</th></tr>{rr}</table>"
+            )
 
         # --- compact per-cluster summary (key cols only; full note lives in the card) ---
-        cols = [c for c in ["cluster", "label", "state", "cl_id", "confidence", "top_markers"]
-                if c in labels.columns]
-        sl = labels.sort_values(
-            by=[c for c in ["label", "confidence"] if c in labels.columns]) if cols else labels
+        cols = [
+            c
+            for c in ["cluster", "label", "state", "cl_id", "confidence", "top_markers"]
+            if c in labels.columns
+        ]
+        sl = (
+            labels.sort_values(by=[c for c in ["label", "confidence"] if c in labels.columns])
+            if cols
+            else labels
+        )
         head = "".join(f"<th>{html.escape(c)}</th>" for c in cols)
         body = ""
         for _, r in sl.iterrows():
@@ -331,8 +374,10 @@ def cli(
                 v = html.escape(str(r[c]))
                 cells += f'<td class="conf">{v}</td>' if c == "confidence" else f"<td>{v}</td>"
             body += f"<tr>{cells}<td>{badge}</td></tr>"
-        summary_rows = ('<details><summary><h2 style="display:inline">Per-cluster summary</h2>'
-                        f"</summary><table><tr>{head}<th>flag</th></tr>{body}</table></details>")
+        summary_rows = (
+            '<details><summary><h2 style="display:inline">Per-cluster summary</h2>'
+            f"</summary><table><tr>{head}<th>flag</th></tr>{body}</table></details>"
+        )
 
     # --- evidence cards grouped by label (region), flagged groups open ---
     def card_cluster(p: Path) -> str:
@@ -345,11 +390,13 @@ def cli(
     groups: dict[str, list[Path]] = {}
     for p in card_files:
         groups.setdefault(cl2label_safe.get(card_cluster(p), "—"), []).append(p)
+
     # order groups: flagged groups first, then by size desc, then name
     def grp_key(item):
         lab, ps = item
         has_flag = any(card_cluster(p) in flagged_safe for p in ps)
         return (not has_flag, -len(ps), lab)
+
     cards_html = ""
     for lab, ps in sorted(groups.items(), key=grp_key):
         ps.sort(key=lambda p: (card_cluster(p) not in flagged_safe, p.name))
@@ -360,25 +407,33 @@ def cli(
             flagged = cid in flagged_safe
             cardbody = md_to_html(p.read_text())
             cls = "card flagged" if flagged else "card"
-            inner += (f'<div class="{cls}"><details {"open" if flagged else ""}>'
-                      f'<summary>cluster {html.escape(cid)}'
-                      f'{" — FLAGGED" if flagged else ""}</summary>{cardbody}</details></div>')
-        flagtag = f' · {sum(card_cluster(p) in flagged_safe for p in ps)} flagged' if gflag else ""
-        cards_html += (f'<details class="group{" gflag" if gflag else ""}"{" open" if gflag else ""}>'
-                       f'<summary>{html.escape(lab)} <span class="meta">({len(ps)} cluster'
-                       f'{"s" if len(ps)!=1 else ""}{flagtag})</span></summary>'
-                       f'<div class="grpbody">{inner}</div></details>')
+            inner += (
+                f'<div class="{cls}"><details {"open" if flagged else ""}>'
+                f"<summary>cluster {html.escape(cid)}"
+                f"{' — FLAGGED' if flagged else ''}</summary>{cardbody}</details></div>"
+            )
+        flagtag = f" · {sum(card_cluster(p) in flagged_safe for p in ps)} flagged" if gflag else ""
+        cards_html += (
+            f'<details class="group{" gflag" if gflag else ""}"{" open" if gflag else ""}>'
+            f'<summary>{html.escape(lab)} <span class="meta">({len(ps)} cluster'
+            f"{'s' if len(ps) != 1 else ''}{flagtag})</span></summary>"
+            f'<div class="grpbody">{inner}</div></details>'
+        )
 
     out = wd / "reports" / f"report_{level}.html"
-    out.write_text(TEMPLATE.format(
-        title=html.escape(title), level=html.escape(level),
-        n=len(card_files) or len(labels),
-        n_regions=n_regions,
-        n_flagged=len(flagged_clusters),
-        rollup=rollup_html,
-        plots=plots_html, summary_table=summary_rows,
-        cards=cards_html or "<p>No evidence cards yet.</p>",
-    ))
+    out.write_text(
+        TEMPLATE.format(
+            title=html.escape(title),
+            level=html.escape(level),
+            n=len(card_files) or len(labels),
+            n_regions=n_regions,
+            n_flagged=len(flagged_clusters),
+            rollup=rollup_html,
+            plots=plots_html,
+            summary_table=summary_rows,
+            cards=cards_html or "<p>No evidence cards yet.</p>",
+        )
+    )
     eprint(f">> wrote {out}")
     print(str(out))
 
@@ -393,36 +448,48 @@ def cli(
     if problems and strict:
         raise SystemExit(
             f"ERROR: level {level} is incomplete ({len(problems)} blocking issue(s)); "
-            "fix the labels CSV / fill rationale, then re-run. Refusing to pass --strict.")
+            "fix the labels CSV / fill rationale, then re-run. Refusing to pass --strict."
+        )
 
 
 def _level_completeness(wd, level, labels, card_files):
     """Return (problems, warnings). `problems` block --strict; `warnings` are advisory."""
     import json as _json
+
     problems, warnings = [], []
     # (2) every labelled cluster has a non-blank label
     if labels is None or getattr(labels, "empty", True):
         problems.append(f"no labels table at labels/annotation_{level}.csv")
     else:
-        blank = [str(r["cluster"]) for _, r in labels.iterrows()
-                 if "label" not in labels.columns or str(r.get("label", "")).strip() == ""]
+        blank = [
+            str(r["cluster"])
+            for _, r in labels.iterrows()
+            if "label" not in labels.columns or str(r.get("label", "")).strip() == ""
+        ]
         if blank:
             problems.append(f"{len(blank)} cluster(s) with a blank label: {', '.join(blank[:12])}")
         # (3) rationale present in the CSV for every cluster (single source of truth)
         if "rationale" in labels.columns:
-            no_rat = [str(r["cluster"]) for _, r in labels.iterrows()
-                      if str(r.get("rationale", "")).strip() == ""]
+            no_rat = [
+                str(r["cluster"])
+                for _, r in labels.iterrows()
+                if str(r.get("rationale", "")).strip() == ""
+            ]
             if no_rat:
-                problems.append(f"{len(no_rat)} cluster(s) missing a `rationale`: "
-                                f"{', '.join(no_rat[:12])}")
+                problems.append(
+                    f"{len(no_rat)} cluster(s) missing a `rationale`: {', '.join(no_rat[:12])}"
+                )
         else:
-            problems.append("labels CSV has no `rationale` column — add it (single source of "
-                            "truth for card reasoning) so cards don't carry TODO stubs")
+            problems.append(
+                "labels CSV has no `rationale` column — add it (single source of "
+                "truth for card reasoning) so cards don't carry TODO stubs"
+            )
     # (3b) belt-and-suspenders: scan rendered cards for leftover TODO stubs
     todo_cards = [p.name for p in (card_files or []) if "_TODO" in p.read_text()]
     if todo_cards:
-        problems.append(f"{len(todo_cards)} card(s) still contain a TODO rationale: "
-                        f"{', '.join(todo_cards[:8])}")
+        problems.append(
+            f"{len(todo_cards)} card(s) still contain a TODO rationale: {', '.join(todo_cards[:8])}"
+        )
     # (3c) staleness: cards are snapshots of the tables. If a table was regenerated AFTER the
     # cards were last scaffolded (e.g. a fixed cross-check table), the cards silently show the
     # old numbers — exactly the failure where a corrected CellTypist table left stale cards.
@@ -435,19 +502,30 @@ def _level_completeness(wd, level, labels, card_files):
             newest_tbl = max(t.stat().st_mtime for t in tbls)
             stale = [p.name for p in cards if p.stat().st_mtime < newest_tbl - 1]
             if stale:
-                warnings.append(f"{len(stale)} card(s) are OLDER than the newest table in "
-                                f"tables/ — they may show stale numbers; re-run "
-                                f"scaffold_cards.py --overwrite (e.g. {', '.join(stale[:5])})")
+                warnings.append(
+                    f"{len(stale)} card(s) are OLDER than the newest table in "
+                    f"tables/ — they may show stale numbers; re-run "
+                    f"scaffold_cards.py --overwrite (e.g. {', '.join(stale[:5])})"
+                )
             # same check for the embedded figures: since the report reuses on-disk PNGs, a
             # rebuild without --adata after the tables changed can show stale plots. Advisory.
             pdir = wd / "plots"
-            figs = (list(pdir.glob(f"umap_{level}.png")) + list(pdir.glob(f"dotplot_{level}.png"))
-                    + list(pdir.glob(f"composition_{level}_*.png"))) if pdir.exists() else []
+            figs = (
+                (
+                    list(pdir.glob(f"umap_{level}.png"))
+                    + list(pdir.glob(f"dotplot_{level}.png"))
+                    + list(pdir.glob(f"composition_{level}_*.png"))
+                )
+                if pdir.exists()
+                else []
+            )
             stale_f = [p.name for p in figs if p.stat().st_mtime < newest_tbl - 1]
             if stale_f:
-                warnings.append(f"{len(stale_f)} figure(s) in plots/ are OLDER than the newest "
-                                f"table — re-run build_report.py with --adata to refresh them "
-                                f"(e.g. {', '.join(stale_f[:4])})")
+                warnings.append(
+                    f"{len(stale_f)} figure(s) in plots/ are OLDER than the newest "
+                    f"table — re-run build_report.py with --adata to refresh them "
+                    f"(e.g. {', '.join(stale_f[:4])})"
+                )
     except OSError:
         pass
     # (4) gate signed for this level — BLOCKS --strict: labels must not be treated as final
@@ -457,8 +535,10 @@ def _level_completeness(wd, level, labels, card_files):
         try:
             gates = _json.loads(rs.read_text()).get("gates", {}).get("signed_off_levels", [])
             if level not in gates and f"cta_{level}" not in gates:
-                problems.append(f"assumptions gate for {level} not recorded in "
-                                "run_state.json gates.signed_off_levels (sign off first)")
+                problems.append(
+                    f"assumptions gate for {level} not recorded in "
+                    "run_state.json gates.signed_off_levels (sign off first)"
+                )
         except Exception:  # noqa: BLE001
             problems.append("could not read run_state.json to verify the assumptions gate")
     else:

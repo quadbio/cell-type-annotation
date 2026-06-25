@@ -21,6 +21,7 @@ Scope — what is and isn't here:
     reference docs Claude reads, NOT here — see reference/differential_expression.md and
     reference/methodology.md. This file holds only what the Python code enforces.
 """
+
 from __future__ import annotations
 
 # --- Callability gate (panel-dependent) ---------------------------------------------

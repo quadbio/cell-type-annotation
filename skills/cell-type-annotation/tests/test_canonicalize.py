@@ -2,6 +2,7 @@
 standardized sidecar every downstream command relies on (symbol var_names, counts layer,
 log-norm X). Run through the installed `cta` console script, like the other smoke tests.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,14 +13,28 @@ import numpy as np
 
 def _run_canonicalize(adata_path, out, *extra):
     return subprocess.run(
-        ["cta", "data", "canonicalize", "--adata", str(adata_path), "--out", str(out),
-         "--cluster-key", "leiden", "--embedding-key", "X_pca", *extra],
-        capture_output=True, text=True,
+        [
+            "cta",
+            "data",
+            "canonicalize",
+            "--adata",
+            str(adata_path),
+            "--out",
+            str(out),
+            "--cluster-key",
+            "leiden",
+            "--embedding-key",
+            "X_pca",
+            *extra,
+        ],
+        capture_output=True,
+        text=True,
     )
 
 
 def _read(path):
     import anndata as ad
+
     return ad.read_h5ad(path)
 
 

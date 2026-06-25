@@ -24,18 +24,29 @@ Usage:
       --model Developing_Human_Brain --workdir /proj/run --level L1 [--lognorm-layer lognorm]
   python run_celltypist.py markers --model Developing_Human_Brain --workdir /proj/run [--n-genes 20]
 """
+
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 import pandas as pd
 import typer
 
 from cta.io import (
-    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, LOGNORM_CP10K_LAYER, WORKDIR_OPT,
-    adata_with_lognorm_X, cp10k_log1p_matrix, eprint, load_adata, require_obs,
-    resolve_workdir, safe_cluster_id, save_table)
+    ADATA_OPT,
+    CLUSTER_KEY_OPT,
+    LEVEL_OPT,
+    LOGNORM_CP10K_LAYER,
+    WORKDIR_OPT,
+    adata_with_lognorm_X,
+    cp10k_log1p_matrix,
+    eprint,
+    load_adata,
+    require_obs,
+    resolve_workdir,
+    safe_cluster_id,
+    save_table,
+)
 
 app = typer.Typer()
 
@@ -66,14 +77,17 @@ def _celltypist_input(adata_obj, counts_layer, lognorm_layer):
         if counts is None:
             raise SystemExit(
                 f"ERROR: --counts-layer '{src}' not in layers "
-                f"{list(adata_obj.layers.keys())} (use 'X' if X holds raw counts).")
+                f"{list(adata_obj.layers.keys())} (use 'X' if X holds raw counts)."
+            )
         mat, note = cp10k_log1p_matrix(counts=counts)
         eprint(f">> CellTypist input: log1p(CP10k) {note} (layer '{src}')")
     else:
         base = adata_with_lognorm_X(out, lognorm_layer).X
         mat, note = cp10k_log1p_matrix(lognorm=base)
-        eprint(f">> CellTypist input: log1p(CP10k) {note} "
-               "(no counts; pass --counts-layer to rebuild from raw counts instead)")
+        eprint(
+            f">> CellTypist input: log1p(CP10k) {note} "
+            "(no counts; pass --counts-layer to rebuild from raw counts instead)"
+        )
     out.X = mat
     return out
 
@@ -87,6 +101,7 @@ def _ensure_model(model: str) -> str:
     `.pkl` form. Model.load also does NOT auto-fetch, so we download the one model first.
     """
     from celltypist import models
+
     fn = model if model.endswith(".pkl") else f"{model}.pkl"
     local = set(os.listdir(models.models_path)) if os.path.isdir(models.models_path) else set()
     if fn in local:
@@ -101,8 +116,14 @@ def _ensure_model(model: str) -> str:
             avail = [m["filename"].replace(".pkl", "") for m in _model_index()]
             stem = model.replace(".pkl", "").lower()
             hits = [a for a in avail if stem in a.lower()]
-            eprint("   did you mean: " + (", ".join(hits) if hits else
-                   "(none) — run `run_celltypist.py list` to see available models."))
+            eprint(
+                "   did you mean: "
+                + (
+                    ", ".join(hits)
+                    if hits
+                    else "(none) — run `run_celltypist.py list` to see available models."
+                )
+            )
         finally:
             raise SystemExit(f"ERROR: could not obtain CellTypist model '{model}'.")
     return fn
@@ -113,32 +134,37 @@ def _model_index() -> list[dict]:
     source). Uses get_models_index — `models_description(on_the_fly=True)` is unreliable
     (returns only locally-downloaded models in some celltypist versions)."""
     from celltypist import models
+
     return models.get_models_index(force_update=True)["models"]
 
 
 @app.command("list")
 def list_models(
-    contains: Optional[str] = typer.Option(
-        None, help="case-insensitive keyword filter (e.g. tissue)"),
-    workdir: Optional[str] = typer.Option(
-        None, help="if given, also save the index as a table"),
+    contains: str | None = typer.Option(None, help="case-insensitive keyword filter (e.g. tissue)"),
+    workdir: str | None = typer.Option(None, help="if given, also save the index as a table"),
 ) -> None:
     """Print the remote model index (metadata only — NO model downloads)."""
     ms = _model_index()
-    idx = pd.DataFrame([{
-        "model": m["filename"].replace(".pkl", ""),
-        "n_celltypes": m.get("No_celltypes", ""),
-        "details": m.get("details", ""),
-        "source": m.get("source", ""),
-    } for m in ms])
+    idx = pd.DataFrame(
+        [
+            {
+                "model": m["filename"].replace(".pkl", ""),
+                "n_celltypes": m.get("No_celltypes", ""),
+                "details": m.get("details", ""),
+                "source": m.get("source", ""),
+            }
+            for m in ms
+        ]
+    )
     if contains:
         kw = contains.lower()
         mask = idx.apply(lambda r: kw in f"{r['model']} {r['details']}".lower(), axis=1)
         idx = idx[mask]
     eprint(f">> {len(idx)} model(s)" + (f" matching '{contains}'" if contains else ""))
     # print full, untruncated, to stdout for the agent to read
-    with pd.option_context("display.max_rows", None, "display.max_colwidth", None,
-                           "display.width", 200):
+    with pd.option_context(
+        "display.max_rows", None, "display.max_colwidth", None, "display.width", 200
+    ):
         print(idx.to_string(index=False))
     if workdir:
         save_table(idx, resolve_workdir(workdir), "celltypist_model_index.csv")
@@ -151,17 +177,22 @@ def predict(
     model: str = typer.Option(..., help="CellTypist model name to run"),
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
-    counts_layer: Optional[str] = typer.Option(
-        None, help="layer with RAW COUNTS ('X' if X is counts). Default auto-uses the "
-                   "canonical layers['counts']; CellTypist's log1p-CP10k input is rebuilt "
-                   "from it (preferred). Counts-absent → the log-norm matrix is re-targeted "
-                   "to 10k."),
-    lognorm_layer: Optional[str] = typer.Option(
-        None, help="layer with log-normalized data; default uses adata.X "
-                   "(only used as the CP10k source when no counts are available)"),
+    counts_layer: str | None = typer.Option(
+        None,
+        help="layer with RAW COUNTS ('X' if X is counts). Default auto-uses the "
+        "canonical layers['counts']; CellTypist's log1p-CP10k input is rebuilt "
+        "from it (preferred). Counts-absent → the log-norm matrix is re-targeted "
+        "to 10k.",
+    ),
+    lognorm_layer: str | None = typer.Option(
+        None,
+        help="layer with log-normalized data; default uses adata.X "
+        "(only used as the CP10k source when no counts are available)",
+    ),
 ) -> None:
     """Run one CellTypist model with majority voting over the user's clusters."""
     import celltypist
+
     wd = resolve_workdir(workdir)
     model = _ensure_model(model)
     adata_obj = load_adata(adata)
@@ -173,10 +204,10 @@ def predict(
     # IMPORTANT: pass over_clustering=cluster_key so majority voting is computed over
     # the USER's clusters (else CellTypist runs its own internal Leiden and the
     # cluster-vs-prediction crosstab below would compare against the wrong grouping).
-    eprint(f">> CellTypist predict with model '{model}' "
-           f"(majority_voting over '{cluster_key}')")
-    pred = celltypist.annotate(adata_obj, model=model, majority_voting=True,
-                               over_clustering=cluster_key)
+    eprint(f">> CellTypist predict with model '{model}' (majority_voting over '{cluster_key}')")
+    pred = celltypist.annotate(
+        adata_obj, model=model, majority_voting=True, over_clustering=cluster_key
+    )
     res = pred.predicted_labels.copy()
     res.insert(0, "cell", adata_obj.obs_names)
     res.insert(1, "cluster", adata_obj.obs[cluster_key].astype(str).values)
@@ -187,11 +218,17 @@ def predict(
     # cell in a cluster to one label, so a majority-voting crosstab is tautologically 100% per
     # cluster and says nothing about how confident/homogeneous the call is. The raw
     # `predicted_labels` distribution (top label's fraction + runners-up) is the real signal.
-    ct = (pd.crosstab(res["cluster"], res["predicted_labels"])
-          .apply(lambda r: r.sort_values(ascending=False).head(3).to_dict(), axis=1))
+    ct = pd.crosstab(res["cluster"], res["predicted_labels"]).apply(
+        lambda r: r.sort_values(ascending=False).head(3).to_dict(), axis=1
+    )
     totals = res.groupby("cluster").size()
-    summary = pd.DataFrame({"cluster": ct.index, "top_predicted": ct.values,
-                            "n_cells": totals.reindex(ct.index).values})
+    summary = pd.DataFrame(
+        {
+            "cluster": ct.index,
+            "top_predicted": ct.values,
+            "n_cells": totals.reindex(ct.index).values,
+        }
+    )
     save_table(summary, wd, f"celltypist_cluster_summary_{level}.csv")
     eprint(">> done")
 
@@ -204,6 +241,7 @@ def markers(
 ) -> None:
     """Extract top markers from a model WITHOUT predicting (priors)."""
     from celltypist import models
+
     wd = resolve_workdir(workdir)
     model = _ensure_model(model)
     eprint(f">> extracting top markers from model '{model}' (no prediction)")

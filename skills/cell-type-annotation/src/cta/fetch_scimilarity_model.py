@@ -23,6 +23,7 @@ Usage:
   cta crosscheck scimilarity --query Q.h5ad --cluster-key leiden --workdir DIR \
       --model-path /path/to/models/model_v1.1
 """
+
 from __future__ import annotations
 
 import shutil
@@ -57,7 +58,8 @@ def _download(url: str, tarball: Path) -> None:
         raise SystemExit(
             "ERROR: need `curl` or `wget` to download the model bundle, neither found on "
             f"PATH. Install one, or download {url} manually to {tarball} and re-run with "
-            "--keep-tarball (the command picks up an existing tarball and just extracts).")
+            "--keep-tarball (the command picks up an existing tarball and just extracts)."
+        )
     eprint(f">> downloading {MODEL_NAME}.tar.gz (~30 GB, resumable) from Zenodo")
     eprint("   $ " + " ".join(cmd))
     try:
@@ -66,7 +68,8 @@ def _download(url: str, tarball: Path) -> None:
         raise SystemExit(
             f"ERROR: download failed (exit {e.returncode}). It is resumable — re-run the "
             "same command to continue. On an Euler COMPUTE node, `module load eth_proxy` "
-            "first (a login node has internet directly).")
+            "first (a login node has internet directly)."
+        ) from e
 
 
 def _extract(tarball: Path, dest: Path, with_cellsearch: bool) -> None:
@@ -77,17 +80,19 @@ def _extract(tarball: Path, dest: Path, with_cellsearch: bool) -> None:
     if not with_cellsearch:
         # Two patterns so the dir entry AND its children are skipped on both GNU and BSD
         # tar — keeps the on-disk model to the ~9 GB annotation-only subset.
-        cmd += [f"--exclude={MODEL_NAME}/{_CELLSEARCH}",
-                f"--exclude={MODEL_NAME}/{_CELLSEARCH}/*"]
-    eprint(f">> extracting into {dest}"
-           + ("" if with_cellsearch else f" (skipping {_CELLSEARCH}/ — annotation-only)"))
+        cmd += [f"--exclude={MODEL_NAME}/{_CELLSEARCH}", f"--exclude={MODEL_NAME}/{_CELLSEARCH}/*"]
+    eprint(
+        f">> extracting into {dest}"
+        + ("" if with_cellsearch else f" (skipping {_CELLSEARCH}/ — annotation-only)")
+    )
     eprint("   $ " + " ".join(cmd))
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as e:
         raise SystemExit(
             f"ERROR: extraction failed (exit {e.returncode}). The tarball may be truncated; "
-            "delete it (or re-run to resume the download) and try again.")
+            "delete it (or re-run to resume the download) and try again."
+        ) from e
 
 
 def _is_complete(model_dir: Path, with_cellsearch: bool) -> bool:
@@ -97,14 +102,20 @@ def _is_complete(model_dir: Path, with_cellsearch: bool) -> bool:
 
 def cli(
     dest: str = typer.Option(
-        ..., help="directory to download + extract into; the model lands at "
-        "<dest>/model_v1.1 (use that as `crosscheck scimilarity --model-path`)"),
+        ...,
+        help="directory to download + extract into; the model lands at "
+        "<dest>/model_v1.1 (use that as `crosscheck scimilarity --model-path`)",
+    ),
     with_cellsearch: bool = typer.Option(
-        False, help="also extract the 32 GB cellsearch TileDB — only needed for cell "
-        "SEARCH, NEVER for annotation; default skips it (~9 GB on disk, not ~41 GB)"),
+        False,
+        help="also extract the 32 GB cellsearch TileDB — only needed for cell "
+        "SEARCH, NEVER for annotation; default skips it (~9 GB on disk, not ~41 GB)",
+    ),
     keep_tarball: bool = typer.Option(
-        False, help="keep the downloaded .tar.gz after extracting (default deletes it to "
-        "reclaim ~30 GB; keep it if you might re-extract with --with-cellsearch later)"),
+        False,
+        help="keep the downloaded .tar.gz after extracting (default deletes it to "
+        "reclaim ~30 GB; keep it if you might re-extract with --with-cellsearch later)",
+    ),
     url: str = typer.Option(MODEL_URL, help="override the Zenodo download URL"),
 ) -> None:
     """Download the SCimilarity model bundle (annotation-only by default, ~9 GB on disk)."""
@@ -126,7 +137,8 @@ def cli(
         raise SystemExit(
             f"ERROR: extraction finished but {model_dir} is missing expected files "
             f"{list(_ANNOTATION_MARKERS)}. The tarball layout may have changed; inspect "
-            f"{tarball} (kept) and report it.")
+            f"{tarball} (kept) and report it."
+        )
 
     if keep_tarball:
         eprint(f">> kept tarball at {tarball}")
@@ -134,6 +146,8 @@ def cli(
         tarball.unlink(missing_ok=True)
         eprint(f">> removed {tarball.name} to reclaim space")
 
-    eprint(f">> done. model at {model_dir}"
-           + ("" if with_cellsearch else " (annotation-only — no cellsearch)"))
+    eprint(
+        f">> done. model at {model_dir}"
+        + ("" if with_cellsearch else " (annotation-only — no cellsearch)")
+    )
     eprint(f">> use:  cta crosscheck scimilarity ... --model-path {model_dir}")

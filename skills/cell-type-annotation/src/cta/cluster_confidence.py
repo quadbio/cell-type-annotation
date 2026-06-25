@@ -16,20 +16,26 @@ Plus, if tables/crosscheck_<level>.csv exists: `agree` (how many methods concur)
 Writes tables/cluster_confidence_<level>.csv with those columns + `suggested_conf`.
 This is advisory only — it never writes labels.
 """
+
 from __future__ import annotations
 
 import typer
 
-from cta.constants import (CONFIDENCE_AGREEMENT_BOOST, CONFIDENCE_BANDS, CONFIDENCE_BASE,
-                           CONFIDENCE_CAP)
-from cta.io import (LEVEL_OPT, WORKDIR_OPT, eprint, resolve_workdir)
+from cta.constants import (
+    CONFIDENCE_AGREEMENT_BOOST,
+    CONFIDENCE_BANDS,
+    CONFIDENCE_BASE,
+    CONFIDENCE_CAP,
+)
+from cta.io import LEVEL_OPT, WORKDIR_OPT, eprint, resolve_workdir
 
 
 def cli(
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
     strong_thresh: float = typer.Option(
-        0.02, help="COSG score above which a marker counts as 'strong'"),
+        0.02, help="COSG score above which a marker counts as 'strong'"
+    ),
 ) -> None:
     """Suggest a per-cluster confidence band from COSG specificity + cross-check agreement."""
     import pandas as pd
@@ -46,7 +52,13 @@ def cli(
     if cc.exists():
         d = pd.read_csv(cc)
         if "agree" in d.columns:
-            agree = dict(zip(d["cluster"].astype(str), pd.to_numeric(d["agree"], errors="coerce")))
+            agree = dict(
+                zip(
+                    d["cluster"].astype(str),
+                    pd.to_numeric(d["agree"], errors="coerce"),
+                    strict=True,
+                )
+            )
 
     rows = []
     for cl, g in cosg.sort_values("rank").groupby("cluster"):
@@ -65,10 +77,16 @@ def cli(
         a = agree.get(str(cl)) if agree else None
         if a is not None and not pd.isna(a):
             conf = min(CONFIDENCE_CAP, conf + CONFIDENCE_AGREEMENT_BOOST * (a - 1))
-        rows.append(dict(cluster=str(cl), cosg_top1=round(top1, 4),
-                         cosg_margin=round(margin, 4), n_strong=n_strong,
-                         agree=("" if a is None else a),
-                         suggested_conf=round(conf, 2)))
+        rows.append(
+            {
+                "cluster": str(cl),
+                "cosg_top1": round(top1, 4),
+                "cosg_margin": round(margin, 4),
+                "n_strong": n_strong,
+                "agree": ("" if a is None else a),
+                "suggested_conf": round(conf, 2),
+            }
+        )
 
     out = pd.DataFrame(rows)
     out.to_csv(wd / "tables" / f"cluster_confidence_{level}.csv", index=False)

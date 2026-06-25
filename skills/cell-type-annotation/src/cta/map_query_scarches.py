@@ -40,18 +40,27 @@ Usage:
 Writes tables/refmap_<level>_<label-col>.csv with columns:
   cluster, top1, frac1, top2, frac2, mean_conf, method
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 import numpy as np
 import typer
 
 from cta.io import (
-    CLUSTER_KEY_OPT, DATALOADER_WORKERS_WARNING, LEVEL_OPT, WORKDIR_OPT,
-    aggregate_predictions, apply_scvi_training_best_practices, eprint, require_obs,
-    resolve_accelerator, resolve_workdir, safe_cluster_id, save_table,
-    suppressed_warnings)
+    CLUSTER_KEY_OPT,
+    DATALOADER_WORKERS_WARNING,
+    LEVEL_OPT,
+    WORKDIR_OPT,
+    aggregate_predictions,
+    apply_scvi_training_best_practices,
+    eprint,
+    require_obs,
+    resolve_accelerator,
+    resolve_workdir,
+    safe_cluster_id,
+    save_table,
+    suppressed_warnings,
+)
 
 
 def _place_counts(query, src_layer: str, ref_layer: str, log_norm: bool) -> None:
@@ -64,7 +73,8 @@ def _place_counts(query, src_layer: str, ref_layer: str, log_norm: bool) -> None
     if mat is None:
         raise SystemExit(
             f"ERROR: --counts-layer '{src_layer}' not found in query.layers "
-            f"{list(query.layers.keys())}. scArches needs {expects}.")
+            f"{list(query.layers.keys())}. scArches needs {expects}."
+        )
     if ref_layer in (None, "X"):
         query.X = mat
     else:
@@ -106,8 +116,7 @@ def sanitize_query_against_registry(query, setup_args: dict) -> list[str]:
     if labels_key:
         value = unlabeled if unlabeled is not None else "Unknown"
         query.obs[labels_key] = value
-        notes.append(
-            f"labels_key '{labels_key}' set to unlabeled_category '{value}' for all cells")
+        notes.append(f"labels_key '{labels_key}' set to unlabeled_category '{value}' for all cells")
     return notes
 
 
@@ -127,34 +136,42 @@ def _model_setup_args(scvi, reference_model) -> dict:
     return dict(registry.get("setup_args", {}) or {})
 
 
-
 def cli(
     query: str = typer.Option(
-        ..., "--query", "--adata", help="the query AnnData to annotate (alias: --adata)"),
+        ..., "--query", "--adata", help="the query AnnData to annotate (alias: --adata)"
+    ),
     cluster_key: str = CLUSTER_KEY_OPT,
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
-    model_dir: Optional[str] = typer.Option(None, help="local scANVI model dir"),
-    hf_repo: Optional[str] = typer.Option(
-        None, help="scvi-tools HuggingFace hub repo id to pull a shipped model from"),
-    cache_dir: Optional[str] = typer.Option(None, help="cache dir for the pulled hub model"),
+    model_dir: str | None = typer.Option(None, help="local scANVI model dir"),
+    hf_repo: str | None = typer.Option(
+        None, help="scvi-tools HuggingFace hub repo id to pull a shipped model from"
+    ),
+    cache_dir: str | None = typer.Option(None, help="cache dir for the pulled hub model"),
     counts_layer: str = typer.Option(
-        "counts", help="query layer holding the model's input: a canonical query keeps RAW "
+        "counts",
+        help="query layer holding the model's input: a canonical query keeps RAW "
         "COUNTS in layers['counts'] (default) and LOG-NORM in 'X' — so pass --counts-layer X "
-        "with --log-norm"),
+        "with --log-norm",
+    ),
     ref_layer: str = typer.Option(
-        "counts", help="layer name the reference model expects its input in ('X' or a name)"),
+        "counts", help="layer name the reference model expects its input in ('X' or a name)"
+    ),
     log_norm: bool = typer.Option(
-        False, "--log-norm/--no-log-norm",
+        False,
+        "--log-norm/--no-log-norm",
         help="the reference was trained with --gene-likelihood normal and expects LOG-NORM "
-        "input — pair with --counts-layer X (verified against the loaded model)"),
+        "input — pair with --counts-layer X (verified against the loaded model)",
+    ),
     label_col: str = typer.Option(
-        "scanvi", help="name used in the output table filename (refmap_<level>_<col>.csv)"),
+        "scanvi", help="name used in the output table filename (refmap_<level>_<col>.csv)"
+    ),
     max_epochs: int = typer.Option(100, help="surgery training epochs"),
     accelerator: str = typer.Option("auto", help="accelerator: auto|cuda|mps|cpu"),
 ) -> None:
     """Map the query onto a scANVI reference model via scArches surgery."""
     import scanpy as sc
+
     if bool(model_dir) == bool(hf_repo):
         raise SystemExit("ERROR: provide exactly one of --model-dir or --hf-repo.")
 
@@ -165,7 +182,7 @@ def cli(
             "ERROR: scvi-tools is not installed. It is in the skill's `gpu` pixi env — run "
             "`pixi install -e gpu` (on a GPU host/node). scArches surgery ships inside "
             "scvi-tools; CUDA or Apple-Silicon MPS preferred."
-        )
+        ) from None
 
     accel = resolve_accelerator(accelerator)
     eprint(f">> accelerator: {accel}")
@@ -181,11 +198,14 @@ def cli(
         try:
             from scvi.hub import HubModel
         except ImportError:
-            raise SystemExit("ERROR: scvi.hub unavailable — upgrade scvi-tools to pull "
-                             "models from the HuggingFace hub.")
+            raise SystemExit(
+                "ERROR: scvi.hub unavailable — upgrade scvi-tools to pull "
+                "models from the HuggingFace hub."
+            ) from None
         eprint(f">> pulling reference model from HuggingFace hub: {hf_repo}")
         hm = HubModel.pull_from_huggingface_hub(
-            repo_name=hf_repo, cache_dir=cache_dir, revision="main")
+            repo_name=hf_repo, cache_dir=cache_dir, revision="main"
+        )
         # Pass the loaded model instance — load_query_data/prepare_query_anndata accept
         # either a path or an instantiated model, and hm.model is the version-stable handle.
         reference_model = hm.model
@@ -197,8 +217,10 @@ def cli(
     query_obj = sc.read_h5ad(query)
     require_obs(query_obj, cluster_key, "cluster key")
     if log_norm:
-        eprint(">> --log-norm: treating the query input as LOG-NORM "
-               "(reference trained with gene_likelihood=normal)")
+        eprint(
+            ">> --log-norm: treating the query input as LOG-NORM "
+            "(reference trained with gene_likelihood=normal)"
+        )
     _place_counts(query_obj, counts_layer, ref_layer, log_norm)
 
     # Reconcile the query with what the model registered (issue #10): shipped hub models carry a
@@ -222,23 +244,35 @@ def cli(
     if glik is not None:
         model_wants_lognorm = glik == "normal"
         if model_wants_lognorm != log_norm:
-            want = "LOG-NORM (pass --log-norm)" if model_wants_lognorm else "RAW COUNTS (drop --log-norm)"
+            want = (
+                "LOG-NORM (pass --log-norm)"
+                if model_wants_lognorm
+                else "RAW COUNTS (drop --log-norm)"
+            )
             raise SystemExit(
                 f"ERROR: the reference model's gene_likelihood='{glik}' expects {want}, but "
-                f"--log-norm={log_norm}. Re-run with the matching input scale.")
+                f"--log-norm={log_norm}. Re-run with the matching input scale."
+            )
 
     # scArches best practices (scvi tutorial): weight_decay=0.0 keeps the reference latent
     # space fixed; check_val_every_n_epoch=10 tracks surgery convergence. devices=1 pins
     # single-device (our single-process design; also avoids DDP/the srun hint on multi-GPU
     # nodes). The DataLoader-workers hint is benign here (see DATALOADER_WORKERS_WARNING).
     with suppressed_warnings(DATALOADER_WORKERS_WARNING):
-        q_model.train(max_epochs=max_epochs, accelerator=accel, devices=1,
-                      plan_kwargs={"weight_decay": 0.0}, check_val_every_n_epoch=10)
+        q_model.train(
+            max_epochs=max_epochs,
+            accelerator=accel,
+            devices=1,
+            plan_kwargs={"weight_decay": 0.0},
+            check_val_every_n_epoch=10,
+        )
 
     eprint(">> predicting labels + uncertainty")
     pred = np.asarray(q_model.predict()).astype(str)
     soft = q_model.predict(soft=True)
-    conf = soft.to_numpy().max(axis=1) if hasattr(soft, "to_numpy") else np.asarray(soft).max(axis=1)
+    conf = (
+        soft.to_numpy().max(axis=1) if hasattr(soft, "to_numpy") else np.asarray(soft).max(axis=1)
+    )
 
     # Persist the per-cell latent + prediction onto the query is optional; the skill
     # reasons from the per-cluster table, so we only write that (no query mutation on disk).
@@ -246,5 +280,7 @@ def cli(
     out = aggregate_predictions(clusters, pred, conf, "scarches-scanvi")
     wd = resolve_workdir(workdir)
     save_table(out, wd, f"refmap_{level}_{safe_cluster_id(label_col)}.csv")
-    eprint(f">> done. {len(out)} clusters; mean confidence "
-           f"{out['mean_conf'].astype(float).mean():.3f} (treat as a hypothesis).")
+    eprint(
+        f">> done. {len(out)} clusters; mean confidence "
+        f"{out['mean_conf'].astype(float).mean():.3f} (treat as a hypothesis)."
+    )

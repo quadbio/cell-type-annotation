@@ -6,6 +6,7 @@ DE (`markers assemble --reference`). These tests exercise the alignment helper a
 shared-gene recovery directly on synthetic AnnData — no scanpy / console-script cold start,
 so they stay fast (the reasoning that matters is pure-Python).
 """
+
 from __future__ import annotations
 
 import anndata as ad
@@ -112,7 +113,7 @@ def test_from_reference_emits_symbol_markers_not_raw_ensembl(tmp_path):
     blocks, labels = [], []
     for ti in range(2):
         base = np.full(n_genes, 1.0)
-        base[ti * 6:(ti + 1) * 6] = 30.0
+        base[ti * 6 : (ti + 1) * 6] = 30.0
         blocks.append(rng.poisson(np.tile(base, (15, 1))).astype("float32"))
         labels += [f"type{ti}"] * 15
     counts = np.vstack(blocks)
@@ -120,15 +121,16 @@ def test_from_reference_emits_symbol_markers_not_raw_ensembl(tmp_path):
     a.var_names = [f"ENSG{i:011d}" for i in range(n_genes)]
     a.var["feature_name"] = symbols
     a.obs["cell_type"] = labels
-    a.raw = a.copy()              # .raw keeps Ensembl var_names + raw counts (the trap)
+    a.raw = a.copy()  # .raw keeps Ensembl var_names + raw counts (the trap)
     sc.pp.normalize_total(a, target_sum=1e4)
-    sc.pp.log1p(a)                # .X is now log-norm; .raw stays Ensembl counts
+    sc.pp.log1p(a)  # .X is now log-norm; .raw stays Ensembl counts
     ref = tmp_path / "ens_ref.h5ad"
     a.write_h5ad(ref)
 
     markers = from_reference(str(ref), "cell_type", n_genes=5, counts=False)
     all_genes = {g for v in markers.values() for g in v}
     assert all_genes, "no markers returned"
-    assert not any(g.startswith("ENSG") for g in all_genes), \
+    assert not any(g.startswith("ENSG") for g in all_genes), (
         f"DE leaked Ensembl ids (used .raw?): {sorted(g for g in all_genes if g.startswith('ENSG'))}"
+    )
     assert all_genes <= set(symbols)

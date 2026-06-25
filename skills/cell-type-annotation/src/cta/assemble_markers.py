@@ -26,9 +26,8 @@ If --adata is given, the merged sets are panel-gated against its var_names: drop
 (off-panel) genes and uncallable labels (<2 on-panel markers) are reported, and a
 companion <out stem>_gated.json is written alongside the raw --out.
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 import typer
 
@@ -40,6 +39,7 @@ def from_celltypist(model_name: str, n_genes: int) -> dict[str, list[str]]:
     from celltypist import models
 
     from cta.run_celltypist import _ensure_model  # download-on-demand (Model.load won't fetch)
+
     eprint(f">> CellTypist source: extract_top_markers from model '{model_name}'")
     model_name = _ensure_model(model_name)
     model = models.Model.load(model=model_name)
@@ -50,10 +50,16 @@ def from_celltypist(model_name: str, n_genes: int) -> dict[str, list[str]]:
     return out
 
 
-def from_reference(path: str, label_col: str, n_genes: int, counts: bool,
-                   symbol_col: str | None = None,
-                   symbol_map: str | None = None) -> dict[str, list[str]]:
+def from_reference(
+    path: str,
+    label_col: str,
+    n_genes: int,
+    counts: bool,
+    symbol_col: str | None = None,
+    symbol_map: str | None = None,
+) -> dict[str, list[str]]:
     import scanpy as sc
+
     eprint(f">> Reference source: rank_genes_groups over '{label_col}' in {path}")
     adata = load_adata(path)
     if label_col not in adata.obs:
@@ -105,27 +111,34 @@ def summarize(markers: dict[str, list[str]], what: str) -> None:
 
 def cli(
     out: str = typer.Option(..., help="output markers_<level>.json path"),
-    n_genes: int = typer.Option(
-        15, help="top markers per label per source (default 15)"),
-    celltypist_model: Optional[str] = typer.Option(
-        None, help="pretrained CellTypist model name (a marker-prior source)"),
-    reference: Optional[str] = typer.Option(
-        None, help="reference .h5ad for data-driven DE markers"),
-    ref_label_col: Optional[str] = typer.Option(
-        None, help="obs column in --reference to group by (required with --reference)"),
+    n_genes: int = typer.Option(15, help="top markers per label per source (default 15)"),
+    celltypist_model: str | None = typer.Option(
+        None, help="pretrained CellTypist model name (a marker-prior source)"
+    ),
+    reference: str | None = typer.Option(None, help="reference .h5ad for data-driven DE markers"),
+    ref_label_col: str | None = typer.Option(
+        None, help="obs column in --reference to group by (required with --reference)"
+    ),
     ref_counts: bool = typer.Option(
-        False, "--ref-counts/--no-ref-counts",
-        help="--reference X is raw counts; normalize_total + log1p first"),
-    ref_symbol_col: Optional[str] = typer.Option(
-        None, "--ref-symbol-col",
+        False,
+        "--ref-counts/--no-ref-counts",
+        help="--reference X is raw counts; normalize_total + log1p first",
+    ),
+    ref_symbol_col: str | None = typer.Option(
+        None,
+        "--ref-symbol-col",
         help="reference var column to use as gene symbols (overrides auto-detection); "
-             "aligns an Ensembl reference so DE marker names match a symbol-canonical query"),
-    ref_symbol_map: Optional[str] = typer.Option(
-        None, "--ref-symbol-map",
+        "aligns an Ensembl reference so DE marker names match a symbol-canonical query",
+    ),
+    ref_symbol_map: str | None = typer.Option(
+        None,
+        "--ref-symbol-map",
         help="TSV 'ensembl<TAB>symbol' to align an Ensembl reference with no symbol var "
-             "column (built by the skill via the knowledgebase MCP)"),
-    adata: Optional[str] = typer.Option(
-        None, help="query .h5ad to panel-gate against (writes a *_gated.json too)"),
+        "column (built by the skill via the knowledgebase MCP)",
+    ),
+    adata: str | None = typer.Option(
+        None, help="query .h5ad to panel-gate against (writes a *_gated.json too)"
+    ),
 ) -> None:
     """Assemble a candidate marker prior from data-driven sources — a STARTING POINT."""
     import json
@@ -137,11 +150,15 @@ def cli(
     if reference:
         if not ref_label_col:
             raise SystemExit("ERROR: --reference requires --ref-label-col")
-        sources.append(from_reference(reference, ref_label_col, n_genes, ref_counts,
-                                      ref_symbol_col, ref_symbol_map))
+        sources.append(
+            from_reference(
+                reference, ref_label_col, n_genes, ref_counts, ref_symbol_col, ref_symbol_map
+            )
+        )
     if not sources:
-        raise SystemExit("ERROR: provide at least one source "
-                         "(--celltypist-model and/or --reference)")
+        raise SystemExit(
+            "ERROR: provide at least one source (--celltypist-model and/or --reference)"
+        )
 
     merged = merge(sources)
     summarize(merged, "merged (raw, ungated)")

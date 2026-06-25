@@ -4,6 +4,7 @@ Keep this dependency-light (scanpy/anndata/pandas/numpy). Every script imports f
 here so the artifact conventions (working dir, table output, layer resolution,
 panel-gating) stay consistent and the run remains resumable and auditable.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -55,6 +56,7 @@ def suppressed_warnings(*message_patterns: str):
     unrelated — and genuinely informative — warnings still reach the user.
     """
     import warnings
+
     with warnings.catch_warnings():
         for pat in message_patterns:
             warnings.filterwarnings("ignore", message=pat)
@@ -79,6 +81,7 @@ def apply_scvi_training_best_practices() -> None:
     """
     try:
         import torch
+
         torch.set_float32_matmul_precision("high")
     except Exception:  # noqa: BLE001 — torch always present in the gpu env; stay defensive
         pass
@@ -94,12 +97,17 @@ def resolve_accelerator(choice: str) -> str:
     if choice != "auto":
         return choice
     import platform
+
     try:
         import torch
+
         if torch.cuda.is_available():
             return "cuda"
-        if (platform.system() == "Darwin" and platform.machine() == "arm64"
-                and torch.backends.mps.is_available()):
+        if (
+            platform.system() == "Darwin"
+            and platform.machine() == "arm64"
+            and torch.backends.mps.is_available()
+        ):
             return "mps"
     except Exception:  # noqa: BLE001
         pass
@@ -124,7 +132,7 @@ def stratified_subsample_positions(n, max_n, groups=None, *, seed=0):
         cats, counts = np.unique(groups, return_counts=True)
         alloc = np.maximum(1, np.round(counts / counts.sum() * max_n).astype(int))
         picks = []
-        for cat, n_take in zip(cats, alloc):
+        for cat, n_take in zip(cats, alloc, strict=True):
             idx = np.flatnonzero(groups == cat)
             picks.append(rng.choice(idx, size=min(int(n_take), idx.size), replace=False))
         sel = np.concatenate(picks)
@@ -193,7 +201,16 @@ def is_unknown_label(label) -> bool:
     of palette — Unknown, Unassigned, NA, ambiguous, the empty group."""
     s = str(label).strip().lower()
     return s.startswith("unknown") or s in {
-        "", "—", "na", "nan", "none", "unassigned", "ambiguous", "doublet", "low quality"}
+        "",
+        "—",
+        "na",
+        "nan",
+        "none",
+        "unassigned",
+        "ambiguous",
+        "doublet",
+        "low quality",
+    }
 
 
 def similarity_order(centroids) -> list[int]:
@@ -211,6 +228,7 @@ def similarity_order(centroids) -> list[int]:
     try:
         from scipy.cluster.hierarchy import leaves_list, linkage
         from scipy.spatial.distance import pdist
+
         Z = linkage(pdist(np.asarray(centroids)), method="ward", optimal_ordering=True)
         return list(leaves_list(Z))
     except Exception:  # noqa: BLE001
@@ -226,17 +244,22 @@ def ordered_colors(n: int) -> list:
     if n <= 0:
         return []
     from matplotlib.colors import to_rgb
+
     if n <= 28:
         try:
             from scanpy.plotting.palettes import zeileis_28
+
             return [to_rgb(zeileis_28[i]) for i in range(n)]
         except Exception:  # noqa: BLE001
             from matplotlib import colormaps
+
             base = list(colormaps["tab20"].colors)
             return [base[i % len(base)] for i in range(n)]
     import colorsys
+
     try:
         import seaborn as sns
+
         base = list(sns.husl_palette(n, s=0.62, l=0.65))
     except Exception:  # noqa: BLE001
         base = [colorsys.hsv_to_rgb(i / n, 0.5, 0.9) for i in range(n)]
@@ -277,7 +300,9 @@ def check_hierarchy_nesting(level_maps: list) -> list[str]:
     Returns a list of human-readable violation strings (empty if consistent).
     """
     violations = []
-    for (pl, pmap), (cl, cmap) in zip(level_maps, level_maps[1:]):
+    # Deliberately pairs consecutive levels (broad, fine); the trailing element of the
+    # longer operand is meant to be dropped, so strict=False is correct here.
+    for (pl, pmap), (cl, cmap) in zip(level_maps, level_maps[1:], strict=False):
         by_child: dict[str, set] = {}
         for clu, child in cmap.items():
             parent = pmap.get(str(clu), pmap.get(clu))
@@ -288,7 +313,8 @@ def check_hierarchy_nesting(level_maps: list) -> list[str]:
             if len(parents) > 1:
                 violations.append(
                     f"{cl} label '{child}' has multiple {pl} parents: {sorted(parents)} "
-                    f"(a finer label must refine exactly one coarser label)")
+                    f"(a finer label must refine exactly one coarser label)"
+                )
     return violations
 
 
@@ -310,8 +336,7 @@ def save_table(df: pd.DataFrame, workdir: Path, name: str, index: bool = False) 
 def require_obs(adata: ad.AnnData, key: str, what: str = "column") -> None:
     if key not in adata.obs:
         raise SystemExit(
-            f"ERROR: {what} '{key}' not found in adata.obs. "
-            f"Available: {list(adata.obs.columns)}"
+            f"ERROR: {what} '{key}' not found in adata.obs. Available: {list(adata.obs.columns)}"
         )
 
 
@@ -325,19 +350,22 @@ def resolve_expression(adata: ad.AnnData, layer: str | None):
     """
     if layer is not None and layer not in (adata.layers or {}):
         raise SystemExit(
-            f"ERROR: layer '{layer}' not found. Available layers: "
-            f"{list(adata.layers.keys())}"
+            f"ERROR: layer '{layer}' not found. Available layers: {list(adata.layers.keys())}"
         )
     X = adata.layers[layer] if layer is not None else adata.X
     src = f"layers['{layer}']" if layer is not None else "X"
     xmax = float(X.max())
     xmin = float(X.min())
     if xmin < 0:
-        eprint(f"   WARN: {src} has negative values (max={xmax:.2f}); looks scaled, "
-               "not log-normalized. Marker stats expect log1p data.")
+        eprint(
+            f"   WARN: {src} has negative values (max={xmax:.2f}); looks scaled, "
+            "not log-normalized. Marker stats expect log1p data."
+        )
     elif xmax > 50:
-        eprint(f"   WARN: {src} max={xmax:.1f} looks like raw counts, not log1p. "
-               "Point at the log-normalized layer.")
+        eprint(
+            f"   WARN: {src} max={xmax:.1f} looks like raw counts, not log1p. "
+            "Point at the log-normalized layer."
+        )
     else:
         eprint(f"   using {src} for expression (min={xmin:.2f}, max={xmax:.2f})")
     return X
@@ -419,14 +447,17 @@ def panel_gate(markers: dict[str, list[str]], var_names) -> tuple[dict, dict]:
     # A total miss when var_names look like Ensembl is the classic ID-convention mismatch
     # (markers are symbols): point at canonicalization rather than failing opaquely later.
     if not any(kept.values()) and _looks_like_ensembl(var_names):
-        eprint("   WARN: 0 markers matched and var_names look like Ensembl IDs — run "
-               "`cta data canonicalize` so var_names become gene symbols, then retry.")
+        eprint(
+            "   WARN: 0 markers matched and var_names look like Ensembl IDs — run "
+            "`cta data canonicalize` so var_names become gene symbols, then retry."
+        )
     return kept, dropped
 
 
 def _looks_like_ensembl(var_names) -> bool:
     """True if most var_names match the Ensembl gene-ID pattern (ENSG…, ENSMUSG…)."""
     import re
+
     names = [str(n) for n in var_names]
     if not names:
         return False
@@ -459,6 +490,15 @@ def aggregate_predictions(clusters, labels, conf, method: str) -> pd.DataFrame:
         top2, frac2 = (vc.index[1], round(float(vc.iloc[1] / n), 4)) if len(vc) > 1 else ("", 0.0)
         c = np.asarray(g["conf"], dtype=float)
         mean_conf = round(float(np.nanmean(c)), 4) if np.isfinite(c).any() else ""
-        rows.append({"cluster": cl, "top1": top1, "frac1": frac1, "top2": top2,
-                     "frac2": frac2, "mean_conf": mean_conf, "method": method})
+        rows.append(
+            {
+                "cluster": cl,
+                "top1": top1,
+                "frac1": frac1,
+                "top2": top2,
+                "frac2": frac2,
+                "mean_conf": mean_conf,
+                "method": method,
+            }
+        )
     return pd.DataFrame(rows)

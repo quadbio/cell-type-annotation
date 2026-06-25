@@ -3,6 +3,7 @@
 Pure / no-network: validates the allocation contract and proves the refactor preserves the
 exact selection of the two legacy callers (reference_map positions, fetch_census joinids).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -46,7 +47,7 @@ def _legacy_positions(groups, max_n, seed=0):
     cats, counts = np.unique(groups, return_counts=True)
     alloc = np.maximum(1, np.round(counts / counts.sum() * max_n).astype(int))
     picks = []
-    for cat, n_take in zip(cats, alloc):
+    for cat, n_take in zip(cats, alloc, strict=True):
         idx = np.flatnonzero(groups == cat)
         picks.append(rng.choice(idx, size=min(int(n_take), idx.size), replace=False))
     sel = np.concatenate(picks)
@@ -61,7 +62,7 @@ def _legacy_census_ids(ids, groups, max_cells, seed=0):
     cats, counts = np.unique(groups, return_counts=True)
     alloc = np.maximum(1, np.round(counts / counts.sum() * max_cells).astype(int))
     picks = []
-    for cat, n_take in zip(cats, alloc):
+    for cat, n_take in zip(cats, alloc, strict=True):
         cat_ids = ids[groups == cat]
         picks.append(rng.choice(cat_ids, size=min(int(n_take), cat_ids.size), replace=False))
     sel = np.concatenate(picks)

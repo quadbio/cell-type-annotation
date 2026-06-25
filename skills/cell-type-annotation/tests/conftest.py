@@ -1,4 +1,5 @@
 """Shared fixtures for the behavioral smoke tests."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -20,7 +21,7 @@ def tiny_h5ad(tmp_path):
     blocks, labels = [], []
     for ti in range(3):
         base = np.full(N_GENES, 0.5)
-        base[ti * BLOCK:(ti + 1) * BLOCK] = 5.0  # type-specific high-expression genes
+        base[ti * BLOCK : (ti + 1) * BLOCK] = 5.0  # type-specific high-expression genes
         blocks.append(rng.poisson(np.tile(base, (80, 1))).astype("float32"))
         labels += [str(ti)] * 80
     adata = ad.AnnData(np.vstack(blocks))

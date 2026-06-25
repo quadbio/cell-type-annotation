@@ -5,16 +5,26 @@ rank_genes_groups (Wilcoxon, tie_correct — NOT the t-test default) on log-norm
 marker evidence that feeds annotation. NOT condition DE (Job B = pseudobulk + PyDESeq2;
 see reference/differential_expression.md).
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 import typer
 
 from cta.io import (
-    ADATA_OPT, CLUSTER_KEY_OPT, FRAGMENTED_FRAME_WARNING, LEVEL_OPT, WORKDIR_OPT,
-    adata_with_lognorm_X, eprint, load_adata, require_obs, resolve_workdir,
-    save_table, split_csv, suppressed_warnings)
+    ADATA_OPT,
+    CLUSTER_KEY_OPT,
+    FRAGMENTED_FRAME_WARNING,
+    LEVEL_OPT,
+    WORKDIR_OPT,
+    adata_with_lognorm_X,
+    eprint,
+    load_adata,
+    require_obs,
+    resolve_workdir,
+    save_table,
+    split_csv,
+    suppressed_warnings,
+)
 
 
 def cli(
@@ -22,13 +32,12 @@ def cli(
     cluster_key: str = CLUSTER_KEY_OPT,
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
-    lognorm_layer: Optional[str] = typer.Option(
-        None, help="layer with log-normalized data; default uses adata.X"),
-    groups: Optional[str] = typer.Option(
-        None, help="comma-separated subset of clusters; default all"),
+    lognorm_layer: str | None = typer.Option(
+        None, help="layer with log-normalized data; default uses adata.X"
+    ),
+    groups: str | None = typer.Option(None, help="comma-separated subset of clusters; default all"),
     n_genes: int = typer.Option(50, help="top genes per cluster to keep"),
-    no_cosg: bool = typer.Option(
-        False, "--no-cosg/--cosg", help="skip COSG specificity scoring"),
+    no_cosg: bool = typer.Option(False, "--no-cosg/--cosg", help="skip COSG specificity scoring"),
 ) -> None:
     """Per-cluster markers: rank_genes_groups (Wilcoxon, tie_correct) + COSG specificity."""
     import pandas as pd
@@ -51,8 +60,13 @@ def cli(
     # that message for this one call, leaving every other warning visible.
     with suppressed_warnings(FRAGMENTED_FRAME_WARNING):
         sc.tl.rank_genes_groups(
-            adata_obj, groupby=cluster_key, groups=grps,
-            method="wilcoxon", tie_correct=True, pts=True, use_raw=False,
+            adata_obj,
+            groupby=cluster_key,
+            groups=grps,
+            method="wilcoxon",
+            tie_correct=True,
+            pts=True,
+            use_raw=False,
         )
     frames = []
     grp_list = adata_obj.obs[cluster_key].cat.categories if grps == "all" else grps
@@ -65,16 +79,24 @@ def cli(
     if not no_cosg:
         try:
             import cosg
+
             eprint(">> COSG (cosine-similarity specificity)")
-            cosg.cosg(adata_obj, groupby=cluster_key, key_added="cosg",
-                      mu=1.0, n_genes_user=n_genes)
+            cosg.cosg(
+                adata_obj, groupby=cluster_key, key_added="cosg", mu=1.0, n_genes_user=n_genes
+            )
             names = pd.DataFrame(adata_obj.uns["cosg"]["names"])
             scores = pd.DataFrame(adata_obj.uns["cosg"]["scores"])
             rows = []
             for col in names.columns:
-                for rank, (gene, score) in enumerate(zip(names[col], scores[col])):
-                    rows.append({"cluster": str(col), "rank": rank,
-                                 "gene": gene, "cosg_score": float(score)})
+                for rank, (gene, score) in enumerate(zip(names[col], scores[col], strict=True)):
+                    rows.append(
+                        {
+                            "cluster": str(col),
+                            "rank": rank,
+                            "gene": gene,
+                            "cosg_score": float(score),
+                        }
+                    )
             save_table(pd.DataFrame(rows), wd, f"cosg_{level}.csv")
         except Exception as e:  # noqa: BLE001 — tool-level degradation is OK
             eprint(f"   COSG skipped ({type(e).__name__}: {e})")
