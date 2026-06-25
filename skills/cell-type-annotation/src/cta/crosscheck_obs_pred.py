@@ -18,6 +18,7 @@ Usage:
       --pred-cols CellClass_pred,Subregion_pred --workdir DIR --level L1 \
       [--conf-suffix _conf]
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,8 +26,18 @@ import pandas as pd
 import typer
 
 from cta.io import (
-    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, eprint, load_adata,
-    require_obs, resolve_workdir, safe_cluster_id, save_table, split_csv)
+    ADATA_OPT,
+    CLUSTER_KEY_OPT,
+    LEVEL_OPT,
+    WORKDIR_OPT,
+    eprint,
+    load_adata,
+    require_obs,
+    resolve_workdir,
+    safe_cluster_id,
+    save_table,
+    split_csv,
+)
 
 
 def cli(
@@ -36,7 +47,8 @@ def cli(
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
     conf_suffix: str = typer.Option(
-        "_conf", help="suffix of a companion per-cell confidence column, if any"),
+        "_conf", help="suffix of a companion per-cell confidence column, if any"
+    ),
 ) -> None:
     """Cross-check from an existing in-object prediction column — no recompute."""
     wd = resolve_workdir(workdir)
@@ -63,10 +75,24 @@ def cli(
             vc = vc[vc != "nan"].value_counts(normalize=True)
             top1, frac1 = (vc.index[0], round(float(vc.iloc[0]), 3)) if len(vc) else ("NA", 0.0)
             top2, frac2 = (vc.index[1], round(float(vc.iloc[1]), 3)) if len(vc) > 1 else ("", 0.0)
-            mean_conf = (round(float(np.nanmean(pd.to_numeric(obs.loc[idx, conf_col],
-                         errors="coerce"))), 3) if has_conf else "")
-            rows.append(dict(cluster=str(cl), top1=top1, frac1=frac1, top2=top2, frac2=frac2,
-                             mean_conf=mean_conf, method=f"in-object:{col}"))
+            mean_conf = (
+                round(float(np.nanmean(pd.to_numeric(obs.loc[idx, conf_col], errors="coerce"))), 3)
+                if has_conf
+                else ""
+            )
+            rows.append(
+                {
+                    "cluster": str(cl),
+                    "top1": top1,
+                    "frac1": frac1,
+                    "top2": top2,
+                    "frac2": frac2,
+                    "mean_conf": mean_conf,
+                    "method": f"in-object:{col}",
+                }
+            )
         save_table(pd.DataFrame(rows), wd, f"refmap_{level}_{safe_cluster_id(col)}.csv")
-        eprint(f">> wrote tables/refmap_{level}_{safe_cluster_id(col)}.csv "
-               f"({len(rows)} clusters, conf={'yes' if has_conf else 'no'})")
+        eprint(
+            f">> wrote tables/refmap_{level}_{safe_cluster_id(col)}.csv "
+            f"({len(rows)} clusters, conf={'yes' if has_conf else 'no'})"
+        )

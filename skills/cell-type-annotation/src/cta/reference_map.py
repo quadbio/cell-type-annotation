@@ -27,10 +27,10 @@ are aligned to symbols first (auto-detected symbol var-column, or --ref-symbol-c
 Per --label-cols column, writes tables/refmap_<level>_<col>.csv with columns:
   cluster, top1, frac1, top2, frac2, mean_conf, method
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -40,9 +40,20 @@ from scipy.sparse import issparse
 from cta.canonicalize import align_var_names_to_symbols
 from cta.constants import MIN_SHARED_GENES, NORMALIZE_TARGET_SUM
 from cta.io import (
-    CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, aggregate_predictions, eprint,
-    load_adata, require_obs, resolve_expression, resolve_workdir,
-    safe_cluster_id, save_table, split_csv, stratified_subsample_positions)
+    CLUSTER_KEY_OPT,
+    LEVEL_OPT,
+    WORKDIR_OPT,
+    aggregate_predictions,
+    eprint,
+    load_adata,
+    require_obs,
+    resolve_expression,
+    resolve_workdir,
+    safe_cluster_id,
+    save_table,
+    split_csv,
+    stratified_subsample_positions,
+)
 
 
 def _looks_like_counts(X) -> bool:
@@ -90,6 +101,7 @@ def _read_reference_subsampled(path, label_cols, max_ref: int, stratify_col: str
     then `.to_memory()`.
     """
     import anndata as ad
+
     p = Path(path).expanduser()
     if not p.exists():
         raise SystemExit(f"ERROR: reference not found: {p}")
@@ -102,8 +114,6 @@ def _read_reference_subsampled(path, label_cols, max_ref: int, stratify_col: str
     else:
         ref = ref.to_memory()
     return ref
-
-
 
 
 def _shared_genes(query, reference):
@@ -184,52 +194,69 @@ def _run_correlation_fallback(query, reference, label_cols, cluster_key, workdir
                 frac2 = round(float(corr[i, o[1]]), 4)
             else:
                 top2, frac2 = "", 0.0
-            rows.append({
-                "cluster": cl, "top1": top1, "frac1": frac1,
-                "top2": top2, "frac2": frac2,
-                "mean_conf": frac1, "method": "correlation",
-            })
-        save_table(pd.DataFrame(rows), resolve_workdir(workdir),
-                   f"refmap_{level}_{safe_cluster_id(col)}.csv")
+            rows.append(
+                {
+                    "cluster": cl,
+                    "top1": top1,
+                    "frac1": frac1,
+                    "top2": top2,
+                    "frac2": frac2,
+                    "mean_conf": frac1,
+                    "method": "correlation",
+                }
+            )
+        save_table(
+            pd.DataFrame(rows),
+            resolve_workdir(workdir),
+            f"refmap_{level}_{safe_cluster_id(col)}.csv",
+        )
     return "correlation"
 
 
 def cli(
     query: str = typer.Option(
-        ..., "--query", "--adata",
-        help="the query AnnData to annotate (alias: --adata)"),
+        ..., "--query", "--adata", help="the query AnnData to annotate (alias: --adata)"
+    ),
     reference: str = typer.Option(..., help="reference AnnData with label columns"),
     cluster_key: str = CLUSTER_KEY_OPT,
-    label_cols: str = typer.Option(
-        ..., help="comma-separated reference.obs columns to transfer"),
+    label_cols: str = typer.Option(..., help="comma-separated reference.obs columns to transfer"),
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
-    query_lognorm_layer: Optional[str] = typer.Option(
-        None, "--query-lognorm-layer", "--lognorm-layer",
-        help="query layer holding log1p data ('X' or a layer name); alias: --lognorm-layer"),
+    query_lognorm_layer: str | None = typer.Option(
+        None,
+        "--query-lognorm-layer",
+        "--lognorm-layer",
+        help="query layer holding log1p data ('X' or a layer name); alias: --lognorm-layer",
+    ),
     ref_counts: bool = typer.Option(
-        False, "--ref-counts",
-        help="force normalize_total(1e4)+log1p on the reference"),
-    ref_symbol_col: Optional[str] = typer.Option(
-        None, "--ref-symbol-col",
+        False, "--ref-counts", help="force normalize_total(1e4)+log1p on the reference"
+    ),
+    ref_symbol_col: str | None = typer.Option(
+        None,
+        "--ref-symbol-col",
         help="reference var column to use as gene symbols (overrides auto-detection) — "
-             "the canonical query is symbol-indexed, so an Ensembl reference is aligned first"),
-    ref_symbol_map: Optional[str] = typer.Option(
-        None, "--ref-symbol-map",
+        "the canonical query is symbol-indexed, so an Ensembl reference is aligned first",
+    ),
+    ref_symbol_map: str | None = typer.Option(
+        None,
+        "--ref-symbol-map",
         help="TSV 'ensembl<TAB>symbol' to align an Ensembl reference's var_names when it has "
-             "no symbol var column (built by the skill via the knowledgebase MCP)"),
+        "no symbol var column (built by the skill via the knowledgebase MCP)",
+    ),
     embedding_method: str = typer.Option("cca", help="joint embedding method: cca or pca"),
     n_comps: int = typer.Option(50, help="number of embedding components"),
     knn_method: str = typer.Option(
         "pynndescent",
         help="CellMapper kNN backend. CPU: 'pynndescent' (default), 'sklearn', "
-             "'faiss-cpu'. GPU: 'rapids' (seconds over millions of cells; needs "
-             "cuml-cu12 from the gpu env, `pixi install -e gpu`) or 'faiss-gpu' (needs a working "
-             "faiss-gpu build — prefer the conda one; the pip wheel is often ABI-"
-             "broken). On a GPU profile use 'rapids' to scale this cross-check."),
+        "'faiss-cpu'. GPU: 'rapids' (seconds over millions of cells; needs "
+        "cuml-cu12 from the gpu env, `pixi install -e gpu`) or 'faiss-gpu' (needs a working "
+        "faiss-gpu build — prefer the conda one; the pip wheel is often ABI-"
+        "broken). On a GPU profile use 'rapids' to scale this cross-check.",
+    ),
     max_ref: int = typer.Option(200000, help="max reference cells to use (subsampled)"),
-    stratify_col: Optional[str] = typer.Option(
-        None, help="reference.obs column to stratify the subsample by"),
+    stratify_col: str | None = typer.Option(
+        None, help="reference.obs column to stratify the subsample by"
+    ),
 ) -> None:
     """CellMapper reference label-transfer as a cross-check hypothesis (not a verdict)."""
     wd = resolve_workdir(workdir)
@@ -242,8 +269,7 @@ def cli(
     require_obs(query_obj, cluster_key, "cluster key")
 
     eprint(">> loading reference (backed) + subsample-before-materialize")
-    reference_obj = _read_reference_subsampled(reference, label_cols_list, max_ref,
-                                               stratify_col)
+    reference_obj = _read_reference_subsampled(reference, label_cols_list, max_ref, stratify_col)
 
     # Align the reference's gene IDs to the query's symbol convention (no-op if already
     # symbols) so the var_names intersection below isn't defeated by an Ensembl reference.
@@ -263,11 +289,13 @@ def cli(
     _normalize_reference(reference_obj, ref_counts)
 
     try:
-        method = _run_cellmapper(query_obj, reference_obj, label_cols_list,
-                                 embedding_method, n_comps, knn_method)
+        method = _run_cellmapper(
+            query_obj, reference_obj, label_cols_list, embedding_method, n_comps, knn_method
+        )
     except ImportError:
-        _run_correlation_fallback(query_obj, reference_obj, label_cols_list,
-                                  cluster_key, workdir, level, shared)
+        _run_correlation_fallback(
+            query_obj, reference_obj, label_cols_list, cluster_key, workdir, level, shared
+        )
         eprint(">> done (correlation fallback)")
         return
 

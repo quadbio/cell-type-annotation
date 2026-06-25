@@ -18,17 +18,24 @@ NO-BIAS RULE: QC columns are auto-detected purely by numeric dtype (never by nam
 categorical crosstabs are built ONLY for columns the user explicitly names. Nothing
 like 'week'/'condition'/'slide'/'n_genes' is ever hardcoded as a default.
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 import pandas as pd
 import typer
 from pandas.api.types import is_numeric_dtype
 
 from cta.io import (
-    ADATA_OPT, CLUSTER_KEY_OPT, WORKDIR_OPT, eprint, load_adata, require_obs,
-    resolve_workdir, save_table, split_csv)
+    ADATA_OPT,
+    CLUSTER_KEY_OPT,
+    WORKDIR_OPT,
+    eprint,
+    load_adata,
+    require_obs,
+    resolve_workdir,
+    save_table,
+    split_csv,
+)
 
 
 def _auto_qc_cols(adata, cluster_key: str) -> list[str]:
@@ -80,16 +87,21 @@ def qc_profile(adata, cluster_key: str, qc_cols: list[str], workdir, level: str)
 
 def categorical_composition(adata, cluster_key: str, cat_cols: list[str], workdir, level: str):
     if not cat_cols:
-        eprint("   Categorical composition: no --cat-cols given; skipping "
-               "(categorical cols are never auto-detected).")
+        eprint(
+            "   Categorical composition: no --cat-cols given; skipping "
+            "(categorical cols are never auto-detected)."
+        )
         return
     for col in cat_cols:
         require_obs(adata, col, what="--cat-cols column")
-        ct = pd.crosstab(
-            adata.obs[cluster_key].astype(str),
-            adata.obs[col].astype(str),
-            normalize="index",
-        ) * 100.0
+        ct = (
+            pd.crosstab(
+                adata.obs[cluster_key].astype(str),
+                adata.obs[col].astype(str),
+                normalize="index",
+            )
+            * 100.0
+        )
         ct.index.name = cluster_key
         save_table(ct, workdir, f"crosstab_{level}_{col}.csv", index=True)
 
@@ -98,24 +110,32 @@ def spatial_profile(adata, cluster_key: str, spatial_key: str | None, workdir, l
     if not spatial_key:
         return
     if spatial_key not in adata.obsm:
-        eprint(f"   Spatial profile: obsm key '{spatial_key}' not found; skipping. "
-               f"Available: {list(adata.obsm.keys())}")
+        eprint(
+            f"   Spatial profile: obsm key '{spatial_key}' not found; skipping. "
+            f"Available: {list(adata.obsm.keys())}"
+        )
         return
     coords = adata.obsm[spatial_key]
     if coords.shape[1] < 2:
         eprint(f"   Spatial profile: obsm['{spatial_key}'] has <2 dims; skipping.")
         return
     df = pd.DataFrame(
-        {"x": coords[:, 0], "y": coords[:, 1], cluster_key: adata.obs[cluster_key].astype(str).values}
+        {
+            "x": coords[:, 0],
+            "y": coords[:, 1],
+            cluster_key: adata.obs[cluster_key].astype(str).values,
+        }
     )
     grp = df.groupby(cluster_key, observed=True)
-    out = pd.DataFrame({
-        "centroid_x": grp["x"].mean(),
-        "centroid_y": grp["y"].mean(),
-        "spread_x": grp["x"].std(),
-        "spread_y": grp["y"].std(),
-        "n_cells": grp.size(),
-    })
+    out = pd.DataFrame(
+        {
+            "centroid_x": grp["x"].mean(),
+            "centroid_y": grp["y"].mean(),
+            "spread_x": grp["x"].std(),
+            "spread_y": grp["y"].std(),
+            "n_cells": grp.size(),
+        }
+    )
     out.index.name = cluster_key
     save_table(out, workdir, f"spatial_profile_{level}.csv", index=True)
 
@@ -125,12 +145,13 @@ def cli(
     cluster_key: str = CLUSTER_KEY_OPT,
     workdir: str = WORKDIR_OPT,
     level: str = typer.Option(..., help="hierarchy level tag for filenames"),
-    qc_cols: Optional[str] = typer.Option(
-        None, help="comma-separated numeric obs columns; auto-detected if omitted"),
-    cat_cols: Optional[str] = typer.Option(
-        None, help="comma-separated categorical obs columns (user-named only)"),
-    spatial_key: Optional[str] = typer.Option(
-        None, help="adata.obsm key holding spatial coordinates"),
+    qc_cols: str | None = typer.Option(
+        None, help="comma-separated numeric obs columns; auto-detected if omitted"
+    ),
+    cat_cols: str | None = typer.Option(
+        None, help="comma-separated categorical obs columns (user-named only)"
+    ),
+    spatial_key: str | None = typer.Option(None, help="adata.obsm key holding spatial coordinates"),
 ) -> None:
     """Profile clusters by QC numeric medians, categorical composition, and spatial spread."""
     adata_obj = load_adata(adata, backed="r")  # only obs/obsm needed — don't materialize X

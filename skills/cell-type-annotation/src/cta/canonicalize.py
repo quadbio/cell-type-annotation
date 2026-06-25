@@ -43,21 +43,36 @@ Usage:
       [--symbol-col feature_name] [--symbol-map ensembl_to_symbol.tsv] \
       [--keep-obs sample,condition,batch]
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 import typer
 
-from cta.io import (LOGNORM_CP10K_LAYER, _looks_like_ensembl, _looks_like_symbols,
-                    cp10k_log1p_matrix, eprint, load_adata, split_csv)
+from cta.io import (
+    LOGNORM_CP10K_LAYER,
+    _looks_like_ensembl,
+    _looks_like_symbols,
+    cp10k_log1p_matrix,
+    eprint,
+    load_adata,
+    split_csv,
+)
 
 # var columns that conventionally hold the gene symbol, best first (CELLxGENE uses
 # `feature_name`; the immune benchmark atlas uses `gene_symbols`).
-_SYMBOL_COL_CANDIDATES = ("feature_name", "gene_symbols", "gene_symbol", "symbol",
-                          "gene_name", "Symbol", "Gene", "genes")
+_SYMBOL_COL_CANDIDATES = (
+    "feature_name",
+    "gene_symbols",
+    "gene_symbol",
+    "symbol",
+    "gene_name",
+    "Symbol",
+    "Gene",
+    "genes",
+)
 
 
 def _detect_symbol_column(adata) -> str | None:
@@ -83,8 +98,14 @@ def _load_symbol_map(path: str) -> dict[str, str]:
     return out
 
 
-def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str] | None,
-                       *, col_flag: str = "--symbol-col", map_flag: str = "--symbol-map"):
+def _canonical_symbols(
+    adata,
+    symbol_col: str | None,
+    symbol_map: dict[str, str] | None,
+    *,
+    col_flag: str = "--symbol-col",
+    map_flag: str = "--symbol-map",
+):
     """Decide canonical var_names (symbols) for `adata`, leaving gene ORDER unchanged.
 
     Returns (symbols, ensembl_ids, info) where `symbols`/`ensembl_ids` are lists aligned
@@ -105,12 +126,15 @@ def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str]
     if symbol_col is not None and symbol_col not in adata.var.columns:
         raise SystemExit(
             f"ERROR: {col_flag} '{symbol_col}' not in var. "
-            f"Available var columns: {list(adata.var.columns)}")
+            f"Available var columns: {list(adata.var.columns)}"
+        )
 
     if symbol_col is None and not _looks_like_ensembl(orig) and _looks_like_symbols(orig):
         # var_names already look like symbols — keep them; surface any Ensembl column.
-        ens_col = next((c for c in ("ensembl_id", "ensembl", "gene_ids", "gene_id")
-                        if c in adata.var.columns), None)
+        ens_col = next(
+            (c for c in ("ensembl_id", "ensembl", "gene_ids", "gene_id") if c in adata.var.columns),
+            None,
+        )
         ensembl = [str(x) for x in adata.var[ens_col]] if ens_col else [""] * len(orig)
         return orig, ensembl, {"convention": "already symbols", "renamed": 0, "unmapped": 0}
 
@@ -122,7 +146,7 @@ def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str]
     if col is not None:
         eprint(f"   symbols <- var['{col}']")
         vals = adata.var[col].astype(str).tolist()
-        for i, (o, s) in enumerate(zip(orig, vals)):
+        for i, (o, s) in enumerate(zip(orig, vals, strict=True)):
             if s and s.lower() not in ("nan", "none", "") and s != o:
                 symbols[i] = s
                 renamed += 1
@@ -138,18 +162,27 @@ def _canonical_symbols(adata, symbol_col: str | None, symbol_map: dict[str, str]
         raise SystemExit(
             "ERROR: var_names are not gene symbols but no symbol source was found. "
             f"Provide {col_flag}, ensure a symbol var column exists, or pass "
-            f"{map_flag} (the skill builds one via the knowledgebase MCP).")
+            f"{map_flag} (the skill builds one via the knowledgebase MCP)."
+        )
     unmapped = len(orig) - renamed
-    info = {"convention": f"{src_kind}->symbol", "source": col or "symbol-map",
-            "renamed": renamed, "unmapped": unmapped}
+    info = {
+        "convention": f"{src_kind}->symbol",
+        "source": col or "symbol-map",
+        "renamed": renamed,
+        "unmapped": unmapped,
+    }
     if unmapped:
         eprint(f"   WARN: {unmapped}/{len(orig)} genes kept their original id (no symbol found)")
     return symbols, orig, info
 
 
 def align_var_names_to_symbols(
-    adata, symbol_col: str | None = None, symbol_map_path: str | None = None, *,
-    col_flag: str = "--ref-symbol-col", map_flag: str = "--ref-symbol-map",
+    adata,
+    symbol_col: str | None = None,
+    symbol_map_path: str | None = None,
+    *,
+    col_flag: str = "--ref-symbol-col",
+    map_flag: str = "--ref-symbol-map",
 ) -> dict:
     """Rename `adata.var_names` to gene SYMBOLS in place — the same standardization
     `cta data canonicalize` applies to the query, so a REFERENCE lives in the query's
@@ -166,7 +199,8 @@ def align_var_names_to_symbols(
 
     smap = _load_symbol_map(symbol_map_path) if symbol_map_path else None
     symbols, ensembl_ids, info = _canonical_symbols(
-        adata, symbol_col, smap, col_flag=col_flag, map_flag=map_flag)
+        adata, symbol_col, smap, col_flag=col_flag, map_flag=map_flag
+    )
     if info["convention"] == "already symbols":
         eprint("   reference var_names already look like symbols — no alignment needed")
         info["deduped"] = 0
@@ -180,8 +214,8 @@ def align_var_names_to_symbols(
     info["deduped"] = n_dup
     eprint(
         f"   reference var_names -> symbols: {info['renamed']} renamed, "
-        f"{info['unmapped']} kept Ensembl"
-        + (f", {n_dup} de-duplicated" if n_dup else ""))
+        f"{info['unmapped']} kept Ensembl" + (f", {n_dup} de-duplicated" if n_dup else "")
+    )
     return info
 
 
@@ -192,13 +226,15 @@ def _resolve_lognorm(adata, layer: str | None):
     if layer not in (adata.layers or {}):
         raise SystemExit(
             f"ERROR: --lognorm-layer '{layer}' not found. Available layers: "
-            f"{list(adata.layers.keys())}")
+            f"{list(adata.layers.keys())}"
+        )
     return adata.layers[layer], f"layers['{layer}']"
 
 
 def _is_integer_valued(X, cap: int = 200_000) -> bool:
     import numpy as np
     import scipy.sparse as sp
+
     data = X.data if sp.issparse(X) else np.asarray(X).ravel()
     if data.size > cap:
         data = data[:cap]
@@ -218,11 +254,14 @@ def _resolve_counts(adata, counts_layer: str | None):
         if counts_layer not in (adata.layers or {}):
             raise SystemExit(
                 f"ERROR: --counts-layer '{counts_layer}' not found. "
-                f"Available layers: {list(adata.layers.keys())}")
+                f"Available layers: {list(adata.layers.keys())}"
+            )
         X = adata.layers[counts_layer]
         if not _is_integer_valued(X):
-            eprint(f"   WARN: layers['{counts_layer}'] is not integer-valued; "
-                   "storing it as counts anyway (point --counts-layer elsewhere if wrong)")
+            eprint(
+                f"   WARN: layers['{counts_layer}'] is not integer-valued; "
+                "storing it as counts anyway (point --counts-layer elsewhere if wrong)"
+            )
         return X, f"layers['{counts_layer}']"
     if "counts" in (adata.layers or {}):  # already canonical — carry it through
         return adata.layers["counts"], "layers['counts']"
@@ -239,40 +278,46 @@ def _resolve_counts(adata, counts_layer: str | None):
             eprint("   .raw.X present but not integer-valued — not using it as counts")
         else:
             missing = sum(1 for n in want if n not in pos)
-            eprint(f"   .raw present but missing {missing} of {len(want)} genes — "
-                   "skipping counts-from-.raw (would misalign)")
+            eprint(
+                f"   .raw present but missing {missing} of {len(want)} genes — "
+                "skipping counts-from-.raw (would misalign)"
+            )
     return None, "none"
 
 
 def cli(
     adata: str = typer.Option(..., help="path to the source .h5ad"),
-    out: Optional[str] = typer.Option(
-        None, help="default: <dir-of-adata>/<stem>_cta.h5ad"),
-    cluster_key: str = typer.Option(
-        ..., help="obs column with the cluster labels to annotate"),
+    out: str | None = typer.Option(None, help="default: <dir-of-adata>/<stem>_cta.h5ad"),
+    cluster_key: str = typer.Option(..., help="obs column with the cluster labels to annotate"),
     embedding_key: str = typer.Option(
-        ..., help="obsm key for the analysis embedding (e.g. X_scpoli)"),
-    viz_key: Optional[str] = typer.Option(
-        None, help="obsm key for a 2D viz embedding (e.g. X_umap)"),
+        ..., help="obsm key for the analysis embedding (e.g. X_scpoli)"
+    ),
+    viz_key: str | None = typer.Option(None, help="obsm key for a 2D viz embedding (e.g. X_umap)"),
     lognorm_layer: str = typer.Option(
-        "X", help="layer holding log-normalized data; 'X' (default) uses adata.X"),
-    counts_layer: Optional[str] = typer.Option(
-        None, help="layer with raw counts; if omitted, counts are pulled from .raw when present"),
-    symbol_col: Optional[str] = typer.Option(
-        None, help="var column to use as gene symbols (overrides auto-detection)"),
-    symbol_map: Optional[str] = typer.Option(
-        None, help="TSV 'ensembl<TAB>symbol' to rename Ensembl var_names "
-                   "(used when no symbol var column exists; built by the skill via MCP)"),
-    keep_obs: Optional[str] = typer.Option(
-        None, help="comma-separated obs columns to keep; default keeps ALL obs. "
-                   "When given, only these plus --cluster-key are kept."),
+        "X", help="layer holding log-normalized data; 'X' (default) uses adata.X"
+    ),
+    counts_layer: str | None = typer.Option(
+        None, help="layer with raw counts; if omitted, counts are pulled from .raw when present"
+    ),
+    symbol_col: str | None = typer.Option(
+        None, help="var column to use as gene symbols (overrides auto-detection)"
+    ),
+    symbol_map: str | None = typer.Option(
+        None,
+        help="TSV 'ensembl<TAB>symbol' to rename Ensembl var_names "
+        "(used when no symbol var column exists; built by the skill via MCP)",
+    ),
+    keep_obs: str | None = typer.Option(
+        None,
+        help="comma-separated obs columns to keep; default keeps ALL obs. "
+        "When given, only these plus --cluster-key are kept.",
+    ),
 ) -> None:
     """Canonicalize an AnnData into the one shape every downstream `cta` command expects."""
     import anndata as ad
 
     src = Path(adata).expanduser()
-    out_path = (Path(out).expanduser() if out
-                else src.with_name(f"{src.stem}_cta.h5ad"))
+    out_path = Path(out).expanduser() if out else src.with_name(f"{src.stem}_cta.h5ad")
 
     eprint(f">> loading {src}")
     adata_obj = load_adata(adata, prefer_slim=False)  # always canonicalize from the full original
@@ -282,12 +327,14 @@ def cli(
     if cluster_key not in adata_obj.obs:
         raise SystemExit(
             f"ERROR: --cluster-key '{cluster_key}' not in adata.obs. "
-            f"Available: {list(adata_obj.obs.columns)}")
+            f"Available: {list(adata_obj.obs.columns)}"
+        )
     for key, what in [(embedding_key, "embedding-key"), (viz_key, "viz-key")]:
         if key and key not in adata_obj.obsm:
             raise SystemExit(
                 f"ERROR: --{what} '{key}' not found in adata.obsm. "
-                f"Available: {list(adata_obj.obsm.keys())}")
+                f"Available: {list(adata_obj.obsm.keys())}"
+            )
 
     X, x_src = _resolve_lognorm(adata_obj, lognorm_layer)
     eprint(f"   X <- {x_src} (log-normalized)")
@@ -307,7 +354,8 @@ def cli(
         if missing:
             raise SystemExit(
                 f"ERROR: --keep-obs columns not in adata.obs: {missing}. "
-                f"Available: {list(adata_obj.obs.columns)}")
+                f"Available: {list(adata_obj.obs.columns)}"
+            )
         obs = adata_obj.obs[keep].copy()
         eprint(f"   obs <- {len(keep)} columns: {keep}")
     else:
@@ -322,9 +370,11 @@ def cli(
 
     # --- var: canonical symbol index + a kept symbol<->Ensembl map (drop bulky var columns) ---
     import pandas as pd
+
     var = pd.DataFrame(
         {"gene_symbol": symbols, "ensembl_id": ensembl_ids},
-        index=pd.Index(symbols, name=adata_obj.var_names.name))
+        index=pd.Index(symbols, name=adata_obj.var_names.name),
+    )
 
     layers = {"counts": counts} if counts is not None else {}
     # Precompute the canonical log1p(CP10k) layer so scale-sensitive classifiers (CellTypist)
@@ -367,7 +417,9 @@ def cli(
 
     eprint("\n>> done")
     eprint(f"   original : n_obs={orig_shape[0]}  n_vars={orig_shape[1]}")
-    eprint(f"   canonical: n_obs={slim.n_obs}  n_vars={slim.n_vars}  "
-           f"var_names={var_info['convention']}  counts={counts_src}")
+    eprint(
+        f"   canonical: n_obs={slim.n_obs}  n_vars={slim.n_vars}  "
+        f"var_names={var_info['convention']}  counts={counts_src}"
+    )
     eprint(f"   summary  : {summary_path}")
     print(out_path)

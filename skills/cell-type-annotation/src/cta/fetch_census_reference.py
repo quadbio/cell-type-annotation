@@ -46,9 +46,8 @@ Then feed the result to reference_map.py:
   python reference_map.py --query Q.h5ad --reference brain_ref.h5ad \
       --cluster-key leiden --label-cols cell_type --workdir /proj/run --ref-counts
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 import numpy as np
 import pandas as pd
@@ -82,7 +81,7 @@ def _import_census():
             "ERROR: cellxgene_census is not installed. It ships in the skill's pixi env — run "
             "`pixi install` (from the skill dir) to build it. It pulls a remote "
             "TileDB-SOMA store over S3, so a working network connection is also required."
-        )
+        ) from None
     return cellxgene_census
 
 
@@ -115,7 +114,7 @@ def _normalize_organism(organism: str) -> str:
     return o[:1].upper() + o[1:] if o else o
 
 
-def _build_obs_value_filter(obs_value_filter: Optional[str], tissue: Optional[str]) -> str:
+def _build_obs_value_filter(obs_value_filter: str | None, tissue: str | None) -> str:
     """Construct the Census obs_value_filter (SOMA value_filter syntax).
 
     If --obs-value-filter is given, use it VERBATIM (the advanced escape hatch — e.g. a
@@ -153,33 +152,42 @@ def _choose_joinids(obs: pd.DataFrame, max_cells: int, stratify_by: str) -> np.n
         eprint(f"   WARN: stratify col '{stratify_by}' absent from obs; random subsample")
     sel = np.sort(ids[stratified_subsample_positions(n, max_cells, groups)])
     if n > max_cells:
-        kind = (f"stratified subsample by '{stratify_by}'" if groups is not None
-                else "random subsample")
+        kind = (
+            f"stratified subsample by '{stratify_by}'" if groups is not None else "random subsample"
+        )
         eprint(f"   {kind}: {n} -> {sel.size} cells")
     return sel
 
 
 def cli(
     organism: str = typer.Option(
-        ..., help="e.g. 'homo_sapiens'/'Homo sapiens' or 'mus_musculus'/'Mus musculus'"),
+        ..., help="e.g. 'homo_sapiens'/'Homo sapiens' or 'mus_musculus'/'Mus musculus'"
+    ),
     out: str = typer.Option(..., help="output .h5ad path"),
-    tissue: Optional[str] = typer.Option(
-        None, help="tissue_general value to filter on, e.g. 'brain'. For an "
-                   "ontology term instead, use --obs-value-filter."),
-    obs_value_filter: Optional[str] = typer.Option(
-        None, help="advanced: raw Census obs_value_filter string that OVERRIDES the "
-                   "tissue filter, e.g. "
-                   "\"tissue_ontology_term_id=='UBERON:0000955' and is_primary_data==True\""),
+    tissue: str | None = typer.Option(
+        None,
+        help="tissue_general value to filter on, e.g. 'brain'. For an "
+        "ontology term instead, use --obs-value-filter.",
+    ),
+    obs_value_filter: str | None = typer.Option(
+        None,
+        help="advanced: raw Census obs_value_filter string that OVERRIDES the "
+        "tissue filter, e.g. "
+        "\"tissue_ontology_term_id=='UBERON:0000955' and is_primary_data==True\"",
+    ),
     cell_type_col: str = typer.Option(
-        "cell_type", help="Census obs column to carry as the reference label (default cell_type)"),
+        "cell_type", help="Census obs column to carry as the reference label (default cell_type)"
+    ),
     max_cells: int = typer.Option(
-        50000, help="HARD cap on fetched cells; the slice is subsampled down to this"),
-    stratify_by: Optional[str] = typer.Option(
-        None, help="obs col to stratify the subsample by; default is --cell-type-col"),
-    census_version: str = typer.Option(
-        "stable", help="Census version tag (default 'stable')"),
-    workdir: Optional[str] = typer.Option(
-        None, help="if given, also write tables/census_reference_summary.csv"),
+        50000, help="HARD cap on fetched cells; the slice is subsampled down to this"
+    ),
+    stratify_by: str | None = typer.Option(
+        None, help="obs col to stratify the subsample by; default is --cell-type-col"
+    ),
+    census_version: str = typer.Option("stable", help="Census version tag (default 'stable')"),
+    workdir: str | None = typer.Option(
+        None, help="if given, also write tables/census_reference_summary.csv"
+    ),
 ) -> None:
     """Fetch a small, capped reference AnnData slice from CZ CELLxGENE Census."""
     cellxgene_census = _import_census()
@@ -193,8 +201,10 @@ def cli(
     with cellxgene_census.open_soma(census_version=census_version) as census:
         census_build = _resolve_census_build(cellxgene_census, census_version)
         if census_build != census_version:
-            eprint(f"   resolved '{census_version}' -> build {census_build} "
-                   f"(pin --census-version {census_build} to reproduce this slice)")
+            eprint(
+                f"   resolved '{census_version}' -> build {census_build} "
+                f"(pin --census-version {census_build} to reproduce this slice)"
+            )
         eprint(f">> probing matching obs (organism='{organism}')")
         eprint(f"   obs_value_filter: {obs_filter}")
         obs_cols = list(dict.fromkeys([JOINID, cell_type_col, stratify_by]))
@@ -230,7 +240,9 @@ def cli(
                     f"random pool of {pool_cap}. Stratification is approximate over this pool "
                     "— narrow --tissue/--obs-value-filter for a more representative slice."
                 )
-                pool_ids = np.sort(np.random.default_rng(SEED).choice(ids, size=pool_cap, replace=False))
+                pool_ids = np.sort(
+                    np.random.default_rng(SEED).choice(ids, size=pool_cap, replace=False)
+                )
             else:
                 pool_ids = np.sort(ids)
             obs = cellxgene_census.get_obs(

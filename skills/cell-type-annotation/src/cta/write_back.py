@@ -30,19 +30,27 @@ Usage:
 If --levels is omitted, levels are auto-discovered from the filenames matching
 `<workdir>/labels/annotation_*.csv` (sorted).
 """
+
 from __future__ import annotations
 
 import os
 import re
 import tempfile
-from typing import Optional
 
 import pandas as pd
 import typer
 
 from cta.io import (
-    CLUSTER_KEY_OPT, WORKDIR_OPT, check_hierarchy_nesting, eprint,
-    label_color_map, load_adata, require_obs, resolve_workdir, split_csv)
+    CLUSTER_KEY_OPT,
+    WORKDIR_OPT,
+    check_hierarchy_nesting,
+    eprint,
+    label_color_map,
+    load_adata,
+    require_obs,
+    resolve_workdir,
+    split_csv,
+)
 
 # CSV columns that, when present, get mirrored into companion obs columns. `state` is the
 # orthogonal cell-STATE axis (normal / low-quality / cycling / doublet …) — written next to,
@@ -71,9 +79,7 @@ def load_level_table(workdir, level: str) -> pd.DataFrame:
     df = pd.read_csv(path)
     for req in ("cluster", "label"):
         if req not in df.columns:
-            raise SystemExit(
-                f"ERROR: {path} must have a '{req}' column; got {list(df.columns)}"
-            )
+            raise SystemExit(f"ERROR: {path} must have a '{req}' column; got {list(df.columns)}")
     # Cluster ids are matched as strings against the cluster_key categories.
     # Strip whitespace so a stray trailing space in a hand-authored CSV doesn't
     # silently drop a cluster to Unassigned.
@@ -84,7 +90,7 @@ def load_level_table(workdir, level: str) -> pd.DataFrame:
 def build_mapping(df: pd.DataFrame, value_col: str) -> dict[str, str]:
     """cluster(str) -> value, dropping rows with a missing value."""
     out: dict[str, str] = {}
-    for cl, val in zip(df["cluster"], df[value_col]):
+    for cl, val in zip(df["cluster"], df[value_col], strict=True):
         if pd.isna(val):
             continue
         out[str(cl)] = str(val)
@@ -100,13 +106,15 @@ def order_label_column(series: pd.Series, adata, cluster_key: str, embedding_key
     stable order (known labels as first seen, Unknown last) and colours are still
     assigned. The hex list is aligned to the returned categories for adata.uns.
     """
-    from cta.io import is_unknown_label
     from matplotlib.colors import to_hex
+
+    from cta.io import is_unknown_label
 
     cats = list(pd.Categorical(series).categories)
     centroids = None
     if embedding_key and embedding_key in (adata.obsm or {}):
         import numpy as np
+
         emb = np.asarray(adata.obsm[embedding_key])
         vals = series.to_numpy()
         rows = []
@@ -116,21 +124,25 @@ def order_label_column(series: pd.Series, adata, cluster_key: str, embedding_key
         centroids = np.vstack(rows) if rows else None
     else:
         if embedding_key:
-            eprint(f"   note: embedding '{embedding_key}' not in obsm — colours use a "
-                   f"stable (non-similarity) order")
+            eprint(
+                f"   note: embedding '{embedding_key}' not in obsm — colours use a "
+                f"stable (non-similarity) order"
+            )
 
     order, color_of = label_color_map(cats, centroids)
     # Keep Unknown-type labels at the end regardless of where similarity placed them.
-    order = ([ci for ci in order if not is_unknown_label(cats[ci])]
-             + [ci for ci in order if is_unknown_label(cats[ci])])
+    order = [ci for ci in order if not is_unknown_label(cats[ci])] + [
+        ci for ci in order if is_unknown_label(cats[ci])
+    ]
     ordered_cats = [cats[ci] for ci in order]
     colors = [to_hex(color_of[ci]) for ci in order]
     out = series.astype("category").cat.set_categories(ordered_cats, ordered=True)
     return out, colors
 
 
-def map_level(adata, cluster_key: str, df: pd.DataFrame, prefix: str, level: str,
-              embedding_key: str | None):
+def map_level(
+    adata, cluster_key: str, df: pd.DataFrame, prefix: str, level: str, embedding_key: str | None
+):
     """Return ({obs_col: mapped Series}, {col: colour list}, unmapped, orphans) for one level.
 
     `unmapped` = cluster ids in the data with no label row (-> Unassigned).
@@ -148,8 +160,7 @@ def map_level(adata, cluster_key: str, df: pd.DataFrame, prefix: str, level: str
     colors: dict[str, list] = {}
     main_col = f"{prefix}_{level}"
     mapped = clusters.map(label_map).fillna(UNASSIGNED)
-    cols[main_col], colors[main_col] = order_label_column(
-        mapped, adata, cluster_key, embedding_key)
+    cols[main_col], colors[main_col] = order_label_column(mapped, adata, cluster_key, embedding_key)
 
     for extra in EXTRA_COLS:
         if extra in df.columns:
@@ -164,25 +175,26 @@ def cli(
     adata: str = typer.Option(..., help="path to the .h5ad to annotate"),
     workdir: str = WORKDIR_OPT,
     cluster_key: str = CLUSTER_KEY_OPT,
-    embedding_key: Optional[str] = typer.Option(
+    embedding_key: str | None = typer.Option(
         None,
         help="obsm key of the anchor embedding, used to order labels by "
-             "similarity and write a matching uns palette (so saved colours "
-             "match the reports). Falls back to --viz-key."),
-    viz_key: Optional[str] = typer.Option(
-        None, help="fallback obsm key if --embedding-key absent"),
-    levels: Optional[str] = typer.Option(
-        None, help="comma-separated, e.g. L1,L2,L3,L4 (default: auto-discover)"),
+        "similarity and write a matching uns palette (so saved colours "
+        "match the reports). Falls back to --viz-key.",
+    ),
+    viz_key: str | None = typer.Option(None, help="fallback obsm key if --embedding-key absent"),
+    levels: str | None = typer.Option(
+        None, help="comma-separated, e.g. L1,L2,L3,L4 (default: auto-discover)"
+    ),
     col_prefix: str = typer.Option("cta", help="prefix for the written obs columns"),
-    output: Optional[str] = typer.Option(
-        None,
-        help="write the annotated object to this path instead of mutating "
-             "--adata in place"),
+    output: str | None = typer.Option(
+        None, help="write the annotated object to this path instead of mutating --adata in place"
+    ),
     dry_run: bool = typer.Option(False, help="preview the mapping without touching the file"),
     allow_non_nested: bool = typer.Option(
         False,
         help="override the nested-hierarchy check (NOT recommended — a requested "
-             "hierarchy should nest; a finer label spanning two parents is a bug)"),
+        "hierarchy should nest; a finer label spanning two parents is a bug)",
+    ),
 ) -> None:
     """Write per-level cluster->label annotations back into adata.obs in-place."""
     workdir = resolve_workdir(workdir)
@@ -200,17 +212,22 @@ def cli(
 
     embedding_key = embedding_key or viz_key
     if not embedding_key:
-        eprint("   note: no --embedding-key/--viz-key given — label order/colours will use "
-               "a stable (non-similarity) order; pass the anchor embedding to match reports")
+        eprint(
+            "   note: no --embedding-key/--viz-key given — label order/colours will use "
+            "a stable (non-similarity) order; pass the anchor embedding to match reports"
+        )
 
     all_cols: dict[str, pd.Series] = {}
     all_colors: dict[str, list] = {}
     level_maps: list = []
     for level in levels:
         df = load_level_table(workdir, level)
-        level_maps.append((level, dict(zip(df["cluster"].astype(str), df["label"].astype(str)))))
+        level_maps.append(
+            (level, dict(zip(df["cluster"].astype(str), df["label"].astype(str), strict=True)))
+        )
         cols, colors, unmapped, orphans = map_level(
-            adata_obj, cluster_key, df, col_prefix, level, embedding_key)
+            adata_obj, cluster_key, df, col_prefix, level, embedding_key
+        )
         main_col = f"{col_prefix}_{level}"
 
         eprint(f"\n>> {level} -> obs['{main_col}']")
@@ -238,16 +255,18 @@ def cli(
     # Enforce a nested hierarchy: every finer label must refine exactly one coarser label.
     violations = check_hierarchy_nesting(level_maps)
     if violations:
-        msg = ("hierarchy is NOT nested — a level must strictly refine the level above:\n   "
-               + "\n   ".join(violations)
-               + "\n   Fix the labels so each finer label has one parent (e.g. qualify by "
-                 "compartment: 'Ventral telencephalic NPC' vs '… neuron').")
+        msg = (
+            "hierarchy is NOT nested — a level must strictly refine the level above:\n   "
+            + "\n   ".join(violations)
+            + "\n   Fix the labels so each finer label has one parent (e.g. qualify by "
+            "compartment: 'Ventral telencephalic NPC' vs '… neuron')."
+        )
         if allow_non_nested:
             eprint(f"\n>> WARN: {msg}\n>> --allow-non-nested set: writing anyway.")
         else:
             raise SystemExit(f"\nERROR: {msg}\n   (override with --allow-non-nested)")
     else:
-        eprint(f"\n>> hierarchy nesting OK: {' ⊂ '.join(l for l, _ in reversed(level_maps))}")
+        eprint(f"\n>> hierarchy nesting OK: {' ⊂ '.join(lvl for lvl, _ in reversed(level_maps))}")
 
     if dry_run:
         eprint("\n>> DRY RUN: no file written. Columns that WOULD be added:")

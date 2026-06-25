@@ -18,17 +18,15 @@ hold human/Claude reasoning that must not be clobbered on a re-run.
 Usage:
   python scaffold_cards.py --workdir /proj/ds-annotation-run --level L1 [--overwrite]
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 import typer
 
-from cta.io import (
-    LEVEL_REQ_OPT, WORKDIR_OPT, eprint, resolve_workdir, safe_cluster_id,
-    split_csv)
+from cta.io import LEVEL_REQ_OPT, WORKDIR_OPT, eprint, resolve_workdir, safe_cluster_id, split_csv
 
 TOP_N = 8
 
@@ -91,6 +89,7 @@ def _celltypist_phrase(val, total: int | None = None) -> str | None:
     holds only the top-3, so we must divide by `total`, not by the dict's sum (which would
     inflate the %). Falls back to the dict sum if no total is supplied."""
     import ast
+
     try:
         d = ast.literal_eval(val) if isinstance(val, str) else val
     except (ValueError, SyntaxError):
@@ -126,12 +125,19 @@ def _evidence_section(sources: list[tuple[str, pd.DataFrame]], cid: str, top: in
                         total = int(float(r[c]))
                     except (TypeError, ValueError):
                         pass
-            phrase = next((_celltypist_phrase(r[c], total) for c in rows.columns
-                           if str(c).lower() not in ("cluster", "n_cells", "n", "total", "cells")
-                           and _celltypist_phrase(r[c], total) is not None), None)
+            phrase = next(
+                (
+                    _celltypist_phrase(r[c], total)
+                    for c in rows.columns
+                    if str(c).lower() not in ("cluster", "n_cells", "n", "total", "cells")
+                    and _celltypist_phrase(r[c], total) is not None
+                ),
+                None,
+            )
             if phrase:
-                blocks.append(f"**CellTypist cross-check** _(model hypothesis, not ground "
-                              f"truth)_: {phrase}")
+                blocks.append(
+                    f"**CellTypist cross-check** _(model hypothesis, not ground truth)_: {phrase}"
+                )
             continue
         if key.startswith("cosg"):
             continue  # COSG specificity is already in the Marker-evidence section above
@@ -195,16 +201,16 @@ def _wilcoxon_section(rows: pd.DataFrame) -> str:
 # One concise line per source type (these tables repeat in every card, so keep terse).
 _CC_LEGEND = {
     "crosscheck": "_Cluster scored against the candidate marker sets (`markers_<level>.json`) by "
-                  "independent methods: `overlap_top` = set with most top-DE genes in it, "
-                  "`aucell_top` = top raw AUCell (biased — shown for reference only), "
-                  "`aucell_z_top` = top cross-cluster z-scored AUCell, `ucell_top` = top pyUCell. "
-                  "`agree` = how many of {`overlap_top`, `aucell_z_top`, `ucell_top`} concur "
-                  "(raw `aucell_top` is excluded as biased). On targeted panels, weight overlap/z "
-                  "over raw AUCell._",
+    "independent methods: `overlap_top` = set with most top-DE genes in it, "
+    "`aucell_top` = top raw AUCell (biased — shown for reference only), "
+    "`aucell_z_top` = top cross-cluster z-scored AUCell, `ucell_top` = top pyUCell. "
+    "`agree` = how many of {`overlap_top`, `aucell_z_top`, `ucell_top`} concur "
+    "(raw `aucell_top` is excluded as biased). On targeted panels, weight overlap/z "
+    "over raw AUCell._",
     "panel_gating": "_Per candidate set: on-panel vs dropped (off-panel) markers; "
-                    "`uncallable` = too few on-panel markers to score._",
+    "`uncallable` = too few on-panel markers to score._",
     "refmap": "_kNN label transfer from the reference dataset (CellMapper): the cluster's "
-              "majority reference label and its fraction._",
+    "majority reference label and its fraction._",
 }
 
 
@@ -218,8 +224,7 @@ def _crosscheck_section(sources: list[tuple[str, pd.DataFrame]], cid: str) -> st
         header = "| " + " | ".join(cols) + " |"
         sep = "| " + " | ".join("---" for _ in cols) + " |"
         body = "\n".join(
-            "| " + " | ".join(str(r[c]) for c in cols) + " |"
-            for _, r in rows.iterrows()
+            "| " + " | ".join(str(r[c]) for c in cols) + " |" for _, r in rows.iterrows()
         )
         legend = next((v for k, v in _CC_LEGEND.items() if label.startswith(k)), "")
         caption = f"\n\n{legend}" if legend else ""
@@ -279,21 +284,24 @@ def cli(
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_REQ_OPT,
     overwrite: bool = typer.Option(
-        False, help="overwrite existing cards (default: skip, preserve reasoning)"),
-    evidence: Optional[str] = typer.Option(
+        False, help="overwrite existing cards (default: skip, preserve reasoning)"
+    ),
+    evidence: str | None = typer.Option(
         None,
         help="comma-separated evidence table(s) to embed per cluster — the actual "
-             "numbers behind the call (e.g. the curated marker-fraction tables you "
-             "scored on). Names are resolved under <workdir>/tables/ (a .csv "
-             "suffix is optional) or given as absolute paths. Each cluster's row is "
-             "shown, wide tables summarized as the strongest values."),
-    labels: Optional[str] = typer.Option(
+        "numbers behind the call (e.g. the curated marker-fraction tables you "
+        "scored on). Names are resolved under <workdir>/tables/ (a .csv "
+        "suffix is optional) or given as absolute paths. Each cluster's row is "
+        "shown, wide tables summarized as the strongest values.",
+    ),
+    labels: str | None = typer.Option(
         None,
         help="labels CSV to source the per-cluster call + reasoning from "
-             "(default: <workdir>/labels/annotation_<level>.csv). Columns "
-             "`label`,`state`,`confidence`,`cl_id`,`rationale`,`rejected` are rendered into "
-             "each card; this is the single source of truth, so re-scaffolding "
-             "after you fill the CSV refreshes the cards without losing reasoning."),
+        "(default: <workdir>/labels/annotation_<level>.csv). Columns "
+        "`label`,`state`,`confidence`,`cl_id`,`rationale`,`rejected` are rendered into "
+        "each card; this is the single source of truth, so re-scaffolding "
+        "after you fill the CSV refreshes the cards without losing reasoning.",
+    ),
 ) -> None:
     """Scaffold one evidence-card stub per cluster from the exported tables."""
     wd = resolve_workdir(workdir)
@@ -399,17 +407,25 @@ def cli(
         out.write_text(card)
         written += 1
 
-    eprint(f">> scaffolded {written} card(s), skipped {skipped} existing "
-           f"(of {len(clusters)} clusters) in {evidence_dir}")
+    eprint(
+        f">> scaffolded {written} card(s), skipped {skipped} existing "
+        f"(of {len(clusters)} clusters) in {evidence_dir}"
+    )
     if labels_map and missing_rationale:
-        eprint(f"   NOTE: {len(missing_rationale)} card(s) still have a TODO rationale "
-               f"(no `rationale` in the labels CSV): {', '.join(missing_rationale[:12])}"
-               + (" …" if len(missing_rationale) > 12 else "")
-               + "\n   Fill the `rationale`/`rejected` columns in the labels CSV and re-run; "
-                 "build_report.py --strict will block descent until they're filled.")
+        eprint(
+            f"   NOTE: {len(missing_rationale)} card(s) still have a TODO rationale "
+            f"(no `rationale` in the labels CSV): {', '.join(missing_rationale[:12])}"
+            + (" …" if len(missing_rationale) > 12 else "")
+            + "\n   Fill the `rationale`/`rejected` columns in the labels CSV and re-run; "
+            "build_report.py --strict will block descent until they're filled."
+        )
     elif not labels_map:
-        eprint("   NOTE: no labels CSV found — cards carry TODO rationale stubs. Write "
-               f"labels/annotation_{level}.csv (with `rationale`/`rejected` columns) and "
-               "re-scaffold to render the reasoning into the cards.")
-    print(f"written={written} skipped={skipped} total={len(clusters)} "
-          f"missing_rationale={len(missing_rationale)}")
+        eprint(
+            "   NOTE: no labels CSV found — cards carry TODO rationale stubs. Write "
+            f"labels/annotation_{level}.csv (with `rationale`/`rejected` columns) and "
+            "re-scaffold to render the reasoning into the cards."
+        )
+    print(
+        f"written={written} skipped={skipped} total={len(clusters)} "
+        f"missing_rationale={len(missing_rationale)}"
+    )

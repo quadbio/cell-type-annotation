@@ -11,6 +11,7 @@ embeds figures via `discover_plots()`, which reads whatever PNGs are present in 
 so the embed source is the durable files on disk, not this run's render. A rebuild without
 --adata therefore re-embeds the existing figures instead of silently dropping them.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,7 +28,8 @@ _UMAP_CAPTION = (
     "Each point is a cell, positioned by the chosen 2-D embedding and coloured by its "
     "assigned label. The number at each label's centroid matches the legend. Label colours "
     "are ordered by similarity (computed from the anchor embedding) so related cell types "
-    "share a hue family; Unknown/unassigned labels are always grey.")
+    "share a hue family; Unknown/unassigned labels are always grey."
+)
 _DOTPLOT_HEADING = "Marker dot plot"
 _DOTPLOT_CAPTION = (
     "The four most specific marker genes for each label, chosen automatically from the data "
@@ -36,7 +38,8 @@ _DOTPLOT_CAPTION = (
     "which are both strongly expressed in the cluster and largely absent elsewhere; the top "
     "hits are shown here. Dot colour = the gene's mean expression in that label, scaled 0–1 "
     "across labels (so it shows where each gene peaks); dot size = the fraction of cells in "
-    "the label that express the gene.")
+    "the label that express the gene."
+)
 
 
 def _composition_caption(col: str) -> str:
@@ -60,7 +63,7 @@ def discover_plots(wd, level) -> list[tuple[str, str, Path]]:
         items.append((_DOTPLOT_HEADING, _DOTPLOT_CAPTION, p))
     # composition panels: glob so every covariate is found even if --split-by wasn't repeated
     for p in sorted(plots_dir.glob(f"composition_{level}_*.png")):
-        col = p.stem[len(f"composition_{level}_"):]
+        col = p.stem[len(f"composition_{level}_") :]
         items.append((f"Composition by {col}", _composition_caption(col), p))
     return items
 
@@ -69,8 +72,8 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
     """UMAP with numeric labels overlaid on cluster centroids + a numbered legend column,
     colored by a similarity-ordered palette (similar cell types -> similar colors).
     Returns the ordered [(number, label, hexcolor)] for an HTML legend too."""
-    import matplotlib.pyplot as plt
     import matplotlib.patheffects as pe
+    import matplotlib.pyplot as plt
     import numpy as np
     from matplotlib.colors import to_hex
 
@@ -81,11 +84,19 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
     N = len(cats)
     if N == 0:
         return []
-    cen2d = np.vstack([np.median(emb[codes == i], axis=0) if (codes == i).any()
-                       else [np.nan, np.nan] for i in range(N)])
+    cen2d = np.vstack(
+        [
+            np.median(emb[codes == i], axis=0) if (codes == i).any() else [np.nan, np.nan]
+            for i in range(N)
+        ]
+    )
     rep = np.asarray(adata.obsm.get(embedding_key, emb))
-    cenHD = np.vstack([np.median(rep[codes == i], axis=0) if (codes == i).any()
-                       else np.zeros(rep.shape[1]) for i in range(N)])
+    cenHD = np.vstack(
+        [
+            np.median(rep[codes == i], axis=0) if (codes == i).any() else np.zeros(rep.shape[1])
+            for i in range(N)
+        ]
+    )
     # Similarity order + palette (Unknown -> grey) — SAME helper write_back.py uses to
     # colour adata.uns, so the saved object matches this report.
     order, color_of = label_color_map(cats, cenHD)
@@ -93,8 +104,9 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
     # write_back.order_label_column applies before saving adata.uns colours/categories, so the
     # report's centroid numbers + legend stay in lock-step with the saved object's order (not
     # just its colours). Without this they diverge whenever any Unknown label is present.
-    order = ([ci for ci in order if not is_unknown_label(cats[ci])]
-             + [ci for ci in order if is_unknown_label(cats[ci])])
+    order = [ci for ci in order if not is_unknown_label(cats[ci])] + [
+        ci for ci in order if is_unknown_label(cats[ci])
+    ]
     num_of = {ci: pos + 1 for pos, ci in enumerate(order)}
 
     # size the figure to the data's true aspect so the embedding is not stretched
@@ -107,39 +119,54 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
     # line count, so there's no fixed row pitch wasting vertical space). Balance entries
     # across 1–3 columns once the list gets long.
     import textwrap
+
     n_cols = 1 if N <= 22 else (2 if N <= 48 else 3)
     wrap_chars = 46 if n_cols == 1 else (34 if n_cols == 2 else 26)
     wrapped = [textwrap.wrap(cats[ci], wrap_chars) or [cats[ci] or ""] for ci in order]
-    GAP = 0.6                                   # blank-line fraction between entries
-    units = [len(w) + GAP for w in wrapped]     # vertical "lines" each entry consumes
+    GAP = 0.6  # blank-line fraction between entries
+    units = [len(w) + GAP for w in wrapped]  # vertical "lines" each entry consumes
     # greedy balanced fill: keep similarity order, start a new column near the per-column target
     target = (sum(units) / n_cols) if n_cols else sum(units)
     cols, acc = [[]], 0.0
     for i, u in enumerate(units):
         if cols[-1] and acc + u > target and len(cols) < n_cols:
-            cols.append([]); acc = 0.0
-        cols[-1].append(i); acc += u
+            cols.append([])
+            acc = 0.0
+        cols[-1].append(i)
+        acc += u
     max_lines = max((sum(units[i] for i in c) for c in cols), default=1)
 
-    line_in = 0.135                             # inches per text line
+    line_in = 0.135  # inches per text line
     legend_h = line_in * max_lines + 0.4
     leg_w = (3.4 if n_cols == 1 else 3.1) * n_cols
     fig, (ax, axl) = plt.subplots(
-        1, 2, figsize=(scatter_w + leg_w, max(scatter_h, legend_h)),
-        gridspec_kw={"width_ratios": [scatter_w, leg_w]})
-    ax.scatter(emb[:, 0], emb[:, 1], c=[color_of[c] for c in codes], s=2.2,
-               linewidths=0, rasterized=True)
-    ax.set_aspect("equal")                      # <- preserve UMAP geometry, no stretch
+        1,
+        2,
+        figsize=(scatter_w + leg_w, max(scatter_h, legend_h)),
+        gridspec_kw={"width_ratios": [scatter_w, leg_w]},
+    )
+    ax.scatter(
+        emb[:, 0], emb[:, 1], c=[color_of[c] for c in codes], s=2.2, linewidths=0, rasterized=True
+    )
+    ax.set_aspect("equal")  # <- preserve UMAP geometry, no stretch
     for i in range(N):
         if np.isnan(cen2d[i, 0]):
             continue
-        ax.text(cen2d[i, 0], cen2d[i, 1], str(num_of[i]), fontsize=8.5, weight="bold",
-                ha="center", va="center", color="black",
-                path_effects=[pe.withStroke(linewidth=2.4, foreground="white")])
+        ax.text(
+            cen2d[i, 0],
+            cen2d[i, 1],
+            str(num_of[i]),
+            fontsize=8.5,
+            weight="bold",
+            ha="center",
+            va="center",
+            color="black",
+            path_effects=[pe.withStroke(linewidth=2.4, foreground="white")],
+        )
     ax.axis("off")
     axl.axis("off")
     legend = []
-    line_h = 1.0 / max_lines                    # axes-fraction per text line
+    line_h = 1.0 / max_lines  # axes-fraction per text line
     col_w = 1.0 / n_cols
     fs = 7.6 if n_cols == 1 else (7.0 if n_cols == 2 else 6.4)
     for c_idx, idxs in enumerate(cols):
@@ -148,14 +175,35 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
         for i in idxs:
             ci = order[i]
             lines = wrapped[i]
-            y_top = y - 0.5 * line_h            # vertical center of this entry's first line
-            axl.scatter(x0 + 0.012, y_top, s=44, marker="s", color=color_of[ci],
-                        transform=axl.transAxes, clip_on=False)
-            axl.text(x0 + 0.05, y_top, f"{i+1}. {lines[0]}", va="center", ha="left",
-                     fontsize=fs, transform=axl.transAxes)
+            y_top = y - 0.5 * line_h  # vertical center of this entry's first line
+            axl.scatter(
+                x0 + 0.012,
+                y_top,
+                s=44,
+                marker="s",
+                color=color_of[ci],
+                transform=axl.transAxes,
+                clip_on=False,
+            )
+            axl.text(
+                x0 + 0.05,
+                y_top,
+                f"{i + 1}. {lines[0]}",
+                va="center",
+                ha="left",
+                fontsize=fs,
+                transform=axl.transAxes,
+            )
             for k, ln in enumerate(lines[1:], start=1):
-                axl.text(x0 + 0.05, y_top - k * line_h, f"     {ln}", va="center",
-                         ha="left", fontsize=fs, transform=axl.transAxes)
+                axl.text(
+                    x0 + 0.05,
+                    y_top - k * line_h,
+                    f"     {ln}",
+                    va="center",
+                    ha="left",
+                    fontsize=fs,
+                    transform=axl.transAxes,
+                )
             legend.append((i + 1, cats[ci], to_hex(color_of[ci])))
             y -= units[i] * line_h
     fig.subplots_adjust(left=0.01, right=0.99, top=0.97, bottom=0.02, wspace=0.03)
@@ -164,8 +212,18 @@ def plot_umap_numbered(adata, viz_key, label_key, embedding_key, out_path, title
     return legend
 
 
-def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer,
-               split_by, level, labels: pd.DataFrame, wd: Path) -> list[Path]:
+def make_plots(
+    *,
+    adata_path,
+    cluster_key,
+    viz_key,
+    embedding_key,
+    lognorm_layer,
+    split_by,
+    level,
+    labels: pd.DataFrame,
+    wd: Path,
+) -> list[Path]:
     """Best-effort plot GENERATION. Writes the figure PNGs into plots/ and returns the paths
     it produced (for logging). The report embeds figures via discover_plots() reading plots/,
     NOT this return value — so captions live in the shared constants above, not here. Empty
@@ -175,10 +233,13 @@ def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer
     out: list[Path] = []
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import scanpy as sc
+
         from cta.io import load_adata, resolve_expression
+
         plots_dir = wd / "plots"
         plots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -197,9 +258,14 @@ def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer
         if viz_key and viz_key in adata.obsm and "_label" in adata.obs:
             try:
                 p = plots_dir / f"umap_{level}.png"
-                plot_umap_numbered(adata, viz_key, "_label",
-                                   embedding_key or viz_key, p,
-                                   title=f"{level} — assigned label")
+                plot_umap_numbered(
+                    adata,
+                    viz_key,
+                    "_label",
+                    embedding_key or viz_key,
+                    p,
+                    title=f"{level} — assigned label",
+                )
                 out.append(p)
             except Exception as e:  # noqa: BLE001
                 eprint(f"   plots: UMAP skipped ({type(e).__name__}: {e})")
@@ -209,8 +275,11 @@ def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer
         if cosg.exists() and "_label" in adata.obs:
             try:
                 cdf = pd.read_csv(cosg)
-                cl2lab = {str(r.cluster): str(r.label) for r in labels.itertuples()} \
-                    if "label" in labels.columns else {}
+                cl2lab = (
+                    {str(r.cluster): str(r.label) for r in labels.itertuples()}
+                    if "label" in labels.columns
+                    else {}
+                )
                 cdf["_label"] = cdf["cluster"].astype(str).map(cl2lab)
                 present = set(map(str, adata.var_names))
                 markers: dict[str, list[str]] = {}
@@ -220,16 +289,19 @@ def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer
                     seen, keep = set(), []
                     for x in genes:
                         if x not in seen:
-                            seen.add(x); keep.append(x)
+                            seen.add(x)
+                            keep.append(x)
                         if len(keep) >= 4:
                             break
                     if keep:
                         markers[str(lab)] = keep
                 if markers:
-                    sc.pl.dotplot(adata, markers, groupby="_label", show=False,
-                                  standard_scale="var")
+                    sc.pl.dotplot(
+                        adata, markers, groupby="_label", show=False, standard_scale="var"
+                    )
                     p = plots_dir / f"dotplot_{level}.png"
-                    plt.savefig(p, dpi=110, bbox_inches="tight"); plt.close("all")
+                    plt.savefig(p, dpi=110, bbox_inches="tight")
+                    plt.close("all")
                     out.append(p)
             except Exception as e:  # noqa: BLE001
                 eprint(f"   plots: dotplot skipped ({type(e).__name__}: {e})")
@@ -247,18 +319,27 @@ def make_plots(*, adata_path, cluster_key, viz_key, embedding_key, lognorm_layer
                 uns_key = f"{col}_colors"
                 colors = None
                 if uns_key in adata.uns and len(adata.uns[uns_key]) >= len(obs_c.cat.categories):
-                    cmap = dict(zip(obs_c.cat.categories, list(adata.uns[uns_key])))
+                    # uns colors may be longer than the categories (guarded by the >= check
+                    # above); the surplus is intentionally dropped, so strict=False.
+                    cmap = dict(zip(obs_c.cat.categories, list(adata.uns[uns_key]), strict=False))
                     colors = [cmap.get(c) for c in ct.columns]
                 n = len(ct)
-                ax = ct.plot(kind="bar", stacked=True, color=colors, width=0.85,
-                             figsize=(max(6.0, 0.32 * n), 4.4))
-                ax.set_ylabel(f"proportion by {col}"); ax.set_xlabel("")
+                ax = ct.plot(
+                    kind="bar",
+                    stacked=True,
+                    color=colors,
+                    width=0.85,
+                    figsize=(max(6.0, 0.32 * n), 4.4),
+                )
+                ax.set_ylabel(f"proportion by {col}")
+                ax.set_xlabel("")
                 ax.set_ylim(0, 1)
                 ax.margins(x=0.01)
                 ax.tick_params(axis="x", labelrotation=90, labelsize=7)
                 ax.legend(title=col, bbox_to_anchor=(1.01, 1), loc="upper left", fontsize=7)
                 p = plots_dir / f"composition_{level}_{col}.png"
-                plt.savefig(p, dpi=110, bbox_inches="tight"); plt.close("all")
+                plt.savefig(p, dpi=110, bbox_inches="tight")
+                plt.close("all")
                 out.append(p)
             except Exception as e:  # noqa: BLE001
                 eprint(f"   plots: composition '{col}' skipped ({type(e).__name__}: {e})")

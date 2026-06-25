@@ -17,9 +17,8 @@ Usage:
       [--counts-layer counts] [--lognorm-layer lognorm] \
       [--json OUT.json]
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 import numpy as np
 import typer
@@ -30,6 +29,7 @@ from cta.io import _looks_like_ensembl, eprint, load_adata, resolve_workdir
 def _nonzero_data(X, cap=200_000):
     """Flatten up to `cap` stored values (nonzeros for sparse) for distribution tests."""
     import scipy.sparse as sp
+
     data = X.data if sp.issparse(X) else np.asarray(X).ravel()
     return data[:cap] if data.size > cap else data
 
@@ -78,32 +78,34 @@ def _fingerprint(X):
     elif np.isfinite(cv) and cv < 0.05:
         verdict = "size-normalized + log1p (OK for markers)"
     elif np.isfinite(cv) and cv >= 0.05:
-        verdict = ("log1p of UN-normalized counts? markers would track depth/cell size "
-                   "(expm1-sum CV high)")
+        verdict = (
+            "log1p of UN-normalized counts? markers would track depth/cell size (expm1-sum CV high)"
+        )
     else:
         verdict = "indeterminate"
-    return {"integer_valued": is_int, "expm1_sum_cv": (round(cv, 4) if np.isfinite(cv) else None),
-            "verdict": verdict}
+    return {
+        "integer_valued": is_int,
+        "expm1_sum_cv": (round(cv, 4) if np.isfinite(cv) else None),
+        "verdict": verdict,
+    }
 
 
 def cli(
     adata: str = typer.Option(..., help="path to the .h5ad to inspect"),
-    cluster_key: Optional[str] = typer.Option(
-        None, help="obs column with the cluster labels"),
-    embedding_key: Optional[str] = typer.Option(
-        None, help="obsm key for the analysis embedding"),
-    viz_key: Optional[str] = typer.Option(
-        None, help="obsm key for a 2D viz embedding"),
-    counts_layer: Optional[str] = typer.Option(
-        None, help="layer expected to hold raw counts"),
-    lognorm_layer: Optional[str] = typer.Option(
-        None, help="layer expected to hold log-normalized data"),
-    workdir: Optional[str] = typer.Option(
-        None, help="annotation-run working dir; if given, also write "
-                   "<workdir>/inspect_report.json (context.md/run_state.json are authored "
-                   "by Claude, not here)"),
-    json: Optional[str] = typer.Option(
-        None, help="also write the report to this explicit JSON path"),
+    cluster_key: str | None = typer.Option(None, help="obs column with the cluster labels"),
+    embedding_key: str | None = typer.Option(None, help="obsm key for the analysis embedding"),
+    viz_key: str | None = typer.Option(None, help="obsm key for a 2D viz embedding"),
+    counts_layer: str | None = typer.Option(None, help="layer expected to hold raw counts"),
+    lognorm_layer: str | None = typer.Option(
+        None, help="layer expected to hold log-normalized data"
+    ),
+    workdir: str | None = typer.Option(
+        None,
+        help="annotation-run working dir; if given, also write "
+        "<workdir>/inspect_report.json (context.md/run_state.json are authored "
+        "by Claude, not here)",
+    ),
+    json: str | None = typer.Option(None, help="also write the report to this explicit JSON path"),
 ) -> None:
     """Inspect an AnnData and verify the keys/layers the skill will rely on."""
     import json as json_mod
@@ -124,36 +126,48 @@ def cli(
 
     # X stats
     report["X"] = _matrix_stats(adata_obj.X)
-    report["layer_stats"] = {l: _matrix_stats(adata_obj.layers[l]) for l in adata_obj.layers}
+    report["layer_stats"] = {
+        name: _matrix_stats(adata_obj.layers[name]) for name in adata_obj.layers
+    }
 
     # .raw often hides raw counts on CELLxGENE atlases — inspect it so a counts-in-.raw
     # object isn't misread as missing counts (and doesn't false-trip the lognorm STOP).
     if adata_obj.raw is not None:
         rfp = _fingerprint(adata_obj.raw.X)
-        report["raw"] = {"n_vars": int(adata_obj.raw.n_vars),
-                         **_matrix_stats(adata_obj.raw.X), "fingerprint": rfp["verdict"]}
+        report["raw"] = {
+            "n_vars": int(adata_obj.raw.n_vars),
+            **_matrix_stats(adata_obj.raw.X),
+            "fingerprint": rfp["verdict"],
+        }
         if rfp["integer_valued"]:
             report["warnings"].append(
                 ".raw.X holds integer counts — `cta data canonicalize` pulls them into "
-                "layers['counts'] (so counts aren't reported as missing).")
+                "layers['counts'] (so counts aren't reported as missing)."
+            )
     else:
         report["raw"] = None
 
     # Gene-ID convention: marker sources are SYMBOLS, so Ensembl-indexed var_names must be
     # canonicalized or every marker panel-gates to nothing.
     from cta.canonicalize import _detect_symbol_column
+
     looks_ens = _looks_like_ensembl(adata_obj.var_names)
     sym_col = _detect_symbol_column(adata_obj)
     report["gene_ids"] = {
         "var_names_look_like": "ensembl" if looks_ens else "symbol",
-        "symbol_column": sym_col}
+        "symbol_column": sym_col,
+    }
     if looks_ens:
         report["warnings"].append(
             "var_names look like Ensembl IDs; markers are gene symbols. Run "
             "`cta data canonicalize`"
-            + (f" (symbol column '{sym_col}' available)" if sym_col else
-               " (no symbol var column — skill supplies --symbol-map via the knowledgebase MCP)")
-            + " before marker steps.")
+            + (
+                f" (symbol column '{sym_col}' available)"
+                if sym_col
+                else " (no symbol var column — skill supplies --symbol-map via the knowledgebase MCP)"
+            )
+            + " before marker steps."
+        )
 
     def check(label, ok, detail=""):
         report["checks"][label] = {"ok": bool(ok), "detail": detail}
@@ -175,8 +189,11 @@ def cli(
     for key, kind in [(embedding_key, "embedding"), (viz_key, "viz_embedding")]:
         if key:
             ok = key in adata_obj.obsm
-            detail = (f"shape {tuple(adata_obj.obsm[key].shape)}" if ok
-                      else f"not in obsm; have {list(adata_obj.obsm.keys())}")
+            detail = (
+                f"shape {tuple(adata_obj.obsm[key].shape)}"
+                if ok
+                else f"not in obsm; have {list(adata_obj.obsm.keys())}"
+            )
             check(f"{kind}_key '{key}'", ok, detail)
 
     report.setdefault("normalization", {})
@@ -190,13 +207,15 @@ def cli(
                 detail = f"looks_like={st['looks_like']}; fingerprint={fp['verdict']}"
                 if kind == "counts" and not fp["integer_valued"]:
                     report["warnings"].append(
-                        f"counts-layer '{key}' is not integer-valued ({fp['verdict']})")
+                        f"counts-layer '{key}' is not integer-valued ({fp['verdict']})"
+                    )
                 # A declared lognorm layer that is NOT size-normalized-then-log1p is a
                 # hard stop: every downstream marker would track depth, not identity.
                 if kind == "lognorm" and not fp["verdict"].startswith("size-normalized"):
                     report["fatal"].append(
                         f"lognorm-layer '{key}' fails the normalization fingerprint "
-                        f"({fp['verdict']}). Markers computed from it would be invalid.")
+                        f"({fp['verdict']}). Markers computed from it would be invalid."
+                    )
             else:
                 detail = f"not in layers; have {list(adata_obj.layers.keys())}"
             check(f"{kind}_layer '{key}'", ok, detail)
@@ -206,10 +225,26 @@ def cli(
         report["normalization"]["X"] = {"declared_as": "default(X)", **_fingerprint(adata_obj.X)}
 
     # Surface obs columns that look like existing annotations/predictions (priors).
-    hints = [c for c in adata_obj.obs.columns
-             if any(t in c.lower() for t in
-                    ("annot", "celltype", "cell_type", "_pred", "label", "class",
-                     "subtype", "snap", "leiden", "louvain", "cluster"))]
+    hints = [
+        c
+        for c in adata_obj.obs.columns
+        if any(
+            t in c.lower()
+            for t in (
+                "annot",
+                "celltype",
+                "cell_type",
+                "_pred",
+                "label",
+                "class",
+                "subtype",
+                "snap",
+                "leiden",
+                "louvain",
+                "cluster",
+            )
+        )
+    ]
     report["annotation_like_obs"] = hints
 
     # Targeted-panel flag: with few genes (imaging panels: MERSCOPE/Xenium/CosMx/Visium-HD
@@ -220,7 +255,8 @@ def cli(
     if report["targeted_panel"]:
         report.setdefault("warnings", []).append(
             f"targeted panel: only {adata_obj.n_vars} genes — absence != negative; record a "
-            "panel-capability note (which identities are uncallable on this panel).")
+            "panel-capability note (which identities are uncallable on this panel)."
+        )
 
     # QC signal presence: are the standard depth/mito metrics and a cell-cycle signal already
     # in obs? When absent, the annotator runs `cta data qc` so low-quality / cycling clusters
@@ -230,29 +266,39 @@ def cli(
     has_depth = bool({"n_genes_by_counts", "total_counts"} & obs_cols)
     has_cc = bool({"S_score", "G2M_score", "phase"} & obs_cols)
     report["qc"] = {
-        "metrics_present": sorted(obs_cols & {"n_genes_by_counts", "total_counts",
-                                              "pct_counts_mt", "pct_counts_ribo"}),
+        "metrics_present": sorted(
+            obs_cols & {"n_genes_by_counts", "total_counts", "pct_counts_mt", "pct_counts_ribo"}
+        ),
         "cell_cycle_present": sorted(obs_cols & {"S_score", "G2M_score", "phase"}),
         "has_depth_metrics": has_depth,
         "has_cell_cycle": has_cc,
     }
     if not (has_depth and has_cc):
-        missing = ([] if has_depth else ["depth/mito metrics"]) + \
-                  ([] if has_cc else ["cell-cycle signal"])
+        missing = ([] if has_depth else ["depth/mito metrics"]) + (
+            [] if has_cc else ["cell-cycle signal"]
+        )
         report["warnings"].append(
             f"no {' + '.join(missing)} in obs — run `cta data qc` on the canonical sidecar so "
-            "low-quality / cycling clusters are detectable before annotation.")
+            "low-quality / cycling clusters are detectable before annotation."
+        )
 
     # Categorical obs columns (candidate composition covariates) + whether each already
     # has a stored colour palette in uns (build_report.py reuses these). Helps the
     # annotator ask the user which covariates to profile composition over (Stage 1c).
-    cat_cols = [c for c in adata_obj.obs.columns
-                if str(adata_obj.obs[c].dtype) in ("category", "object", "bool")
-                or adata_obj.obs[c].dtype == bool]
+    cat_cols = [
+        c
+        for c in adata_obj.obs.columns
+        if str(adata_obj.obs[c].dtype) in ("category", "object", "bool")
+        or adata_obj.obs[c].dtype == bool
+    ]
     report["categorical_obs"] = {
-        c: {"n_categories": int(adata_obj.obs[c].nunique()),
-            "has_uns_colors": f"{c}_colors" in adata_obj.uns}
-        for c in cat_cols if adata_obj.obs[c].nunique() <= 200}
+        c: {
+            "n_categories": int(adata_obj.obs[c].nunique()),
+            "has_uns_colors": f"{c}_colors" in adata_obj.uns,
+        }
+        for c in cat_cols
+        if adata_obj.obs[c].nunique() <= 200
+    }
 
     print(json_mod.dumps(report, indent=2))
     if workdir:

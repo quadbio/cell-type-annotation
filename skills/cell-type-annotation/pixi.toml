@@ -22,9 +22,15 @@ detect-env = "cta detect-env"
 test = "python -m pytest"
 # Opt-in: the live CELLxGENE Census integration test (needs network).
 test-census = "python -m pytest -m census"
-# Lint (ruff config lives in pyproject.toml [tool.ruff]).
-lint = "ruff check src tests"
-format = "ruff format src tests"
+# Lint / format. These mirror exactly what the root `.pre-commit-config.yaml` and CI run, so
+# `pixi run lint` locally and the hooks/CI always agree. `lint` is check-only (the CI gate);
+# `lint-fix` applies safe autofixes; `format` rewrites style. (ruff config in pyproject.toml.)
+lint = { cmd = "ruff check . && ruff format --check ." }
+lint-fix = "ruff check --fix ."
+format = "ruff format ."
+# Run every pre-commit hook over the whole tree (the same hooks CI enforces). `cwd` points
+# at the repo root, where `.pre-commit-config.yaml` and the `.git` dir live.
+pre-commit = { cmd = "pre-commit run --all-files", cwd = "../.." }
 
 [dependencies]
 # conda-forge for the interpreter, numpy (numba ABI), and faiss (the pip faiss wheels are
@@ -33,7 +39,10 @@ python = "3.12.*"
 numpy = ">=2"
 faiss-cpu = "*"
 pytest = "*"
-ruff = "*"  # linter/formatter; config in pyproject.toml [tool.ruff]
+# Dev tooling. ruff is pinned-ish so local `pixi run lint` matches the versions in
+# `.pre-commit-config.yaml` / CI; bump both together. (ruff config in pyproject.toml.)
+ruff = ">=0.15"
+pre-commit = "*"
 
 [pypi-dependencies]
 # The skill's own package (the `cta` CLI), installed editable.

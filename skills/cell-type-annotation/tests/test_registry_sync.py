@@ -5,6 +5,7 @@ source of truth. These tests fail if `reference/tool_registry.md` lists a comman
 doesn't have (or vice versa), if SKILL.md's command table misses a command, or if a group
 entry isn't a runnable command — so the docs can't silently drift from the code.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -41,8 +42,11 @@ def test_every_command_is_documented():
 
 def test_registry_has_no_unknown_commands():
     paths = command_paths()
-    unknown = [t for t in _command_tokens(_REGISTRY)
-               if not any(t == p or t.startswith(p + " ") for p in paths)]
+    unknown = [
+        t
+        for t in _command_tokens(_REGISTRY)
+        if not any(t == p or t.startswith(p + " ") for p in paths)
+    ]
     assert not unknown, f"tool_registry.md references unknown cta commands: {unknown}"
 
 
@@ -56,8 +60,9 @@ def test_every_command_in_skill_md():
 def test_group_entries_are_runnable():
     for group, commands in GROUPS.items():
         for name, cmd in commands.items():
-            assert callable(cmd) or isinstance(cmd, typer.Typer), \
+            assert callable(cmd) or isinstance(cmd, typer.Typer), (
                 f"{group}/{name} is neither a command function nor a Typer app"
+            )
 
 
 def test_every_command_help_builds():
@@ -65,6 +70,7 @@ def test_every_command_help_builds():
     surface (e.g. a malformed shared Option) across all commands, not just the smoke-tested
     ones. --help doesn't run the body, so this stays fast (no heavy imports)."""
     import subprocess
+
     for path in command_paths():
         r = subprocess.run(["cta", *path.split(), "--help"], capture_output=True, text=True)
         assert r.returncode == 0, f"`cta {path} --help` failed:\n{r.stderr}"

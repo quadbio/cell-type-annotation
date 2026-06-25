@@ -22,11 +22,11 @@ Usage:
       --genes Snap25,Aqp4,Mbp,Cx3cr1,Cldn5 --workdir /proj/run --level L1 --dotplot
   python profile_markers.py ... --genes-file panel.txt ...
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -34,13 +34,24 @@ import scipy.sparse as sp
 import typer
 
 from cta.io import (
-    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, eprint, load_adata,
-    panel_gate, require_obs, resolve_expression, resolve_workdir, save_table,
-    split_csv)
+    ADATA_OPT,
+    CLUSTER_KEY_OPT,
+    LEVEL_OPT,
+    WORKDIR_OPT,
+    eprint,
+    load_adata,
+    panel_gate,
+    require_obs,
+    resolve_expression,
+    resolve_workdir,
+    save_table,
+    split_csv,
+)
 
 
-def _load_panel(markers: Optional[str], genes_arg: Optional[str],
-                genes_file: Optional[str]) -> dict[str, list[str]]:
+def _load_panel(
+    markers: str | None, genes_arg: str | None, genes_file: str | None
+) -> dict[str, list[str]]:
     """Return {group: [genes]} from --markers (JSON) / --genes / --genes-file.
 
     A marker JSON may be {type: [genes]}, {type: {"pos": [...], "neg": [...]}}, or a flat
@@ -63,8 +74,11 @@ def _load_panel(markers: Optional[str], genes_arg: Optional[str],
     if genes_arg:
         genes += split_csv(genes_arg)
     if genes_file:
-        genes += [ln.strip() for ln in Path(genes_file).read_text().splitlines()
-                  if ln.strip() and not ln.startswith("#")]
+        genes += [
+            ln.strip()
+            for ln in Path(genes_file).read_text().splitlines()
+            if ln.strip() and not ln.startswith("#")
+        ]
     if not genes:
         raise SystemExit("ERROR: provide --markers, --genes, or --genes-file.")
     return {"panel": genes}
@@ -75,14 +89,15 @@ def cli(
     cluster_key: str = CLUSTER_KEY_OPT,
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
-    markers: Optional[str] = typer.Option(
-        None, help="marker JSON ({type:[genes]} / pos-neg / list)"),
-    genes: Optional[str] = typer.Option(None, help="comma-separated gene list"),
-    genes_file: Optional[str] = typer.Option(None, help="file with one gene per line"),
-    lognorm_layer: Optional[str] = typer.Option(
-        None, help="layer with log-normalized data; default uses adata.X"),
+    markers: str | None = typer.Option(None, help="marker JSON ({type:[genes]} / pos-neg / list)"),
+    genes: str | None = typer.Option(None, help="comma-separated gene list"),
+    genes_file: str | None = typer.Option(None, help="file with one gene per line"),
+    lognorm_layer: str | None = typer.Option(
+        None, help="layer with log-normalized data; default uses adata.X"
+    ),
     dotplot: bool = typer.Option(
-        False, "--dotplot/--no-dotplot", help="also render a dot plot PNG"),
+        False, "--dotplot/--no-dotplot", help="also render a dot plot PNG"
+    ),
 ) -> None:
     """Profile a CURATED marker panel across clusters — the workhorse of manual annotation."""
     wd = resolve_workdir(workdir)
@@ -99,21 +114,30 @@ def cli(
     for ct, gs in kept.items():
         for g in gs:
             if g not in seen:
-                seen.add(g); panel_genes.append(g); gene2group[g] = ct
+                seen.add(g)
+                panel_genes.append(g)
+                gene2group[g] = ct
     if not panel_genes:
         raise SystemExit("ERROR: no panel genes remain after panel-gating against var_names.")
 
-    X = resolve_expression(adata_obj, lognorm_layer)
+    # Call for its side effects: validates the layer exists and warns if it isn't log-norm.
+    resolve_expression(adata_obj, lognorm_layer)
     sub = adata_obj[:, panel_genes]
     M = sub.layers[lognorm_layer] if lognorm_layer else sub.X
     M = M.toarray() if sp.issparse(M) else np.asarray(M)
     df = pd.DataFrame(M, columns=panel_genes)
     cl = adata_obj.obs[cluster_key].astype(str).values
     df["_cl"] = cl
-    cats = (list(adata_obj.obs[cluster_key].cat.categories)
-            if hasattr(adata_obj.obs[cluster_key], "cat")
-            else sorted(pd.unique(cl)))
-    pct = df.groupby("_cl")[panel_genes].apply(lambda d: (d > 0).mean()).reindex([str(c) for c in cats])
+    cats = (
+        list(adata_obj.obs[cluster_key].cat.categories)
+        if hasattr(adata_obj.obs[cluster_key], "cat")
+        else sorted(pd.unique(cl))
+    )
+    pct = (
+        df.groupby("_cl")[panel_genes]
+        .apply(lambda d: (d > 0).mean())
+        .reindex([str(c) for c in cats])
+    )
     mean = df.groupby("_cl")[panel_genes].mean().reindex([str(c) for c in cats])
     pct.index.name = mean.index.name = cluster_key
 
@@ -123,18 +147,30 @@ def cli(
     if dotplot:
         try:
             import matplotlib
+
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
             import scanpy as sc
-            plots = wd / "plots"; plots.mkdir(parents=True, exist_ok=True)
+
+            plots = wd / "plots"
+            plots.mkdir(parents=True, exist_ok=True)
             # group genes by candidate type so the dot plot reads as type-blocks
-            var_names = {ct: [g for g in panel_genes if gene2group[g] == ct] for ct in kept
-                         if any(gene2group[g] == ct for g in panel_genes)}
+            var_names = {
+                ct: [g for g in panel_genes if gene2group[g] == ct]
+                for ct in kept
+                if any(gene2group[g] == ct for g in panel_genes)
+            }
             adata_obj.obs["_cl_cat"] = pd.Categorical(cl, categories=[str(c) for c in cats])
             sc.settings.figdir = str(plots)
             dp = sc.pl.dotplot(
-                adata_obj, var_names if len(var_names) > 1 else panel_genes, groupby="_cl_cat",
-                layer=lognorm_layer, standard_scale="var", show=False, return_fig=True)
+                adata_obj,
+                var_names if len(var_names) > 1 else panel_genes,
+                groupby="_cl_cat",
+                layer=lognorm_layer,
+                standard_scale="var",
+                show=False,
+                return_fig=True,
+            )
             outp = plots / f"dotplot_{level}.png"
             dp.savefig(str(outp), dpi=130, bbox_inches="tight")
             plt.close("all")
@@ -143,5 +179,7 @@ def cli(
             eprint(f"   WARN: dot plot failed ({type(e).__name__}: {e}); tables were still written")
 
     eprint(">> done")
-    print(f"genes_profiled={len(panel_genes)} clusters={len(cats)} "
-          f"pct=tables/panel_pct_{level}.csv mean=tables/panel_mean_{level}.csv")
+    print(
+        f"genes_profiled={len(panel_genes)} clusters={len(cats)} "
+        f"pct=tables/panel_pct_{level}.csv mean=tables/panel_mean_{level}.csv"
+    )

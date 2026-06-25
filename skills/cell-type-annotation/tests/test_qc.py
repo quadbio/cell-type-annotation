@@ -2,6 +2,7 @@
 detectable by writing standard metrics + a cell-cycle signal into the canonical sidecar's obs
 (only when absent). Run through the installed `cta` console script, like the other smoke tests.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,10 +12,34 @@ import numpy as np
 
 # A handful of real Tirosh S / G2M symbols (subset of the command's defaults) so the
 # case-insensitive cell-cycle match has enough genes on the panel to score.
-S_GENES = ["MCM5", "PCNA", "TYMS", "FEN1", "MCM2", "MCM4", "RRM1", "UNG", "GINS2", "MCM6",
-           "CDCA7", "DTL"]
-G2M_GENES = ["HMGB2", "CDK1", "NUSAP1", "UBE2C", "BIRC5", "TPX2", "TOP2A", "NDC80", "CKS2",
-             "NUF2", "CKS1B", "MKI67"]
+S_GENES = [
+    "MCM5",
+    "PCNA",
+    "TYMS",
+    "FEN1",
+    "MCM2",
+    "MCM4",
+    "RRM1",
+    "UNG",
+    "GINS2",
+    "MCM6",
+    "CDCA7",
+    "DTL",
+]
+G2M_GENES = [
+    "HMGB2",
+    "CDK1",
+    "NUSAP1",
+    "UBE2C",
+    "BIRC5",
+    "TPX2",
+    "TOP2A",
+    "NDC80",
+    "CKS2",
+    "NUF2",
+    "CKS1B",
+    "MKI67",
+]
 MT_GENES = ["MT-CO1", "MT-ND1", "MT-CYB"]
 
 
@@ -45,12 +70,14 @@ def _write_adata(path, *, with_cc=True, mito=True, n_fillers=53):
 def _run_qc(adata_path, *extra):
     return subprocess.run(
         ["cta", "data", "qc", "--adata", str(adata_path), *extra],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
 
 
 def _read(path):
     import anndata as ad
+
     return ad.read_h5ad(path)
 
 
@@ -61,8 +88,14 @@ def test_qc_writes_metrics_and_cell_cycle(tmp_path):
     assert r.returncode == 0, r.stderr
     adata = _read(src)
 
-    for col in ("n_genes_by_counts", "total_counts", "pct_counts_mt",
-                "S_score", "G2M_score", "phase"):
+    for col in (
+        "n_genes_by_counts",
+        "total_counts",
+        "pct_counts_mt",
+        "S_score",
+        "G2M_score",
+        "phase",
+    ):
         assert col in adata.obs.columns, f"missing {col}"
     # pct_counts_mt is a real percentage in (0, 100) given the MT- genes carry counts
     assert (adata.obs["pct_counts_mt"] > 0).all()
@@ -105,6 +138,6 @@ def test_qc_skips_cell_cycle_when_genes_off_panel(tmp_path):
     adata = _read(src)
 
     assert "n_genes_by_counts" in adata.obs.columns  # depth metric still computed
-    assert "phase" not in adata.obs.columns           # cell-cycle honestly skipped
+    assert "phase" not in adata.obs.columns  # cell-cycle honestly skipped
     summary = json.loads((src.with_name("qc.json")).read_text())
     assert summary["cell_cycle"]["scored"] is False

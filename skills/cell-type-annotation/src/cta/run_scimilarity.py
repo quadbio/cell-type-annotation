@@ -28,31 +28,43 @@ Usage:
 Writes tables/refmap_<level>_<label-col>.csv with columns:
   cluster, top1, frac1, top2, frac2, mean_conf, method
 """
+
 from __future__ import annotations
 
 import numpy as np
 import typer
 
 from cta.io import (
-    CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, aggregate_predictions, eprint,
-    load_adata, require_obs, resolve_workdir, safe_cluster_id, save_table)
+    CLUSTER_KEY_OPT,
+    LEVEL_OPT,
+    WORKDIR_OPT,
+    aggregate_predictions,
+    eprint,
+    load_adata,
+    require_obs,
+    resolve_workdir,
+    safe_cluster_id,
+    save_table,
+)
 
 
 def cli(
     query: str = typer.Option(
-        ..., "--query", "--adata",
-        help="the query AnnData to annotate (alias: --adata)"),
+        ..., "--query", "--adata", help="the query AnnData to annotate (alias: --adata)"
+    ),
     cluster_key: str = CLUSTER_KEY_OPT,
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
     model_path: str = typer.Option(
-        ..., help="SCimilarity model dir (the <dest>/model_v1.1 from "
-        "`cta reference fetch-scimilarity`)"),
+        ...,
+        help="SCimilarity model dir (the <dest>/model_v1.1 from `cta reference fetch-scimilarity`)",
+    ),
     counts_layer: str = typer.Option(
-        "counts", help="layer with RAW COUNTS — the canonical 'counts' layer by default "
-        "(pass 'X' only if X itself is counts)"),
-    label_col: str = typer.Option(
-        "scimilarity", help="name used in the output table filename"),
+        "counts",
+        help="layer with RAW COUNTS — the canonical 'counts' layer by default "
+        "(pass 'X' only if X itself is counts)",
+    ),
+    label_col: str = typer.Option("scimilarity", help="name used in the output table filename"),
 ) -> None:
     """Optional zero-shot cross-check via SCimilarity — a hypothesis (not a verdict). HUMAN-only."""
     try:
@@ -63,10 +75,10 @@ def cli(
             "`pixi install -e gpu`, then provision the model bundle with "
             "`cta reference fetch-scimilarity --dest DIR` (~9 GB annotation-only subset; "
             "needs ~16-27 GB RAM at runtime, CPU is fine)."
-        )
+        ) from None
 
     eprint(f">> loading query {query}")
-    query_obj = load_adata(query)   # canonical: counts in layers['counts'], symbols as var_names
+    query_obj = load_adata(query)  # canonical: counts in layers['counts'], symbols as var_names
     require_obs(query_obj, cluster_key, "cluster key")
 
     # SCimilarity needs RAW COUNTS in layers['counts']: align_dataset carries that layer
@@ -78,7 +90,8 @@ def cli(
         raise SystemExit(
             f"ERROR: --counts-layer '{counts_layer}' not in query.layers "
             f"{list(query_obj.layers.keys())}. Run `cta data canonicalize` so raw counts land "
-            "in layers['counts'] (and var_names become gene symbols), then retry.")
+            "in layers['counts'] (and var_names become gene symbols), then retry."
+        )
     query_obj.layers["counts"] = src
 
     eprint(f">> loading SCimilarity model: {model_path}")

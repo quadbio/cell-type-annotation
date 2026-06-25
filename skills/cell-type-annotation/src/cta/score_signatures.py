@@ -31,9 +31,8 @@ Usage:
       --markers markers.json --workdir /proj/ds-annotation-run --level L1 \
       [--lognorm-layer lognorm]
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 import numpy as np
 import pandas as pd
@@ -41,8 +40,18 @@ import typer
 
 from cta.constants import MIN_ON_PANEL_MARKERS
 from cta.io import (
-    ADATA_OPT, CLUSTER_KEY_OPT, LEVEL_OPT, WORKDIR_OPT, adata_with_lognorm_X,
-    eprint, load_adata, panel_gate, require_obs, resolve_workdir, save_table)
+    ADATA_OPT,
+    CLUSTER_KEY_OPT,
+    LEVEL_OPT,
+    WORKDIR_OPT,
+    adata_with_lognorm_X,
+    eprint,
+    load_adata,
+    panel_gate,
+    require_obs,
+    resolve_workdir,
+    save_table,
+)
 
 
 def _split_pos_neg(markers: dict):
@@ -59,24 +68,25 @@ def _split_pos_neg(markers: dict):
 
 
 def _net_from_sets(sets: dict) -> pd.DataFrame:
-    rows = [{"source": ct, "target": g, "weight": 1.0}
-            for ct, genes in sets.items() for g in genes]
+    rows = [{"source": ct, "target": g, "weight": 1.0} for ct, genes in sets.items() for g in genes]
     return pd.DataFrame(rows)
 
 
 def cli(
     adata: str = ADATA_OPT,
     cluster_key: str = CLUSTER_KEY_OPT,
-    markers: str = typer.Option(
-        ..., help="JSON {type:[genes]} or {type:{pos,neg}}"),
+    markers: str = typer.Option(..., help="JSON {type:[genes]} or {type:{pos,neg}}"),
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
-    lognorm_layer: Optional[str] = typer.Option(
-        None, help="layer with log-normalized data; default uses adata.X"),
+    lognorm_layer: str | None = typer.Option(
+        None, help="layer with log-normalized data; default uses adata.X"
+    ),
     min_targets: int = typer.Option(
-        1, help="decoupler tmin: drop signatures with <= this many on-panel "
-                "genes. Curated marker sets are small, so the default is "
-                "permissive (1); raise it for noisy/large sets."),
+        1,
+        help="decoupler tmin: drop signatures with <= this many on-panel "
+        "genes. Curated marker sets are small, so the default is "
+        "permissive (1); raise it for noisy/large sets.",
+    ),
 ) -> None:
     """Score curated marker signatures against clusters/cells."""
     import json
@@ -99,18 +109,23 @@ def cli(
     dropped_rows = []
     for ct in pos:
         n_on_panel = len(pos_kept[ct])
-        dropped_rows.append({
-            "cell_type": ct,
-            "n_pos": len(pos[ct]), "n_pos_on_panel": n_on_panel,
-            "uncallable": n_on_panel < MIN_ON_PANEL_MARKERS,
-            "dropped_pos": ";".join(pos_dropped.get(ct, [])),
-            "dropped_neg": ";".join(neg_dropped.get(ct, [])),
-        })
+        dropped_rows.append(
+            {
+                "cell_type": ct,
+                "n_pos": len(pos[ct]),
+                "n_pos_on_panel": n_on_panel,
+                "uncallable": n_on_panel < MIN_ON_PANEL_MARKERS,
+                "dropped_pos": ";".join(pos_dropped.get(ct, [])),
+                "dropped_neg": ";".join(neg_dropped.get(ct, [])),
+            }
+        )
     save_table(pd.DataFrame(dropped_rows), wd, f"panel_gating_{level}.csv")
     uncallable = {ct for ct, g in pos_kept.items() if len(g) < MIN_ON_PANEL_MARKERS}
     if uncallable:
-        eprint(f"   UNCALLABLE on this panel (<{MIN_ON_PANEL_MARKERS} on-panel markers): "
-               f"{sorted(uncallable)} — these contribute to Unknown, not a low score.")
+        eprint(
+            f"   UNCALLABLE on this panel (<{MIN_ON_PANEL_MARKERS} on-panel markers): "
+            f"{sorted(uncallable)} — these contribute to Unknown, not a low score."
+        )
     usable = {ct: g for ct, g in pos_kept.items() if g}
     if not usable:
         raise SystemExit("ERROR: no marker genes remain after panel-gating.")
@@ -134,11 +149,13 @@ def cli(
                 ranked[str(g)] = sub["names"].astype(str).tolist()
         else:
             eprint("   overlap: markers table not found — computing rank_genes_groups")
-            sc.tl.rank_genes_groups(adata_obj, groupby=cluster_key, method="wilcoxon",
-                                    tie_correct=True, use_raw=False)
+            sc.tl.rank_genes_groups(
+                adata_obj, groupby=cluster_key, method="wilcoxon", tie_correct=True, use_raw=False
+            )
             for g in clusters:
-                ranked[str(g)] = sc.get.rank_genes_groups_df(
-                    adata_obj, group=str(g)).head(100)["names"].tolist()
+                ranked[str(g)] = (
+                    sc.get.rank_genes_groups_df(adata_obj, group=str(g)).head(100)["names"].tolist()
+                )
         ora_rows = []
         for g in clusters:
             top = ranked.get(str(g), [])
@@ -146,10 +163,16 @@ def cli(
                 inter = len(set(top) & set(genes))
                 # `frac` is overlap / n_on_panel: a 1-gene set can hit frac=1.0 by
                 # chance, so always read it next to n_markers and `uncallable`.
-                ora_rows.append({"cluster": str(g), "cell_type": ct,
-                                 "overlap": inter, "n_markers": len(genes),
-                                 "frac": round(inter / max(len(genes), 1), 3),
-                                 "uncallable": len(genes) < MIN_ON_PANEL_MARKERS})
+                ora_rows.append(
+                    {
+                        "cluster": str(g),
+                        "cell_type": ct,
+                        "overlap": inter,
+                        "n_markers": len(genes),
+                        "frac": round(inter / max(len(genes), 1), 3),
+                        "uncallable": len(genes) < MIN_ON_PANEL_MARKERS,
+                    }
+                )
         ora_df = pd.DataFrame(ora_rows)
         save_table(ora_df, wd, f"scores_overlap_{level}.csv")
     except Exception as e:  # noqa: BLE001
@@ -158,6 +181,7 @@ def cli(
     # --- decoupler aucell (per-cell, robust rank-AUC) ---
     try:
         import decoupler as dc
+
         net = _net_from_sets(usable)
         eprint(f">> decoupler aucell (per-cell, tmin={min_targets})")
         dc.mt.aucell(adata_obj, net=net, tmin=min_targets)
@@ -189,6 +213,7 @@ def cli(
         if not has_neg:
             raise ImportError("skip-no-negatives")
         import pyucell
+
         eprint(">> pyUCell (per-cell, pos+neg)")
         signatures = {}
         for ct, g in usable.items():
@@ -217,11 +242,15 @@ def cli(
         if ora_df is not None and len(ora_df):
             ov = ora_df[~ora_df["uncallable"]]
             if len(ov):
-                ovtop = (ov.sort_values(["overlap", "frac"], ascending=False)
-                           .groupby("cluster").head(1).set_index("cluster")["cell_type"])
+                ovtop = (
+                    ov.sort_values(["overlap", "frac"], ascending=False)
+                    .groupby("cluster")
+                    .head(1)
+                    .set_index("cluster")["cell_type"]
+                )
                 cons["overlap_top"] = ovtop
         if auc_bc is not None:
-            cons["aucell_top"] = auc_bc.idxmax(axis=1)            # raw (biased — for reference)
+            cons["aucell_top"] = auc_bc.idxmax(axis=1)  # raw (biased — for reference)
             std = auc_bc.std(ddof=0).replace(0, np.nan)
             cons["aucell_z_top"] = ((auc_bc - auc_bc.mean()) / std).idxmax(axis=1)
         if uc_bc is not None:
@@ -231,8 +260,8 @@ def cli(
         winners = [c for c in ["overlap_top", "aucell_z_top", "ucell_top"] if c in cons.columns]
         if winners:
             cons["agree"] = cons[winners].apply(
-                lambda r: int(r.dropna().value_counts().iloc[0]) if r.notna().any() else 0,
-                axis=1)
+                lambda r: int(r.dropna().value_counts().iloc[0]) if r.notna().any() else 0, axis=1
+            )
         save_table(cons.reset_index(), wd, f"crosscheck_{level}.csv")
     except Exception as e:  # noqa: BLE001
         eprint(f"   consolidated cross-check degraded ({type(e).__name__}: {e})")
@@ -246,6 +275,7 @@ def _get_dc_result(adata, method):
     for key in adata.obsm:
         if method in key:
             res = adata.obsm[key]
-            return res if isinstance(res, pd.DataFrame) else pd.DataFrame(
-                res, index=adata.obs_names)
+            return (
+                res if isinstance(res, pd.DataFrame) else pd.DataFrame(res, index=adata.obs_names)
+            )
     return None

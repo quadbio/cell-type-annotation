@@ -30,13 +30,13 @@ Usage:
       [--mito-prefix MT-,mt-] [--ribo-prefix RPS,RPL,Rps,Rpl] \
       [--s-genes a,b,c|FILE] [--g2m-genes a,b,c|FILE] [--recompute]
 """
+
 from __future__ import annotations
 
 import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -48,19 +48,105 @@ from cta.io import eprint, load_adata, split_csv
 # atlases have renamed (MLF1IP->CENPU, FAM64A->PIMREG, HN1->JPT1); those simply go unmatched
 # on such objects, which is fine — override with --s-genes/--g2m-genes for a custom panel.
 _S_GENES_DEFAULT = [
-    "MCM5", "PCNA", "TYMS", "FEN1", "MCM2", "MCM4", "RRM1", "UNG", "GINS2", "MCM6",
-    "CDCA7", "DTL", "PRIM1", "UHRF1", "MLF1IP", "HELLS", "RFC2", "RPA2", "NASP",
-    "RAD51AP1", "GMNN", "WDR76", "SLBP", "CCNE2", "UBR7", "POLD3", "MSH2", "ATAD2",
-    "RAD51", "RRM2", "CDC45", "CDC6", "EXO1", "TIPIN", "DSCC1", "BLM", "CASP8AP2",
-    "USP1", "CLSPN", "POLA1", "CHAF1B", "BRIP1", "E2F8",
+    "MCM5",
+    "PCNA",
+    "TYMS",
+    "FEN1",
+    "MCM2",
+    "MCM4",
+    "RRM1",
+    "UNG",
+    "GINS2",
+    "MCM6",
+    "CDCA7",
+    "DTL",
+    "PRIM1",
+    "UHRF1",
+    "MLF1IP",
+    "HELLS",
+    "RFC2",
+    "RPA2",
+    "NASP",
+    "RAD51AP1",
+    "GMNN",
+    "WDR76",
+    "SLBP",
+    "CCNE2",
+    "UBR7",
+    "POLD3",
+    "MSH2",
+    "ATAD2",
+    "RAD51",
+    "RRM2",
+    "CDC45",
+    "CDC6",
+    "EXO1",
+    "TIPIN",
+    "DSCC1",
+    "BLM",
+    "CASP8AP2",
+    "USP1",
+    "CLSPN",
+    "POLA1",
+    "CHAF1B",
+    "BRIP1",
+    "E2F8",
 ]
 _G2M_GENES_DEFAULT = [
-    "HMGB2", "CDK1", "NUSAP1", "UBE2C", "BIRC5", "TPX2", "TOP2A", "NDC80", "CKS2",
-    "NUF2", "CKS1B", "MKI67", "TMPO", "CENPF", "TACC3", "FAM64A", "SMC4", "CCNB2",
-    "CKAP2L", "CKAP2", "AURKB", "BUB1", "KIF11", "ANP32E", "TUBB4B", "GTSE1", "KIF20B",
-    "HJURP", "CDCA3", "HN1", "CDC20", "TTK", "CDC25C", "KIF2C", "RANGAP1", "NCAPD2",
-    "DLGAP5", "CDCA2", "CDCA8", "ECT2", "KIF23", "HMMR", "AURKA", "PSRC1", "ANLN",
-    "LBR", "CKAP5", "CENPE", "CTCF", "NEK2", "G2E3", "GAS2L3", "CBX5", "CENPA",
+    "HMGB2",
+    "CDK1",
+    "NUSAP1",
+    "UBE2C",
+    "BIRC5",
+    "TPX2",
+    "TOP2A",
+    "NDC80",
+    "CKS2",
+    "NUF2",
+    "CKS1B",
+    "MKI67",
+    "TMPO",
+    "CENPF",
+    "TACC3",
+    "FAM64A",
+    "SMC4",
+    "CCNB2",
+    "CKAP2L",
+    "CKAP2",
+    "AURKB",
+    "BUB1",
+    "KIF11",
+    "ANP32E",
+    "TUBB4B",
+    "GTSE1",
+    "KIF20B",
+    "HJURP",
+    "CDCA3",
+    "HN1",
+    "CDC20",
+    "TTK",
+    "CDC25C",
+    "KIF2C",
+    "RANGAP1",
+    "NCAPD2",
+    "DLGAP5",
+    "CDCA2",
+    "CDCA8",
+    "ECT2",
+    "KIF23",
+    "HMMR",
+    "AURKA",
+    "PSRC1",
+    "ANLN",
+    "LBR",
+    "CKAP5",
+    "CENPE",
+    "CTCF",
+    "NEK2",
+    "G2E3",
+    "GAS2L3",
+    "CBX5",
+    "CENPA",
 ]
 
 # obs columns calculate_qc_metrics produces that we keep (lean: skip the log1p_* / percent_top
@@ -73,11 +159,12 @@ def _prefix_mask(var_names, prefixes: list[str]):
     """Boolean mask over var_names for genes starting with any of `prefixes` (case-sensitive
     so 'MT-'/'mt-' are both listed explicitly and a human 'MTOR' is not caught by 'mt-')."""
     import numpy as np
+
     names = [str(n) for n in var_names]
     return np.array([any(n.startswith(p) for p in prefixes) for n in names], dtype=bool)
 
 
-def _resolve_gene_list(spec: Optional[str], default: list[str]) -> list[str]:
+def _resolve_gene_list(spec: str | None, default: list[str]) -> list[str]:
     """A --s-genes/--g2m-genes value: a path to a newline/comma file, a comma list, or None
     (use the Tirosh default)."""
     if not spec:
@@ -113,8 +200,10 @@ def _compute_qc_metrics(adata, mito_prefixes, ribo_prefixes, summary):
     counts = adata.layers.get("counts") if adata.layers else None
     if counts is None:
         # n_genes (nonzero genes per cell) is still valid from X; depth/mito need real counts.
-        eprint("   WARN: no layers['counts'] — computing n_genes_by_counts from X only; "
-               "total_counts / pct_counts_mt need integer counts and are SKIPPED.")
+        eprint(
+            "   WARN: no layers['counts'] — computing n_genes_by_counts from X only; "
+            "total_counts / pct_counts_mt need integer counts and are SKIPPED."
+        )
         X = adata.X
         nnz = (X > 0).sum(axis=1)
         nnz = np.asarray(nnz).ravel()
@@ -126,8 +215,10 @@ def _compute_qc_metrics(adata, mito_prefixes, ribo_prefixes, summary):
     ribo = _prefix_mask(adata.var_names, ribo_prefixes)
     summary["n_mito_genes"] = int(mt.sum())
     summary["n_ribo_genes"] = int(ribo.sum())
-    eprint(f"   mito genes matched: {int(mt.sum())} ({','.join(mito_prefixes)}); "
-           f"ribo genes matched: {int(ribo.sum())} ({','.join(ribo_prefixes)})")
+    eprint(
+        f"   mito genes matched: {int(mt.sum())} ({','.join(mito_prefixes)}); "
+        f"ribo genes matched: {int(ribo.sum())} ({','.join(ribo_prefixes)})"
+    )
 
     # Compute on a throwaway object so calculate_qc_metrics never pollutes the canonical
     # var/obs; pull back only the obs columns we keep.
@@ -140,10 +231,18 @@ def _compute_qc_metrics(adata, mito_prefixes, ribo_prefixes, summary):
         qc_vars.append("ribo")
     tmp = ad.AnnData(X=counts, var=tmp_var)
     obs_metrics, _ = sc.pp.calculate_qc_metrics(
-        tmp, qc_vars=qc_vars, percent_top=None, log1p=False, inplace=False)
+        tmp, qc_vars=qc_vars, percent_top=None, log1p=False, inplace=False
+    )
     obs_metrics.index = adata.obs_names
-    keep = [c for c in (_BASE_METRICS + [f"pct_counts_{v}" for v in qc_vars]
-                        + [f"total_counts_{v}" for v in qc_vars]) if c in obs_metrics.columns]
+    keep = [
+        c
+        for c in (
+            _BASE_METRICS
+            + [f"pct_counts_{v}" for v in qc_vars]
+            + [f"total_counts_{v}" for v in qc_vars]
+        )
+        if c in obs_metrics.columns
+    ]
     return obs_metrics[keep]
 
 
@@ -156,13 +255,17 @@ def _compute_cell_cycle(adata, s_genes, g2m_genes, summary):
 
     s_present = _present_case_insensitive(s_genes, adata.var_names)
     g2m_present = _present_case_insensitive(g2m_genes, adata.var_names)
-    summary["cell_cycle"] = {"s_genes_on_panel": len(s_present),
-                             "g2m_genes_on_panel": len(g2m_present)}
+    summary["cell_cycle"] = {
+        "s_genes_on_panel": len(s_present),
+        "g2m_genes_on_panel": len(g2m_present),
+    }
     # Need a handful of each for a meaningful score; below that, scoring is noise (and scanpy
     # can fail to build a control set). Skip honestly rather than emit a junk signal.
     if len(s_present) < 2 or len(g2m_present) < 2:
-        eprint(f"   cell-cycle: only {len(s_present)} S / {len(g2m_present)} G2M genes on "
-               "the panel — too few to score; SKIPPING (override with --s-genes/--g2m-genes).")
+        eprint(
+            f"   cell-cycle: only {len(s_present)} S / {len(g2m_present)} G2M genes on "
+            "the panel — too few to score; SKIPPING (override with --s-genes/--g2m-genes)."
+        )
         summary["cell_cycle"]["scored"] = False
         return None
 
@@ -177,17 +280,23 @@ def _compute_cell_cycle(adata, s_genes, g2m_genes, summary):
 
 def cli(
     adata: str = typer.Option(
-        ..., help="path to the canonical sidecar (<stem>_cta.h5ad) to add QC metrics to"),
+        ..., help="path to the canonical sidecar (<stem>_cta.h5ad) to add QC metrics to"
+    ),
     mito_prefix: str = typer.Option(
-        "MT-,mt-", help="comma-separated gene-name prefixes for mitochondrial genes"),
+        "MT-,mt-", help="comma-separated gene-name prefixes for mitochondrial genes"
+    ),
     ribo_prefix: str = typer.Option(
-        "RPS,RPL,Rps,Rpl", help="comma-separated gene-name prefixes for ribosomal genes"),
-    s_genes: Optional[str] = typer.Option(
-        None, help="override S-phase genes: comma list or a file (default: Tirosh 2015)"),
-    g2m_genes: Optional[str] = typer.Option(
-        None, help="override G2M genes: comma list or a file (default: Tirosh 2015)"),
+        "RPS,RPL,Rps,Rpl", help="comma-separated gene-name prefixes for ribosomal genes"
+    ),
+    s_genes: str | None = typer.Option(
+        None, help="override S-phase genes: comma list or a file (default: Tirosh 2015)"
+    ),
+    g2m_genes: str | None = typer.Option(
+        None, help="override G2M genes: comma list or a file (default: Tirosh 2015)"
+    ),
     recompute: bool = typer.Option(
-        False, help="overwrite QC columns that already exist (default: fill only absent ones)"),
+        False, help="overwrite QC columns that already exist (default: fill only absent ones)"
+    ),
 ) -> None:
     """Compute standard QC metrics + a cell-cycle signal into the canonical sidecar's obs."""
     import pandas as pd
@@ -195,17 +304,24 @@ def cli(
     path = Path(adata).expanduser()
     # Load the file as-is (it IS the canonical working copy); never reach for another sidecar.
     adata_obj = load_adata(str(path), prefer_slim=False)
-    summary: dict = {"adata": str(path), "n_obs": int(adata_obj.n_obs),
-                     "n_vars": int(adata_obj.n_vars)}
+    summary: dict = {
+        "adata": str(path),
+        "n_obs": int(adata_obj.n_obs),
+        "n_vars": int(adata_obj.n_vars),
+    }
 
     eprint(f">> QC metrics on {path.name}  (n_obs={adata_obj.n_obs}, n_vars={adata_obj.n_vars})")
     metrics = _compute_qc_metrics(
-        adata_obj, split_csv(mito_prefix), split_csv(ribo_prefix), summary)
+        adata_obj, split_csv(mito_prefix), split_csv(ribo_prefix), summary
+    )
 
     eprint(">> cell-cycle signal")
     cc = _compute_cell_cycle(
-        adata_obj, _resolve_gene_list(s_genes, _S_GENES_DEFAULT),
-        _resolve_gene_list(g2m_genes, _G2M_GENES_DEFAULT), summary)
+        adata_obj,
+        _resolve_gene_list(s_genes, _S_GENES_DEFAULT),
+        _resolve_gene_list(g2m_genes, _G2M_GENES_DEFAULT),
+        summary,
+    )
 
     candidate = metrics if cc is None else pd.concat([metrics, cc], axis=1)
 
@@ -221,8 +337,9 @@ def cli(
     summary["skipped_existing"] = skipped
 
     if skipped:
-        eprint(f"   kept {len(skipped)} existing column(s) (use --recompute to overwrite): "
-               f"{skipped}")
+        eprint(
+            f"   kept {len(skipped)} existing column(s) (use --recompute to overwrite): {skipped}"
+        )
     if not written:
         eprint(">> nothing to write (all QC columns already present). File left unchanged.")
         print(str(path))
