@@ -69,7 +69,6 @@ def test_markers_compute_end_to_end(tiny_h5ad, tmp_path):
             str(workdir),
             "--level",
             "L1",
-            "--no-cosg",
         ],
         capture_output=True,
         text=True,
@@ -81,6 +80,12 @@ def test_markers_compute_end_to_end(tiny_h5ad, tmp_path):
     df = pd.read_csv(out)
     assert "cluster" in df.columns and len(df) > 0
     assert set(df["cluster"].astype(str)) == {"0", "1", "2"}
+
+    # filter_rank_genes_groups specificity table (replaces the old COSG table)
+    filt = workdir / "tables" / "markers_filtered_L1.csv"
+    assert filt.exists(), f"filtered marker table not written; stderr:\n{r.stderr}"
+    fdf = pd.read_csv(filt)
+    assert {"cluster", "rank", "gene", "logfoldchange"}.issubset(fdf.columns)
 
 
 def test_inspect_writes_report_to_workdir(tiny_h5ad, tmp_path):

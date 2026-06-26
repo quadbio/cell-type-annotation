@@ -149,7 +149,7 @@ re-scaffold, then build the report with `--strict`.
 A card records:
 
 - cluster id, n cells, parent assignment, hierarchy level;
-- top DE / COSG markers (with pct-expressing and effect sizes);
+- top DE / cluster-specific (filter_rank_genes_groups) markers (with pct-expressing and effect sizes);
 - the candidate types considered, each with its panel-gated marker set and the score
   it received;
 - **dropped (off-panel) markers** for each candidate;
@@ -253,7 +253,7 @@ model, and the evidence card is the annotator's *own argument* — a critic hand
 the card inherits its framing and will tend to rubber-stamp. To make the challenge real:
 
 - The critic reads the **raw exported tables** (`markers_<level>.csv`,
-  `cosg_<level>.csv`, `scores_*.csv`, `panel_gating_<level>.csv`) — not just the
+  `markers_filtered_<level>.csv`, `scores_*.csv`, `panel_gating_<level>.csv`) — not just the
   evidence card — and **re-derives** the top markers itself, treating the card as the
   claim under test rather than as input.
 - The critic must fetch **at least one competing hypothesis from an external source**
@@ -310,7 +310,8 @@ Scale the fan-out without dropping rigour:
 - **Absence of a gene is not absence of expression** if the gene is off-panel.
   Panel-gate everything and never use an off-panel gene as negative evidence.
 - Expect **segmentation spillover** on spatial data → false shared markers between
-  spatially adjacent types; lean on COSG specificity and spatial coherence.
+  spatially adjacent types; lean on filter_rank_genes_groups specificity (the out-group-
+  fraction filter) and spatial coherence.
 - Spatial context (neighborhood composition, niche) is corroborating evidence, not a
   substitute for marker evidence.
 - Detect-and-alert only: if you see signs of unaddressed normalization, batch, or

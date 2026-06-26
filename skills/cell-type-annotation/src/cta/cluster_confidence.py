@@ -2,15 +2,16 @@
 
 Confidence in the labels CSV is the annotator's judgement, but it should be calibrated
 against objective signals. This computes, per cluster, a cheap separation proxy from the
-COSG specificity scores (how distinctive its top markers are) and, if present, the
-cross-check agreement, and emits a suggested 0–1 confidence band. The annotator compares
-their own value to this and the report flags large mismatches (a high hand-set confidence
-on a cluster with a weak marker margin is exactly the thing to re-examine).
+specificity of the markers that survive `filter_rank_genes_groups` (how distinctive its top
+markers are, measured as log2 fold-change) and, if present, the cross-check agreement, and
+emits a suggested 0–1 confidence band. The annotator compares their own value to this and the
+report flags large mismatches (a high hand-set confidence on a cluster with a weak marker
+margin is exactly the thing to re-examine).
 
-Signals per cluster (from tables/cosg_<level>.csv):
-  cosg_top1        — specificity of the single most distinctive marker
-  cosg_margin      — cosg_top1 - cosg_top2 (how much the top marker stands out)
-  n_strong         — number of markers with cosg_score >= --strong-thresh
+Signals per cluster (from tables/markers_filtered_<level>.csv):
+  lfc_top1         — log2FC of the strongest surviving cluster-specific marker
+  lfc_margin       — lfc_top1 - lfc_top2 (how much the top marker stands out)
+  n_strong         — number of surviving markers with log2FC >= --strong-thresh
 Plus, if tables/crosscheck_<level>.csv exists: `agree` (how many methods concur).
 
 Writes tables/cluster_confidence_<level>.csv with those columns + `suggested_conf`.
@@ -34,18 +35,18 @@ def cli(
     workdir: str = WORKDIR_OPT,
     level: str = LEVEL_OPT,
     strong_thresh: float = typer.Option(
-        0.02, help="COSG score above which a marker counts as 'strong'"
+        1.0, help="log2FC above which a surviving marker counts as 'strong'"
     ),
 ) -> None:
-    """Suggest a per-cluster confidence band from COSG specificity + cross-check agreement."""
+    """Suggest a per-cluster confidence band from marker specificity + cross-check agreement."""
     import pandas as pd
 
     wd = resolve_workdir(workdir)
-    cosg_path = wd / "tables" / f"cosg_{level}.csv"
-    if not cosg_path.exists():
-        raise SystemExit(f"ERROR: {cosg_path} not found (run compute_markers.py first)")
-    cosg = pd.read_csv(cosg_path)
-    cosg["cluster"] = cosg["cluster"].astype(str)
+    markers_path = wd / "tables" / f"markers_filtered_{level}.csv"
+    if not markers_path.exists():
+        raise SystemExit(f"ERROR: {markers_path} not found (run compute_markers.py first)")
+    markers = pd.read_csv(markers_path)
+    markers["cluster"] = markers["cluster"].astype(str)
 
     cc = wd / "tables" / f"crosscheck_{level}.csv"
     agree = None
@@ -61,12 +62,15 @@ def cli(
             )
 
     rows = []
-    for cl, g in cosg.sort_values("rank").groupby("cluster"):
-        scores = pd.to_numeric(g["cosg_score"], errors="coerce").dropna().tolist()
-        top1 = scores[0] if scores else 0.0
-        top2 = scores[1] if len(scores) > 1 else 0.0
+    for cl, g in markers.groupby("cluster"):
+        # Specificity is now log2FC of the surviving (cluster-specific) markers. Sort descending so
+        # top1/top2 are the two strongest, regardless of the table's rank order.
+        lfc = pd.to_numeric(g["logfoldchange"], errors="coerce").dropna()
+        lfc = lfc.sort_values(ascending=False).tolist()
+        top1 = lfc[0] if lfc else 0.0
+        top2 = lfc[1] if len(lfc) > 1 else 0.0
         margin = top1 - top2
-        n_strong = int(sum(s >= strong_thresh for s in scores))
+        n_strong = int(sum(s >= strong_thresh for s in lfc))
         # crude, transparent banding (thresholds in cta.constants): strong & well-separated
         # -> high; weak -> low. First matching band wins; CONFIDENCE_BASE if none.
         conf = CONFIDENCE_BASE
@@ -80,15 +84,18 @@ def cli(
         rows.append(
             {
                 "cluster": str(cl),
-                "cosg_top1": round(top1, 4),
-                "cosg_margin": round(margin, 4),
+                "lfc_top1": round(top1, 4),
+                "lfc_margin": round(margin, 4),
                 "n_strong": n_strong,
                 "agree": ("" if a is None else a),
                 "suggested_conf": round(conf, 2),
             }
         )
 
-    out = pd.DataFrame(rows)
+    # Keep a stable header even when no cluster has surviving markers (e.g. filter_rank_genes_groups
+    # rejected everything), so the CSV is always readable downstream rather than headerless/empty.
+    cols = ["cluster", "lfc_top1", "lfc_margin", "n_strong", "agree", "suggested_conf"]
+    out = pd.DataFrame(rows, columns=cols)
     out.to_csv(wd / "tables" / f"cluster_confidence_{level}.csv", index=False)
     eprint(f">> wrote tables/cluster_confidence_{level}.csv ({len(out)} clusters)")
     print(out.to_string(index=False))

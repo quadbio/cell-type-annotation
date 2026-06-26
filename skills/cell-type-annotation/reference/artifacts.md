@@ -20,9 +20,9 @@ never inside this plugin repo. Record the chosen path in `run_state.json`.
 ├── assumptions.md        # Gate A ledger — signed off before any labels
 ├── plan.md               # the hierarchy, vocabulary contract, planned workflow
 ├── run_state.json        # machine-readable checkpoint (resume from here)
-├── tables/               # exported by scripts: DE, COSG, scores, per-cluster stats
+├── tables/               # exported by scripts: DE, specificity, scores, per-cluster stats
 │   ├── markers_<level>.csv          # rank_genes_groups (wilcoxon) + pts
-│   ├── cosg_<level>.csv             # COSG specificity scores
+│   ├── markers_filtered_<level>.csv # filter_rank_genes_groups survivors (cluster-specific markers, ranked by log2FC)
 │   ├── panel_gating_<level>.csv     # on-panel vs dropped (off-panel) markers
 │   ├── scores_overlap_<level>.csv   # per-cluster top-DE ∩ marker-set overlap
 │   ├── scores_aucell_<level>.csv    # decoupler aucell, per-cell → cluster mean
@@ -211,8 +211,13 @@ Minimal, machine-readable, the source of truth for resuming:
   operates on. `keys.var_convention ∈ {symbol, ensembl}` records the canonical `var_names`
   convention (normally `symbol`, so curated/CellTypist/literature markers panel-gate
   directly). The command also writes a `canonicalization.json` beside the sidecar recording
-  what it did (var-name source, counts source, genes renamed/unmapped/deduped) — fold its
-  essentials into `context.md`. `cta data qc` then fills standard QC + cell-cycle into the
+  what it did (var-name source, counts source, genes renamed/unmapped/deduped, and the
+  upfront gene filter — `gene_filter.min_cells` / `gene_filter.dropped`) — fold its
+  essentials into `context.md`. The gene filter is a small **absolute** floor
+  (`min_cells=5`) that drops genes in ≤4 cells, so every downstream step shares one clean
+  gene set; after it, a curated marker that's missing is "not measured" rather than "not
+  expressed" — but only for genes in <0.1% of cells, so panel-gating is unaffected in
+  practice. `cta data qc` then fills standard QC + cell-cycle into the
   same sidecar's obs (when absent) and writes a `qc.json` beside it (columns written,
   mito/ribo gene counts, cell-cycle coverage) — also fold its essentials into `context.md`.
 - `stage_reached ∈ {scene_setting, plan, execute}` tells a resuming session which
@@ -268,7 +273,7 @@ Ontology (CL) IDs. Not reusing a specific paper's labels.
 
 ## Workflow (per level, top-down + recursive)
 1. assemble priors → candidate types + markers
-2. panel-gate markers; score (DE/COSG + AUCell/UCell); one automated cross-check
+2. panel-gate markers; score (DE/specificity + AUCell/UCell); one automated cross-check
 3. Gate A: sign off the assumptions ledger (blocking first time)
 4. evidence card per cluster → assign / sub-cluster / Unknown
 5. critic pass (refute), reconcile, HTML report, checkpoint

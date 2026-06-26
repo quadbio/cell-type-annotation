@@ -398,6 +398,23 @@ def cli(
         slim.uns["log1p"] = adata_obj.uns["log1p"]
         eprint("   uns['log1p'] carried over")
 
+    # Upfront gene filter: drop genes detected in too few cells so every downstream step (markers,
+    # scoring, classifiers) sees one clean, consistent gene set instead of the full noise tail. A
+    # SMALL ABSOLUTE floor — see GENE_FILTER_MIN_CELLS in constants.py for why absolute, not relative
+    # (a relative threshold deletes genuine rare-cluster markers). Subsets X, the counts layer, the
+    # cp10k layer and var together. Runs after dedup so the symbol-indexed object is filtered.
+    import scanpy as sc
+
+    from cta.constants import GENE_FILTER_MIN_CELLS
+
+    n_before = slim.n_vars
+    sc.pp.filter_genes(slim, min_cells=GENE_FILTER_MIN_CELLS)
+    n_dropped = n_before - slim.n_vars
+    eprint(
+        f"   gene filter <- sc.pp.filter_genes(min_cells={GENE_FILTER_MIN_CELLS}): "
+        f"dropped {n_dropped}/{n_before} genes (in <{GENE_FILTER_MIN_CELLS} cells)"
+    )
+
     eprint(f">> writing {out_path}")
     slim.write_h5ad(out_path)
 
@@ -411,6 +428,7 @@ def cli(
         "lognorm_source": x_src,
         "counts_source": counts_src,
         "has_counts": counts is not None,
+        "gene_filter": {"min_cells": GENE_FILTER_MIN_CELLS, "dropped": int(n_dropped)},
     }
     summary_path = out_path.with_name("canonicalization.json")
     summary_path.write_text(json.dumps(summary, indent=2))

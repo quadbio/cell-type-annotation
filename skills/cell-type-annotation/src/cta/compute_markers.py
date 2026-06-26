@@ -1,9 +1,9 @@
 """Job A: per-cluster marker identification.
 
-rank_genes_groups (Wilcoxon, tie_correct — NOT the t-test default) on log-normalized data
-+ COSG specificity, written as tidy marker tables to <workdir>/tables/. The descriptive
-marker evidence that feeds annotation. NOT condition DE (Job B = pseudobulk + PyDESeq2;
-see reference/differential_expression.md).
+rank_genes_groups (Wilcoxon, scanpy defaults — NOT the t-test default) on log-normalized data
++ a `filter_rank_genes_groups` specificity pass, written as tidy marker tables to
+<workdir>/tables/. The descriptive marker evidence that feeds annotation. NOT condition DE
+(Job B = pseudobulk + PyDESeq2; see reference/differential_expression.md).
 """
 
 from __future__ import annotations
@@ -37,9 +37,8 @@ def cli(
     ),
     groups: str | None = typer.Option(None, help="comma-separated subset of clusters; default all"),
     n_genes: int = typer.Option(50, help="top genes per cluster to keep"),
-    no_cosg: bool = typer.Option(False, "--no-cosg/--cosg", help="skip COSG specificity scoring"),
 ) -> None:
-    """Per-cluster markers: rank_genes_groups (Wilcoxon, tie_correct) + COSG specificity."""
+    """Per-cluster markers: rank_genes_groups (Wilcoxon) + filter_rank_genes_groups specificity."""
     import pandas as pd
     import scanpy as sc
 
@@ -53,7 +52,7 @@ def cli(
     adata_obj.obs[cluster_key] = adata_obj.obs[cluster_key].astype("category")
     grps = split_csv(groups) or "all"
 
-    eprint(">> rank_genes_groups (wilcoxon, tie_correct=True, pts=True)")
+    eprint(">> rank_genes_groups (wilcoxon, pts=True)")
     # scanpy assembles its results frame one column per group, so with many clusters pandas
     # raises 'DataFrame is highly fragmented' once per cluster. It is internal to scanpy
     # (scanpy/tools/_rank_genes_groups.py) and has no effect on the output — silence exactly
@@ -64,7 +63,6 @@ def cli(
             groupby=cluster_key,
             groups=grps,
             method="wilcoxon",
-            tie_correct=True,
             pts=True,
             use_raw=False,
         )
@@ -76,29 +74,40 @@ def cli(
         frames.append(df)
     save_table(pd.concat(frames, ignore_index=True), wd, f"markers_{level}.csv")
 
-    if not no_cosg:
-        try:
-            import cosg
-
-            eprint(">> COSG (cosine-similarity specificity)")
-            cosg.cosg(
-                adata_obj, groupby=cluster_key, key_added="cosg", mu=1.0, n_genes_user=n_genes
-            )
-            names = pd.DataFrame(adata_obj.uns["cosg"]["names"])
-            scores = pd.DataFrame(adata_obj.uns["cosg"]["scores"])
-            rows = []
-            for col in names.columns:
-                for rank, (gene, score) in enumerate(zip(names[col], scores[col], strict=True)):
-                    rows.append(
-                        {
-                            "cluster": str(col),
-                            "rank": rank,
-                            "gene": gene,
-                            "cosg_score": float(score),
-                        }
-                    )
-            save_table(pd.DataFrame(rows), wd, f"cosg_{level}.csv")
-        except Exception as e:  # noqa: BLE001 — tool-level degradation is OK
-            eprint(f"   COSG skipped ({type(e).__name__}: {e})")
+    # Specificity: keep only the cluster-specific markers via scanpy's own filter (replaces COSG).
+    # filter_rank_genes_groups NaNs out genes that fail its in-group / out-group fraction + fold-
+    # change thresholds (scanpy defaults), leaving the genes that genuinely distinguish each
+    # cluster. We emit those as markers_filtered_<level>.csv (cluster, rank, gene, logfoldchange,
+    # score, pct_in, pct_out) — the specificity table every downstream step reads in place of COSG.
+    eprint(">> filter_rank_genes_groups (specificity)")
+    sc.tl.filter_rank_genes_groups(
+        adata_obj,
+        key="rank_genes_groups",
+        key_added="rank_genes_groups_filtered",
+        use_raw=False,
+    )
+    filt_rows = []
+    for g in grp_list:
+        df = sc.get.rank_genes_groups_df(adata_obj, group=str(g), key="rank_genes_groups_filtered")
+        df = df.dropna(subset=["names"]).head(n_genes).reset_index(drop=True)
+        if df.empty:
+            continue
+        out = pd.DataFrame(
+            {
+                "cluster": str(g),
+                "rank": range(len(df)),
+                "gene": df["names"].astype(str),
+                "logfoldchange": df["logfoldchanges"],
+                "score": df["scores"],
+                "pct_in": df.get("pct_nz_group"),
+                "pct_out": df.get("pct_nz_reference"),
+            }
+        )
+        filt_rows.append(out)
+    filt_cols = ["cluster", "rank", "gene", "logfoldchange", "score", "pct_in", "pct_out"]
+    filtered = (
+        pd.concat(filt_rows, ignore_index=True) if filt_rows else pd.DataFrame(columns=filt_cols)
+    )
+    save_table(filtered, wd, f"markers_filtered_{level}.csv")
 
     eprint(">> done")

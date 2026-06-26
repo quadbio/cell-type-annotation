@@ -17,7 +17,7 @@ scores_aucell_z (per-signature z across clusters), scores_ucell, and crosscheck_
 ⚠️ TARGETED/SPATIAL PANELS: ABSOLUTE AUCell across signatures is UNRELIABLE — broadly
 expressed marker sets score high in every cluster and can argmax the same broad type
 everywhere. Read `scores_aucell_z` (relative enrichment) and `crosscheck`, and treat
-COSG specificity (compute_markers.py) + reference mapping (reference_map.py) as primary.
+filtered-marker specificity (compute_markers.py) + reference mapping (reference_map.py) as primary.
 Off-panel genes are NEVER negative evidence; a candidate with too few on-panel markers
 is marked UNCALLABLE rather than allowed to score spuriously high.
 
@@ -149,8 +149,10 @@ def cli(
                 ranked[str(g)] = sub["names"].astype(str).tolist()
         else:
             eprint("   overlap: markers table not found — computing rank_genes_groups")
+            # Default-param Wilcoxon, matching `cta markers compute` (no tie_correct) so this
+            # fallback can't silently disagree with the canonical markers table.
             sc.tl.rank_genes_groups(
-                adata_obj, groupby=cluster_key, method="wilcoxon", tie_correct=True, use_raw=False
+                adata_obj, groupby=cluster_key, method="wilcoxon", use_raw=False
             )
             for g in clusters:
                 ranked[str(g)] = (
@@ -235,7 +237,7 @@ def cli(
     # --- consolidated cross-check (per cluster: each method's TOP signature) ---
     # Reads the transparent DE-overlap, the z-scored AUCell (relative enrichment), and
     # pyUCell side by side, with an agreement count. This is what the annotator should
-    # read instead of raw absolute AUCell. COSG specificity (compute_markers.py) and
+    # read instead of raw absolute AUCell. Filtered-marker specificity (compute_markers.py) and
     # reference mapping (reference_map.py) remain the primary evidence.
     try:
         cons = pd.DataFrame(index=pd.Index([str(c) for c in clusters], name="cluster"))

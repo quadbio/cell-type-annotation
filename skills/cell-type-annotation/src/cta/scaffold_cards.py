@@ -3,7 +3,7 @@
 
 The annotator (Claude) reasons cluster-by-cluster and the *reasoning* lives in
 the evidence cards. This script removes the hand-rolled, error-prone card-writing
-step: it pre-fills the mechanical parts (top COSG / Wilcoxon markers, any
+step: it pre-fills the mechanical parts (top cluster-specific / Wilcoxon markers, any
 automated cross-check rows) and leaves the judgement sections as TODO for Claude.
 
 Cards are written to <workdir>/evidence/L<level>_cluster<safe-id>.md, matching the
@@ -108,7 +108,8 @@ def _celltypist_phrase(val, total: int | None = None) -> str | None:
 def _evidence_section(sources: list[tuple[str, pd.DataFrame]], cid: str, top: int = 8) -> str:
     """Compact, human-readable view of the numbers behind the call — ONE short labelled line
     per source, not a bulky table. Fractions render as %, the CellTypist prediction renders as
-    a sentence (not a raw dict), and sources already shown elsewhere (COSG) are skipped."""
+    a sentence (not a raw dict), and sources already shown elsewhere (the filtered markers) are
+    skipped."""
     blocks = []
     for label, df in sources:
         rows = _rows_for(df, cid)
@@ -139,8 +140,8 @@ def _evidence_section(sources: list[tuple[str, pd.DataFrame]], cid: str, top: in
                     f"**CellTypist cross-check** _(model hypothesis, not ground truth)_: {phrase}"
                 )
             continue
-        if key.startswith("cosg"):
-            continue  # COSG specificity is already in the Marker-evidence section above
+        if key.startswith("markers_filtered"):
+            continue  # filtered-marker specificity is already in the Marker-evidence section above
         expl, is_pct = _gloss_for(label)
         _meta = {"cluster", "n", "n_cells", "cells", "size", "count", "total", "index"}
         nums = {}
@@ -164,16 +165,16 @@ def _evidence_section(sources: list[tuple[str, pd.DataFrame]], cid: str, top: in
     return "\n\n".join(blocks) if blocks else ""
 
 
-def _cosg_section(rows: pd.DataFrame) -> str:
+def _specificity_section(rows: pd.DataFrame) -> str:
     if rows.empty:
-        return "- (no COSG markers)"
+        return "- (no cluster-specific markers)"
     rows = rows.sort_values("rank") if "rank" in rows.columns else rows
     out = []
     for _, r in rows.head(TOP_N).iterrows():
         gene = r.get("gene", "?")
-        score = r.get("cosg_score")
-        if pd.notna(score):
-            out.append(f"- **{gene}** (cosg {float(score):.3f})")
+        lfc = r.get("logfoldchange")
+        if pd.notna(lfc):
+            out.append(f"- **{gene}** (logFC {float(lfc):.2f})")
         else:
             out.append(f"- **{gene}**")
     return "\n".join(out)
@@ -308,11 +309,11 @@ def cli(
     tables = wd / "tables"
     evidence_dir = wd / "evidence"
 
-    cosg = _read_csv(tables / f"cosg_{level}.csv")
-    if cosg is None or "cluster" not in (cosg.columns if cosg is not None else []):
+    specific = _read_csv(tables / f"markers_filtered_{level}.csv")
+    if specific is None or "cluster" not in (specific.columns if specific is not None else []):
         raise SystemExit(
             f"ERROR: required table not found or malformed: "
-            f"{tables / f'cosg_{level}.csv'} (need a 'cluster' column)"
+            f"{tables / f'markers_filtered_{level}.csv'} (need a 'cluster' column)"
         )
     markers = _read_csv(tables / f"markers_{level}.csv")
 
@@ -344,8 +345,11 @@ def cli(
     sizes = _sizes_map(wd, level)
     labels_map = _labels_map(wd, level, labels)
 
-    # Preserve first-seen order of clusters as they appear in cosg.
-    clusters = list(dict.fromkeys(cosg["cluster"].tolist()))
+    # Preserve first-seen order of clusters. Drive the card list off the full marker table when
+    # present (every cluster has Wilcoxon markers); the filtered table can omit a cluster that has
+    # no surviving cluster-specific markers, and we still want a card for it.
+    cluster_src = markers if markers is not None and "cluster" in markers.columns else specific
+    clusters = list(dict.fromkeys(cluster_src["cluster"].tolist()))
 
     written, skipped, missing_rationale = 0, 0, []
     for cid in clusters:
@@ -389,11 +393,12 @@ def cli(
             f"{call_line}"
             f"_Level {level} evidence card._\n\n"
             f"## Marker evidence\n\n"
-            f"_`cosg` = specificity score, 0–1 (higher = more cluster-specific); "
-            f"`logFC` = log2 fold-change of this cluster vs all others; "
-            f"`pct` = fraction of cells in the cluster expressing the gene._\n\n"
-            f"**Top COSG (specificity):**\n\n"
-            f"{_cosg_section(_rows_for(cosg, str(cid)))}\n\n"
+            f"_`logFC` = log2 fold-change of this cluster vs all others (higher = more "
+            f"cluster-specific); the specific-marker list is restricted to genes surviving "
+            f"`filter_rank_genes_groups`; `pct` = fraction of cells in the cluster expressing "
+            f"the gene._\n\n"
+            f"**Top cluster-specific markers (filter_rank_genes_groups):**\n\n"
+            f"{_specificity_section(_rows_for(specific, str(cid)))}\n\n"
             f"**Top Wilcoxon (rank_genes_groups):**\n\n"
             f"{_wilcoxon_section(_rows_for(markers, str(cid)))}\n\n"
             f"{ev_block}"

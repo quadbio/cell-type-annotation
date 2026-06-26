@@ -30,8 +30,9 @@ over the evidence is the arbiter.
     across signatures.** A broadly-expressed marker set scores high in *every* cluster
     and can argmax the same broad type everywhere (incl. obvious neurons). Read the
     per-signature **z-score across clusters** (`cta markers score` writes
-    `scores_aucell_z`) and the consolidated `crosscheck` table, and let **COSG
-    specificity** + the reference cross-check be primary — not raw AUCell.
+    `scores_aucell_z`) and the consolidated `crosscheck` table, and let the
+    **filtered-marker specificity** (`markers_filtered_<level>.csv`) + the reference
+    cross-check be primary — not raw AUCell.
   - `ulm` / `mlm` / `viper` are for **weighted TF/pathway regulons, NOT bare marker
     lists** — do not use them to score curated cell-type markers.
 - **`sc.tl.score_genes` is composition-dependent and bin-sensitive.** Its control
@@ -46,7 +47,9 @@ over the evidence is the arbiter.
 
 - **COSG** (`pip install cosg`, `cosg.cosg`) — cosine-similarity marker selection
   optimizing **specificity**; spatial/panel-aware, fast on CPU, gives a score (not a
-  p-value). Excellent for picking clean markers on targeted panels. (Also covered in
+  p-value). The skill **previously** used it for the specificity pass but now relies on
+  scanpy's built-in `filter_rank_genes_groups` instead (one fewer dependency, tutorial-
+  faithful); keep COSG in mind as an idea, not a dependency. (See
   `differential_expression.md`.)
 - **ScType / sc-type-py** — specificity-weighted z-score with **negative markers**
   and per-cluster argmax. Good conceptual model; the R original is dormant.

@@ -26,10 +26,10 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | Detect environment (1b) | `cta detect-env` | none | all | stdlib probe of `torch`/`nvidia-smi`/`psutil`/scheduler. Detection only. |
 | Bootstrap env (1c) | `pixi install --frozen [-e gpu]` | none | all | pixi env from the committed lock, no solve: `default` (CPU) or `-e gpu` (adds the GPU stack); run tools as `pixi run --frozen cta …`. Not a `cta` command. |
 | Inspect object (1e) | `cta data inspect` | none | all | keys/layers/norm-fingerprint/panel flag/gene-ID convention/`.raw` → `context.md`. |
-| Canonicalize (1e) | `cta data canonicalize` | none | all | write the one canonical sidecar every step reads: symbol var_names (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, slim embeddings/obs. Replaces the old slim-cache step. |
+| Canonicalize (1e) | `cta data canonicalize` | none | all | **Standard Stage-1 step** (not optional): write the one canonical sidecar every step reads — symbol var_names (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, slim embeddings/obs. Also applies the **upfront absolute gene filter** (`sc.pp.filter_genes(min_cells=GENE_FILTER_MIN_CELLS=5)`) so every downstream step sees one clean, consistent gene set. Replaces the old slim-cache step. |
 | QC metrics (1e) | `cta data qc` | none | all | compute (when absent) standard QC into the sidecar obs: `n_genes_by_counts`/`total_counts`/`pct_counts_mt` + cell-cycle `S_score`/`G2M_score`/`phase` (Tirosh lists, case-insensitive). Detection only — no doublet detection, normalization, or filtering. |
 | Seed markers (3.1, opt.) | `cta markers assemble` | none | all | seed `markers_<level>.json` from a CellTypist model / reference DE. A `--reference` is aligned to query symbols first (`--ref-symbol-col`/`--ref-symbol-map`) so its DE marker names panel-gate. |
-| Score — bottom-up (3.3) | `cta markers compute` | none | all | `rank_genes_groups` (wilcoxon) + COSG (CPU). GPU acceleration would need rapids-singlecell (full RAPIDS+dask, not in the default extras) — niche, since the main object isn't re-preprocessed. |
+| Score — bottom-up (3.3) | `cta markers compute` | none | all | `rank_genes_groups` (wilcoxon, scanpy defaults) → `markers_<level>.csv`; `filter_rank_genes_groups` specificity → `markers_filtered_<level>.csv` (CPU). GPU acceleration would need rapids-singlecell (full RAPIDS+dask, not in the default extras) — niche, since the main object isn't re-preprocessed. |
 | Score — top-down (3.3) | `cta markers profile` | none | all | score the curated panel across clusters → pct/mean + dotplot. |
 | Score — signatures (3.3) | `cta markers score` | none | all | decoupler `aucell` + pyUCell + DE-overlap → `crosscheck`. |
 | Cross-check — in-object (3.4) | `cta crosscheck obs-pred` | none | all | summarize an existing `obs` prediction column. Preferred when one fits. |
@@ -42,7 +42,7 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | Fetch reference (3.4 fallback) | `cta reference fetch-census` | none | all (larger slices on large-mem) | capped, tissue-matched CELLxGENE Census slice → feeds `cta crosscheck reference-map`. Needs network. |
 | Investigate before Unknown (3.7) | `cta cluster profile` | none | all | QC medians + categorical crosstabs + optional spatial. |
 | Sub-cluster (3.7) | `cta cluster subcluster` | none | all | Leiden on the anchor embedding + per-sub summary. |
-| Confidence calibration (3.7) | `cta cluster confidence` | none | all | COSG-margin + agreement proxy (advisory). |
+| Confidence calibration (3.7) | `cta cluster confidence` | none | all | marker-logFC-margin + agreement proxy (advisory; from `markers_filtered_<level>.csv`). |
 | Evidence cards (3.6) | `cta report scaffold-cards` | none | all | render cards from the labels CSV; `--evidence` embeds the numbers. |
 | Report + gate (3.9) | `cta report build` | none | all | per-level HTML; `--strict` = level-completeness gate. |
 | Write-back (final) | `cta report write-back` | none | all | write labels into `obs` (gated; `--dry-run` first). |

@@ -208,6 +208,13 @@ own normalization, kept as-is), a precomputed **`layers['lognorm_cp10k']`** (log
 for scale-sensitive classifiers like CellTypist), and the
 chosen embedding(s) + cluster key. Pass the keys you confirmed
 (`--cluster-key`/`--embedding-key`/`--viz-key`, `--lognorm-layer`, `--counts-layer`).
+It also applies a small **upfront gene filter** (`sc.pp.filter_genes(min_cells=5)`, an
+absolute floor) so every downstream step (markers, scoring, classifiers) shares one clean,
+consistent gene set instead of the full noise tail. The floor is absolute on purpose — a
+relative-to-`n_obs` threshold would delete genuine rare-cluster markers (constant
+`GENE_FILTER_MIN_CELLS` in `constants.py`). After it, a curated marker that's missing reads
+as "not measured" rather than "not expressed", but only for genes in <0.1% of cells, so
+panel-gating is unaffected in practice.
 
 **Gene symbols — the Ensembl case.** When `inspect` reports `var_names_look_like:
 ensembl`, canonicalize needs a symbol source: it auto-detects a symbol var-column
@@ -295,7 +302,8 @@ first, so a deep recursion never leaves the user lost.
 2. **Panel-gate** every marker set against `adata.var_names`; record dropped genes.
 3. **Score** — two complementary views:
    - *bottom-up (what defines each cluster):* `cta markers compute`
-     (`rank_genes_groups` wilcoxon + COSG specificity) → marker tables;
+     (`rank_genes_groups` wilcoxon → `markers_<level>.csv`; `filter_rank_genes_groups`
+     specificity → `markers_filtered_<level>.csv`) → marker tables;
      `cta markers score` (`aucell` + pyUCell + DE-overlap → `scores_aucell_z` +
      a `crosscheck_<level>` consolidation).
    - *top-down (how your candidate markers land):* `cta markers profile` — score the
@@ -305,8 +313,8 @@ first, so a deep recursion never leaves the user lost.
      feeds the cards directly via `cta report scaffold-cards --evidence panel_pct_<level>.csv`. Run it
      once per level on the level's marker JSON.
 
-   On targeted panels read `crosscheck`/`scores_aucell_z`, not raw AUCell — COSG specificity +
-   the reference cross-check are primary (`reference/marker_tools.md`).
+   On targeted panels read `crosscheck`/`scores_aucell_z`, not raw AUCell — filtered-marker
+   specificity + the reference cross-check are primary (`reference/marker_tools.md`).
 4. **Cross-check** — run **exactly one** primary automated hypothesis (the second only to
    break a tie); flag agreement/disagreement, never overwrite (`reference/automated_tools.md`):
    - **In-object prediction (preferred when one exists):** if `obs` already carries a
@@ -368,7 +376,7 @@ first, so a deep recursion never leaves the user lost.
    profile` (QC medians + user-named categorical crosstabs + optional spatial), since
    good-quality cells that resist a clean call are often a real early/transitional state, not
    an artifact. Set `confidence` by judgement,
-   **calibrated against `cta cluster confidence`** (a COSG-margin + agreement proxy — high
+   **calibrated against `cta cluster confidence`** (a marker-logFC-margin + agreement proxy — high
    confidence on a weak-margin cluster is a flag to re-examine). **Nesting is mandatory:**
    each level's labels must **strictly refine the level above** (every finer label maps to
    exactly one coarser label); if a regional split (e.g. ventral telencephalic) cuts across
@@ -428,7 +436,7 @@ pseudobulk + PyDESeq2 with a replication requirement, never per-cell. See
 | `reference/artifacts.md` | Working-dir layout, `context.md`/`run_state.json` schemas, report format. Read in Stage 1. |
 | `reference/compute_environments.md` | The three compute profiles, environment detection, the scheduler-handoff convention, GPU caveats. Read in Stage 1 (after `cta detect-env`). |
 | `reference/tool_registry.md` | **Canonical** step→tool→GPU-requirement→profile table. Consult when choosing which tool to run for a step, or whether it needs a GPU. |
-| `reference/marker_tools.md` | decoupler 2.x, pyUCell, COSG, snapseed; scanpy annotation idioms. |
+| `reference/marker_tools.md` | decoupler 2.x, pyUCell, snapseed; scanpy annotation idioms. |
 | `reference/differential_expression.md` | Job A (markers) vs Job B (conditions); exact `rank_genes_groups` call. |
 | `reference/automated_tools.md` | CellTypist, CellMapper, SingleR; what to skip and why. |
 | `reference/knowledge_sources.md` | MCP coverage, CL normalization, Python loaders, atlas references. |
@@ -446,10 +454,10 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `pixi install --frozen [-e gpu]` | Bootstrap the env (Stage 1c) from the committed lock, no solve: `default` = CPU scVerse core; `-e gpu` adds the GPU stack. (Not a `cta` command — pixi builds the env.) |
 | `cta detect-env` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
 | `cta data inspect` | Stage 1: verify keys/layers, gene-ID convention, `.raw`, normalization fingerprint; prints the structured report (and writes `<workdir>/inspect_report.json` with `--workdir`). You author `context.md`/`run_state.json` from it — `inspect` doesn't. |
-| `cta data canonicalize` | Stage 1 (default): write the one canonical sidecar every downstream step reads — symbol `var_names` (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, a precomputed `layers['lognorm_cp10k']` (log1p-CP10k for CellTypist), slimmed embeddings/obs. Also avoids reloading the huge file. |
+| `cta data canonicalize` | Stage 1 (default): write the one canonical sidecar every downstream step reads — symbol `var_names` (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, a precomputed `layers['lognorm_cp10k']` (log1p-CP10k for CellTypist), slimmed embeddings/obs. Applies a small upfront absolute gene filter (`min_cells=5`) so every step shares one clean gene set. Also avoids reloading the huge file. |
 | `cta data qc` | Stage 1: compute (only when absent) standard QC into the sidecar obs — depth/mito metrics + cell-cycle `S_score`/`G2M_score`/`phase` — so low-quality / cycling clusters are detectable (read-only; no doublet detection, normalization, or filtering). |
 | `cta markers assemble` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
-| `cta markers compute` | `rank_genes_groups` (wilcoxon, tie_correct) + COSG → marker tables (bottom-up: what defines each cluster). |
+| `cta markers compute` | `rank_genes_groups` (wilcoxon) + `filter_rank_genes_groups` specificity → `markers_<level>.csv` + `markers_filtered_<level>.csv` (bottom-up: what defines each cluster). |
 | `cta markers profile` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. |
 | `cta markers score` | decoupler `aucell` + pyUCell + DE-overlap; writes z-scored AUCell + a consolidated `crosscheck`. |
 | `cta crosscheck celltypist` | `list` the remote model index (tissue-gated, no downloads); `predict`/`markers` for a matched model only. |
@@ -462,7 +470,7 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `cta crosscheck obs-pred` | Cross-check from an EXISTING in-object prediction column (e.g. a previously-mapped atlas `*_pred`) — no recompute. Prefer over `cta crosscheck reference-map` when such a column exists and fits the level. |
 | `cta cluster subcluster` | Refine one/more clusters: Leiden on the anchor embedding + per-sub marker-fraction / QC / composition summary. Standardized sub-clustering (in scope). |
 | `cta cluster profile` | QC medians (+ a robust-z `qc_deviation` companion flagging off-population clusters) + user-named categorical crosstabs + optional spatial — investigate before `Unknown` / to set `state`. |
-| `cta cluster confidence` | Advisory: per-cluster confidence proxy from COSG specificity margin + cross-check agreement — calibrate hand-set confidences against it. |
+| `cta cluster confidence` | Advisory: per-cluster confidence proxy from filtered-marker logFC margin + cross-check agreement — calibrate hand-set confidences against it. |
 | `cta report scaffold-cards` | Render per-cluster evidence cards FROM the labels CSV (`rationale`/`rejected`/`label`/`confidence` columns = single source of truth, so re-scaffold never wipes reasoning); `--evidence <tables>` embeds the ACTUAL numbers behind the call. Sanitizes `/` in ids. |
 | `cta report build` | Per-level HTML report from tables + cards; (re)generates the numbered cell-map + marker dotplot + one composition panel per `--split-by` covariate **only with `--adata`**, but always embeds whatever PNGs are in `plots/` (so a no-`--adata` rebuild keeps the figures). `--strict` = the level-completeness gate (labels + filled rationale + signed assumptions gate) before descending; add `--check-only` to re-evaluate the gate read-only (no render, no write) after a sign-off. |
 | `cta report write-back` | Final step (gated): write the per-level labels into `obs` in-place (`--dry-run` first). |
