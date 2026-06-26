@@ -211,7 +211,11 @@ def predict(
     res = pred.predicted_labels.copy()
     res.insert(0, "cell", adata_obj.obs_names)
     res.insert(1, "cluster", adata_obj.obs[cluster_key].astype(str).values)
-    save_table(res, wd, f"celltypist_pred_{level}.csv")
+    # Qualify outputs by model (like the `markers` command does): running a second model
+    # at the same level — a normal path, e.g. Immune_All_Low then Immune_All_High to break
+    # a tie — must NOT silently overwrite the first model's predictions/summary.
+    mtag = safe_cluster_id(model)
+    save_table(res, wd, f"celltypist_pred_{level}_{mtag}.csv")
 
     # cluster -> predicted-label distribution. Summarize the RAW per-cell predictions, NOT
     # the `majority_voting` column: majority voting (over_clustering=cluster_key) forces every
@@ -229,7 +233,7 @@ def predict(
             "n_cells": totals.reindex(ct.index).values,
         }
     )
-    save_table(summary, wd, f"celltypist_cluster_summary_{level}.csv")
+    save_table(summary, wd, f"celltypist_cluster_summary_{level}_{mtag}.csv")
     eprint(">> done")
 
 
