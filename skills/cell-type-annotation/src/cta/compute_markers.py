@@ -4,12 +4,18 @@ rank_genes_groups (Wilcoxon, scanpy defaults — NOT the t-test default) on log-
 + a `filter_rank_genes_groups` specificity pass, written as tidy marker tables to
 <workdir>/tables/. The descriptive marker evidence that feeds annotation. NOT condition DE
 (Job B = pseudobulk + PyDESeq2; see reference/differential_expression.md).
+
+The Wilcoxon ranking is compute-profile-routed (no user knob): on a CUDA GPU it runs via
+rapids-singlecell (atlas-scale: seconds vs ~minutes), otherwise via scanpy on CPU — same
+method and same `uns['rank_genes_groups']` output, so the specificity pass and every
+downstream reader are identical on both paths.
 """
 
 from __future__ import annotations
 
 import typer
 
+from cta import gpu
 from cta.io import (
     ADATA_OPT,
     CLUSTER_KEY_OPT,
@@ -52,20 +58,26 @@ def cli(
     adata_obj.obs[cluster_key] = adata_obj.obs[cluster_key].astype("category")
     grps = split_csv(groups) or "all"
 
-    eprint(">> rank_genes_groups (wilcoxon, pts=True)")
-    # scanpy assembles its results frame one column per group, so with many clusters pandas
-    # raises 'DataFrame is highly fragmented' once per cluster. It is internal to scanpy
-    # (scanpy/tools/_rank_genes_groups.py) and has no effect on the output — silence exactly
-    # that message for this one call, leaving every other warning visible.
-    with suppressed_warnings(FRAGMENTED_FRAME_WARNING):
-        sc.tl.rank_genes_groups(
-            adata_obj,
-            groupby=cluster_key,
-            groups=grps,
-            method="wilcoxon",
-            pts=True,
-            use_raw=False,
+    # Compute-profile routing via the central cta.gpu mechanism (no user knob): rapids-singlecell
+    # on a CUDA GPU (atlas-scale: seconds vs ~minutes), else scanpy on CPU, with automatic CPU
+    # fallback. Same wilcoxon method + `uns['rank_genes_groups']` either way, so everything
+    # downstream (extraction, #36's filter_rank_genes_groups, reports) is identical.
+    def _rgg_cpu(a):
+        # scanpy assembles its results frame one column per group, so with many clusters pandas
+        # raises 'DataFrame is highly fragmented' once per cluster. It is internal to scanpy
+        # (scanpy/tools/_rank_genes_groups.py) and has no effect on the output — silence exactly
+        # that message for this one call, leaving every other warning visible.
+        with suppressed_warnings(FRAGMENTED_FRAME_WARNING):
+            sc.tl.rank_genes_groups(
+                a, groupby=cluster_key, groups=grps, method="wilcoxon", pts=True, use_raw=False
+            )
+
+    def _rgg_gpu(a, rsc):
+        rsc.tl.rank_genes_groups(
+            a, groupby=cluster_key, groups=grps, method="wilcoxon", pts=True, use_raw=False
         )
+
+    gpu.run(adata_obj, cpu=_rgg_cpu, gpu=_rgg_gpu, label="rank_genes_groups (wilcoxon, pts=True)")
     frames = []
     grp_list = adata_obj.obs[cluster_key].cat.categories if grps == "all" else grps
     for g in grp_list:

@@ -38,6 +38,7 @@ import numpy as np
 import pandas as pd
 import typer
 
+from cta import gpu
 from cta.constants import MIN_ON_PANEL_MARKERS
 from cta.io import (
     ADATA_OPT,
@@ -150,9 +151,17 @@ def cli(
         else:
             eprint("   overlap: markers table not found — computing rank_genes_groups")
             # Default-param Wilcoxon, matching `cta markers compute` (no tie_correct) so this
-            # fallback can't silently disagree with the canonical markers table.
-            sc.tl.rank_genes_groups(
-                adata_obj, groupby=cluster_key, method="wilcoxon", use_raw=False
+            # fallback can't silently disagree with the canonical markers table. Routed through the
+            # central cta.gpu mechanism (rapids-singlecell on GPU, scanpy on CPU, auto-fallback).
+            gpu.run(
+                adata_obj,
+                cpu=lambda a: sc.tl.rank_genes_groups(
+                    a, groupby=cluster_key, method="wilcoxon", use_raw=False
+                ),
+                gpu=lambda a, rsc: rsc.tl.rank_genes_groups(
+                    a, groupby=cluster_key, method="wilcoxon", use_raw=False
+                ),
+                label="rank_genes_groups (overlap fallback)",
             )
             for g in clusters:
                 ranked[str(g)] = (

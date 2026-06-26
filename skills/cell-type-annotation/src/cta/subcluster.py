@@ -94,6 +94,9 @@ def cli(
         f"on '{embedding_key}' @ resolution {resolution}"
     )
 
+    # Sub-clustering runs on a SMALL subset (one/few clusters), so it stays on CPU — GPU offers no
+    # real speedup at this size and cuGraph Leiden would diverge from scanpy's igraph for no gain.
+    # (GPU routing via cta.gpu is reserved for the full-object heavy steps, e.g. marker DE.)
     sc.pp.neighbors(sub, use_rep=embedding_key, n_neighbors=n_neighbors)
     # igraph flavor = CPU-friendly, deterministic; never requires GPU/leidenalg quirks
     sc.tl.leiden(

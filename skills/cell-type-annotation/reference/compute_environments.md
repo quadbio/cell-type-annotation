@@ -114,8 +114,19 @@ CPU host that merely has the client tools installed. `cta detect-env` flags it; 
 
 The per-tool step / GPU-requirement / profile mapping has **one home**:
 `reference/tool_registry.md`. Read it to decide what to run where. In short: most of the
-pipeline is CPU (`none`); only the reference-mapping cross-check and (optionally)
-large-query scoring touch a GPU. `cta crosscheck scimilarity` is CPU too and needs only moderate
+pipeline is CPU (`none`); the reference-mapping cross-check, (optionally) large-query scoring,
+and the **full-object marker DE** touch a GPU. The scanpy↔rapids-singlecell split is **profile-
+routed with no knob** through one central mechanism (`cta/gpu.py`): scanpy on CPU,
+`rapids-singlecell` on a GPU profile, with automatic CPU fallback on any GPU failure. Adding a
+future GPU-accelerable step is a two-callable `gpu.run(adata, cpu=…, gpu=…, label=…, equivalent=…)`
+call, not a re-implementation of the check/transfer/fallback. Today only **marker DE**
+(`cta markers compute`, plus the `markers score` overlap-DE fallback) is routed — atlas-scale,
+full-object, and bit-identical CPU/GPU (ranking in seconds vs ~minutes). Steps that run on a
+small subset (e.g. `cta cluster subcluster`) deliberately stay on CPU: no real speedup at that
+size, and GPU Leiden would diverge from scanpy's igraph for no gain. The mechanism's
+`equivalent=False` flag is reserved for any future routed op whose GPU result differs (clustering/
+UMAP), so the divergence is logged. On a `scheduler` profile the atlas marker job is submitted to
+a GPU node just like the reference-model steps. `cta crosscheck scimilarity` is CPU too and needs only moderate
 RAM (~16–27 GB), so it runs on any reasonably-sized machine — it is HUMAN-only, not GPU- or
 large-memory-gated. The profile decides *how* the `preferred`/`required` rows execute — inline on
 `local_gpu`, handed off on `scheduler` (next section).
@@ -160,12 +171,15 @@ the scripts encode the matching best practices so a SLURM run stays clean and fa
 - GPU results are **not bit-identical** to CPU, and deep models (scVI/scANVI) are
   **stochastic** — seed them (`scvi.settings.seed = 0`; the scripts do) but still report
   predictions as a **hypothesis**, never a verdict.
-- GPU k-NN (`cta crosscheck reference-map --knn-method rapids`) and any optional GPU clustering/UMAP
-  (e.g. rapids-singlecell, not a default extra) are not bit-identical to their CPU
-  equivalents. This skill annotates **pre-existing** clusters and does not re-cluster the
-  main object, so this mostly doesn't bite — but if a GPU-accelerated step ever feeds
-  clustering, treat the clusters as the same kind of input the skill validates, not as
-  ground truth.
+- The GPU-routed steps (`cta/gpu.py`) are not bit-identical to their CPU equivalents, but the
+  ones routed today are **result-equivalent for annotation**: marker DE (`cta markers compute`)
+  and GPU k-NN (`cta crosscheck reference-map --knn-method rapids`) differ only by minor float/tie
+  noise that doesn't change rankings. Marker DE writes the same `uns` schema either way and
+  degrades to scanpy on any GPU failure (`equivalent=True`). Clustering/UMAP are NOT routed (they
+  use different GPU backends and would diverge); the mechanism's `equivalent=False` flag exists so
+  that if such an op is ever routed, the divergence is logged and the clusters are treated as
+  input to validate, not as truth. This skill annotates **pre-existing** clusters and does not
+  re-cluster the main object, so this mostly doesn't bite.
 
 ## The invariant that does not change with the hardware
 

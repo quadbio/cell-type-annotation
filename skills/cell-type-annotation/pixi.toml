@@ -100,6 +100,22 @@ extra-index-urls = ["https://pypi.nvidia.com"]
 # — no override, no source build, no build-host `-march=native` fragility.
 [feature.gpu.target.linux-64.dependencies]
 hnswlib = ">=0.8"
+# rapids-singlecell's compiled DE kernels (rapids_singlecell._cuda._aggr_cuda, used by the GPU
+# `rank_genes_groups`) are built against CUDA 13 and link `libcudart.so.13`, but the rest of the
+# GPU stack is CUDA 12 (cuml-cu12 / cupy-cuda12x / torch-cu12, which load libcudart.so.12). Without
+# a CUDA-13 runtime present the kernel .so fails to load, rapids-singlecell sets it to None, and the
+# GPU DE path silently falls back to scanpy (verified on Euler). Ship the CUDA-13 cudart runtime from
+# conda-forge so libcudart.so.13 lands in $ENV/lib alongside .so.12 — the two majors coexist (the
+# driver supports both) and the kernel loads. This is the actual enabler of issue #38's GPU path.
+cuda-cudart = "13.*"
+
+# Put the env's own lib dir on the dynamic-loader path for the gpu env so the CUDA-13 DE kernel
+# above finds `libcudart.so.13` in $ENV/lib. pixi/`pixi run` does NOT add `$CONDA_PREFIX/lib` to
+# LD_LIBRARY_PATH by default, so without this the kernel .so can't resolve libcudart.so.13 and the
+# GPU DE path silently falls back to scanpy. Scoped to the gpu environment only; the CPU `default`
+# env never sets this.
+[feature.gpu.activation.env]
+LD_LIBRARY_PATH = "$CONDA_PREFIX/lib:$LD_LIBRARY_PATH"
 
 [feature.gpu.target.linux-64.pypi-dependencies]
 # Reference-model option (scANVI/scArches + scvi-hub). torch+OpenMP coexist fine with the
@@ -108,6 +124,17 @@ scvi-tools = "*"
 # CellMapper's `rapids` GPU k-NN backend calls cuML directly (validated on an RTX 4090).
 cuml-cu12 = "*"
 cudf-cu12 = "*"
+# GPU marker DE: `cta markers compute` routes `rank_genes_groups` to rapids-singlecell on a GPU
+# profile (atlas-scale ranking in seconds vs ~minutes on scanpy/CPU). Drop-in — same wilcoxon
+# method, same `uns['rank_genes_groups']` output the CPU path writes; scanpy stays the CPU default.
+# The `rapids-cu12` extra pulls the FULL RAPIDS stack it imports at load (cudf/cuml/cugraph/cuvs);
+# the bare cuml-cu12/cudf-cu12 above (for CellMapper's kNN) are not enough — verified on Euler that
+# `import rapids_singlecell` needs cuvs too.
+rapids-singlecell = { version = "*", extras = ["rapids-cu12"] }
+# rapids-singlecell 0.15.2 also imports `dask.array` at module load (rapids_singlecell/_compat.py)
+# but only declares `dask` under its `doc`/`test` extras, not core — so the import ALSO needs dask
+# present. Pull it in explicitly so the GPU DE path loads instead of silently falling back to scanpy.
+dask = "*"
 # Optional large-memory zero-shot annotator (additional cross-check only). Its hnswlib dep is
 # pinned to the portable conda-forge build above (see comment) to avoid the AVX-512 wheel SIGILL.
 scimilarity = "*"
