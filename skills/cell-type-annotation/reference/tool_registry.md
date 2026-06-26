@@ -24,7 +24,7 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | Step (stage) | Tool / script | GPU | Profile | Method / notes |
 | --- | --- | --- | --- | --- |
 | Detect environment (1b) | `cta detect-env` | none | all | stdlib probe of `torch`/`nvidia-smi`/`psutil`/scheduler. Detection only. |
-| Bootstrap env (1c) | `pixi install [-e gpu]` | none | all | pixi env: `default` (CPU) or `-e gpu` (adds the GPU stack). Not a `cta` command. |
+| Bootstrap env (1c) | `pixi install --frozen [-e gpu]` | none | all | pixi env from the committed lock, no solve: `default` (CPU) or `-e gpu` (adds the GPU stack); run tools as `pixi run --frozen cta …`. Not a `cta` command. |
 | Inspect object (1e) | `cta data inspect` | none | all | keys/layers/norm-fingerprint/panel flag/gene-ID convention/`.raw` → `context.md`. |
 | Canonicalize (1e) | `cta data canonicalize` | none | all | write the one canonical sidecar every step reads: symbol var_names (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, slim embeddings/obs. Replaces the old slim-cache step. |
 | QC metrics (1e) | `cta data qc` | none | all | compute (when absent) standard QC into the sidecar obs: `n_genes_by_counts`/`total_counts`/`pct_counts_mt` + cell-cycle `S_score`/`G2M_score`/`phase` (Tirosh lists, case-insensitive). Detection only — no doublet detection, normalization, or filtering. |
