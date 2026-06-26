@@ -11,7 +11,7 @@ If --adata (+ keys) is given, embeds plots (base64 PNG, self-contained):
   - dotplot of the top markers per assigned label;
   - OPTIONAL generic composition panel: label proportions split by a user-named
     categorical obs (--split-by). NEVER hard-wired to any dataset's metadata.
-The summary table also shows the top marker genes (from COSG) behind each cluster.
+The summary table also shows the top cluster-specific marker genes behind each cluster.
 
 The evidence cards are authored by Claude (the reasoning lives there); this script
 just packages them for human review — no annotation logic here.
@@ -101,7 +101,7 @@ TEMPLATE = """<!doctype html><html><head><meta charset="utf-8">
 <p class="figcap">Clusters are <b>flagged for review</b> when they are Unknown, refuted, need sub-clustering, or have
 confidence &lt; 0.6; flagged clusters float to the top and their evidence cards open by default.
 <b>Confidence</b> is a 0–1 value <b>set by the annotator's judgement</b> — subjective, not a computed
-quantity. (The advisory <code>cluster_confidence.py</code> can compare it to a COSG-margin proxy, but that
+quantity. (The advisory <code>cluster_confidence.py</code> can compare it to a marker-logFC-margin proxy, but that
 comparison is not shown in this report.) Each label is backed by a per-cluster <b>evidence card</b> below
 showing the exact markers and cross-checks behind the call.</p>
 </details>
@@ -111,7 +111,7 @@ showing the exact markers and cross-checks behind the call.</p>
 <h2>Evidence cards <span class="meta">(grouped by label; flagged groups open)</span></h2>
 <details class="plotbox"><summary>How to read an evidence card</summary>
 <ul>
-<li><b>Marker evidence</b> — the cluster's own top markers. <b>COSG</b> = specificity (0–1, higher = more exclusive to this cluster); <b>Wilcoxon</b> ranks differential genes (<b>logFC</b> = log2 fold-change vs all other cells, <b>pct</b> = fraction of the cluster expressing it).</li>
+<li><b>Marker evidence</b> — the cluster's own top markers. <b>Specific</b> = the cluster-specific markers that survive <code>filter_rank_genes_groups</code> (ranked by log2FC, higher = more exclusive to this cluster); <b>Wilcoxon</b> ranks differential genes (<b>logFC</b> = log2 fold-change vs all other cells, <b>pct</b> = fraction of the cluster expressing it).</li>
 <li><b>Evidence used</b> — the numbers the call rests on, one short labelled line per source (e.g. which curated markers are on, as % of cells). The CellTypist line is the model's <b>top per-cell prediction</b> — the most common per-cell label with its share of the cluster's cells (often well under 50%, since fine reference models split votes across related subtypes) — a cross-check hypothesis, not ground truth.</li>
 <li><b>Automated cross-check</b> — an independent method's prediction (per-cluster scoring agreement / reference mapping), used as a hypothesis to agree or disagree with — never as ground truth.</li>
 <li><b>Rationale</b> — why this label was chosen from the evidence above. <b>Rejected / alternatives</b> — other identities considered and why they were ruled out.</li>
@@ -137,8 +137,8 @@ def _status_badge(status: str, conf):
 
 
 def _top_markers_by_cluster(wd: Path, level: str, n: int = 5) -> dict[str, str]:
-    """cluster -> 'g1, g2, ...' from the COSG specificity table, if present."""
-    p = wd / "tables" / f"cosg_{level}.csv"
+    """cluster -> 'g1, g2, ...' from the filtered (cluster-specific) marker table, if present."""
+    p = wd / "tables" / f"markers_filtered_{level}.csv"
     if not p.exists():
         return {}
     df = pd.read_csv(p)
@@ -234,7 +234,7 @@ def cli(
     labels_path = wd / "labels" / f"annotation_{level}.csv"
     labels = pd.read_csv(labels_path) if labels_path.exists() else pd.DataFrame()
 
-    # attach top markers (from COSG) per cluster to the summary
+    # attach top cluster-specific markers per cluster to the summary
     top_markers = _top_markers_by_cluster(wd, level)
     if not labels.empty and "cluster" in labels.columns and top_markers:
         labels = labels.copy()

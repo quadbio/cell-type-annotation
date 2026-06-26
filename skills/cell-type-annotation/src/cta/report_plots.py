@@ -34,9 +34,10 @@ _DOTPLOT_HEADING = "Marker dot plot"
 _DOTPLOT_CAPTION = (
     "The four most specific marker genes for each label, chosen automatically from the data "
     "— not a hand-curated list. For every cluster the skill runs a Wilcoxon test of that "
-    "cluster vs the rest, then ranks genes by COSG, a specificity score that rewards genes "
-    "which are both strongly expressed in the cluster and largely absent elsewhere; the top "
-    "hits are shown here. Dot colour = the gene's mean expression in that label, scaled 0–1 "
+    "cluster vs the rest, then keeps the genes that survive filter_rank_genes_groups — a "
+    "specificity filter that rewards genes both strongly expressed in the cluster and largely "
+    "absent elsewhere — ranked by log2 fold-change; the top hits are shown here. Dot colour = "
+    "the gene's mean expression in that label, scaled 0–1 "
     "across labels (so it shows where each gene peaks); dot size = the fraction of cells in "
     "the label that express the gene."
 )
@@ -270,11 +271,11 @@ def make_plots(
             except Exception as e:  # noqa: BLE001
                 eprint(f"   plots: UMAP skipped ({type(e).__name__}: {e})")
 
-        # 2) dotplot of top markers per label (data-driven from COSG specificity)
-        cosg = wd / "tables" / f"cosg_{level}.csv"
-        if cosg.exists() and "_label" in adata.obs:
+        # 2) dotplot of top markers per label (data-driven from the filtered-marker specificity)
+        markers_filtered = wd / "tables" / f"markers_filtered_{level}.csv"
+        if markers_filtered.exists() and "_label" in adata.obs:
             try:
-                cdf = pd.read_csv(cosg)
+                cdf = pd.read_csv(markers_filtered)
                 cl2lab = (
                     {str(r.cluster): str(r.label) for r in labels.itertuples()}
                     if "label" in labels.columns

@@ -11,7 +11,7 @@ Scope — what is and isn't here:
     invocation (`cta <command> --help`). Index of the main ones, with their command:
       --n-genes            top markers per cluster / per type  (markers compute, crosscheck celltypist markers)
       --resolution / --n-neighbors  subcluster Leiden          (cluster subcluster)
-      --strong-thresh      COSG "strong marker" cutoff          (cluster confidence)
+      --strong-thresh      log2FC "strong marker" cutoff        (cluster confidence)
       --min-targets        decoupler signature min on-panel size (markers score)
       --max-cells / --max-ref  reference subsample caps          (reference fetch-census / crosscheck reference-map)
       --n-comps            joint-embedding components            (crosscheck reference-map)
@@ -31,6 +31,17 @@ from __future__ import annotations
 # very small targeted panels. Enforced by: `cta markers score` (reference/methodology.md §6).
 MIN_ON_PANEL_MARKERS = 2
 
+# --- Upfront gene filter (canonicalization) ------------------------------------------
+# `cta data canonicalize` drops genes detected in fewer than this many cells when it builds the
+# canonical slim, so every downstream step sees one clean, consistent gene set. A small ABSOLUTE
+# floor (the scanpy tutorial uses 3, best-practices 20) that removes only genes in ≤4 cells
+# (unambiguous ambient/technical noise). It is absolute ON PURPOSE — a relative-to-n_obs threshold
+# (e.g. 0.1% = 500 cells on a 500k atlas) would filter out the specific markers of RARE clusters: a
+# gene that perfectly marks a 27-cell microglia cluster (P2RY12) is expressed in ≤27 cells and must
+# survive. A global per-gene cell-count filter is bounded by the SMALLEST cluster you want to
+# annotate, which is small — so keep it low and absolute. Enforced by `cta data canonicalize`.
+GENE_FILTER_MIN_CELLS = 5
+
 # --- Reference-mapping gate (panel-dependent) ---------------------------------------
 # Minimum genes shared between query and reference before a label transfer is trusted;
 # below it `cta crosscheck reference-map` refuses (transfer over a handful of genes is noise).
@@ -49,11 +60,15 @@ NORMALIZE_TARGET_SUM = 1e4
 REPORT_LOW_CONF_THRESHOLD = 0.6
 
 # --- Confidence proxy banding (advisory only) ---------------------------------------
-# `cta cluster confidence` suggests a 0-1 band from COSG specificity as a sanity check on
-# hand-set confidences (it never writes labels). Each band is (min cosg_top1, min n_strong,
-# suggested_conf), tried in order; CONFIDENCE_BASE applies if none match. Each extra
-# concurring cross-check method adds CONFIDENCE_AGREEMENT_BOOST, capped at CONFIDENCE_CAP.
-CONFIDENCE_BANDS = ((0.05, 3, 0.9), (0.03, 2, 0.8), (0.02, 0, 0.7), (0.01, 0, 0.6))
+# `cta cluster confidence` suggests a 0-1 band from the per-cluster specificity of the markers
+# that survive `sc.tl.filter_rank_genes_groups` (which replaced COSG), as a sanity check on
+# hand-set confidences (it never writes labels). The signal is now log2 fold-change: each band is
+# (min lfc_top1, min n_strong, suggested_conf), where lfc_top1 is the strongest surviving marker's
+# log2FC and n_strong counts surviving markers with log2FC >= --strong-thresh. Bands are tried in
+# order; CONFIDENCE_BASE applies if none match. Each extra concurring cross-check method adds
+# CONFIDENCE_AGREEMENT_BOOST, capped at CONFIDENCE_CAP. (Recalibrated from COSG's 0–1 cosine scale
+# to the log2FC scale of filter_rank_genes_groups — adjust if your data's effect sizes differ.)
+CONFIDENCE_BANDS = ((3.0, 5, 0.9), (2.0, 3, 0.8), (1.0, 1, 0.7), (0.5, 0, 0.6))
 CONFIDENCE_BASE = 0.45
 CONFIDENCE_AGREEMENT_BOOST = 0.05
 CONFIDENCE_CAP = 0.95

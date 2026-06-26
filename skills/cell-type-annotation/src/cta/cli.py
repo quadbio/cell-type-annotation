@@ -77,7 +77,7 @@ GROUPS: dict[str | None, dict[str, object]] = {
 
 _GROUP_HELP = {
     "data": "Inspect / slim the AnnData (Stage 1).",
-    "markers": "Marker evidence: priors, DE/COSG, panel profiling, signature scoring.",
+    "markers": "Marker evidence: priors, DE/specificity, panel profiling, signature scoring.",
     "crosscheck": "Automated cross-checks — hypotheses to reconcile, never verdicts.",
     "reference": "Reference side: fetch/train a reference model, map the query onto it.",
     "cluster": "Sub-cluster and investigate clusters; per-cluster confidence proxy.",
