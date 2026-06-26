@@ -122,19 +122,27 @@ confirmed `compute` block in `run_state.json` (schema in `reference/artifacts.md
 `reference/compute_environments.md`.
 
 **1c. Bootstrap the environment with pixi** (needed before `cta data inspect`). The skill ships a
-`pixi.toml` with two environments; pixi builds an isolated env inside the skill dir
-(`.pixi/`), **never** touching the user's project environment. From the skill directory:
-- **CPU / Apple-Silicon (`local_cpu`):** `pixi install` (the `default` env: scVerse stack).
-  Run every tool as **`pixi run cta <command> …`**.
-- **GPU (`local_gpu`):** `pixi install -e gpu` (adds scvi-tools + cuML/cuDF GPU kNN +
-  scimilarity; Linux + CUDA). Run tools as **`pixi run -e gpu cta <command> …`**.
+`pixi.toml` **and committed `pixi.lock`** with two environments; pixi builds an isolated env in
+the skill dir (`.pixi/`), **never** touching the user's project environment. Always pass
+**`--frozen`** so pixi uses the locked env as-is and never solves at runtime (drop it only to
+regenerate the lock after editing deps — do that in a separate clone). From the skill directory:
+- **CPU / Apple-Silicon (`local_cpu`):** `pixi install --frozen` (the `default` scVerse stack);
+  run tools as **`pixi run --frozen cta <command> …`**.
+- **GPU (`local_gpu`):** `pixi install --frozen -e gpu` (adds scvi-tools + cuML/cuDF GPU kNN +
+  scimilarity; Linux + CUDA); run as **`pixi run --frozen -e gpu cta <command> …`**.
 
 **Build the env where the work runs.** pixi does not check for a GPU, so only run
-`pixi install -e gpu` **where a GPU actually is**. On `scheduler`: `pixi install` (default)
-on the login node — enough for detection + light steps — and `pixi install -e gpu`
-**inside a GPU job**. On a cluster, put pixi's envs on scratch (not quota-limited home) so
-the multi-GB CUDA env fits and both nodes see it: `pixi config set detached-environments
-<scratch-path>`. Details: `reference/compute_environments.md`.
+`pixi install --frozen -e gpu` **where a GPU actually is**. On `scheduler`: `pixi install --frozen`
+on the login node (detection + light steps), `pixi install --frozen -e gpu` inside a GPU job. Put
+envs on scratch (not quota-limited home) so both nodes see them and the CUDA env fits:
+`pixi config set detached-environments <scratch-path>`.
+
+**On a scheduler, build once and skip the per-call lock.** A runtime solve can OOM a capped head
+node, and every `pixi run` locks the shared env prefix (concurrent runs serialize on it). So build
+once where there's memory, and for concurrent/batch use call the binary directly —
+`CTA=$(pixi run --frozen which cta)`, then `"$CTA" …`. Don't mutate shared env state mid-run
+(`pixi config`/`install`/`pytest`); with `detached-environments`, delete any stale local
+`.pixi/envs`. Details: `reference/compute_environments.md`.
 
 **1d. Scene-setting.** Inspect the object first to pre-fill inferred answers, then use
 **AskUserQuestion** in **2–3 batched confirm-or-correct rounds** (don't interrogate
@@ -427,15 +435,15 @@ pseudobulk + PyDESeq2 with a replication requirement, never per-cell. See
 
 ## Commands (`cta`)
 
-Every tool is a subcommand of the `cta` CLI, run via **`pixi run cta <command> …`** (add
-`-e gpu` for the GPU tools) after `pixi install` (Stage 1c). Each writes durable artifacts
+Every tool is a subcommand of the `cta` CLI, run via **`pixi run --frozen cta <command> …`** (add
+`-e gpu` for the GPU tools) after `pixi install --frozen` (Stage 1c). Each writes durable artifacts
 into the working directory and holds no cross-call state — run `cta <command> --help` for
 exact arguments. This table is a quick **purpose index**; for which tool serves which step
 and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical map.
 
 | Command | Purpose |
 | --- | --- |
-| `pixi install [-e gpu]` | Bootstrap the env (Stage 1c): `default` = CPU scVerse core; `-e gpu` adds the GPU stack. (Not a `cta` command — pixi builds the env.) |
+| `pixi install --frozen [-e gpu]` | Bootstrap the env (Stage 1c) from the committed lock, no solve: `default` = CPU scVerse core; `-e gpu` adds the GPU stack. (Not a `cta` command — pixi builds the env.) |
 | `cta detect-env` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
 | `cta data inspect` | Stage 1: verify keys/layers, gene-ID convention, `.raw`, normalization fingerprint; prints the structured report (and writes `<workdir>/inspect_report.json` with `--workdir`). You author `context.md`/`run_state.json` from it — `inspect` doesn't. |
 | `cta data canonicalize` | Stage 1 (default): write the one canonical sidecar every downstream step reads — symbol `var_names` (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, a precomputed `layers['lognorm_cp10k']` (log1p-CP10k for CellTypist), slimmed embeddings/obs. Also avoids reloading the huge file. |

@@ -35,23 +35,46 @@ Notes:
 ## Where to build the env (the login-node footgun)
 
 The env is built with **pixi** (Stage 1c): `pixi.toml` defines a `default` (CPU) and a `gpu`
-environment. The trap on a scheduler cluster: a login node has **no GPU**, but
-`pixi install -e gpu` will still download multi-GB CUDA wheels there — wasting quota on
-packages that can't run. pixi does **not** auto-detect a GPU, so the discipline is **build
-the env where the work runs** — choose the env to match the host:
+environment, and a committed **`pixi.lock`** pins both. The trap on a scheduler cluster: a
+login node has **no GPU**, but `pixi install -e gpu` will still download multi-GB CUDA wheels
+there — wasting quota on packages that can't run. pixi does **not** auto-detect a GPU, so the
+discipline is **build the env where the work runs** — choose the env to match the host (and
+always pass **`--frozen`**, next section):
 
-- **`local_cpu` / `local_gpu`** — one host does everything: `pixi install` (CPU) or
-  `pixi install -e gpu` (GPU) on that host.
+- **`local_cpu` / `local_gpu`** — one host does everything: `pixi install --frozen` (CPU) or
+  `pixi install --frozen -e gpu` (GPU) on that host.
 - **`scheduler`** — two places:
-  1. On the **login node**, `pixi install` (the `default` CPU env). That is all detection
-     and the light inline steps need. Do **not** `pixi install -e gpu` here.
-  2. Inside a **GPU job**, `pixi install -e gpu` to build the GPU env on the GPU node.
+  1. On the **login node**, `pixi install --frozen` (the `default` CPU env). That is all
+     detection and the light inline steps need. Do **not** `pixi install -e gpu` here.
+  2. Inside a **GPU job**, `pixi install --frozen -e gpu` to build the GPU env on the GPU node.
 
 On a cluster, keep pixi's envs off quota-limited home and on a **shared scratch** filesystem
 (so the login and compute nodes see the same env and the large CUDA env fits):
 `pixi config set detached-environments <scratch-path>`. The GPU env pulls cuML/cuDF from the
 NVIDIA index (declared in `pixi.toml` `[feature.gpu.pypi-options]`); `pixi.lock` pins
 everything for reproducibility.
+
+### Build once, run frozen — the scheduler / HPC reality
+
+The committed **`pixi.lock`** means the env never needs to be *solved* at runtime: always pass
+**`--frozen`** (`pixi install --frozen` to build, `pixi run --frozen cta …` to run) so pixi uses
+the lockfile as-is and never re-resolves. This matters most on a **scheduler / HPC cluster**,
+where plain `pixi run` does *solve + validate + exclusive-lock on one shared prefix* on every
+call. Four consequences, all generic to "memory-capped head node + one shared env prefix":
+
+- **Don't solve on a capped head node.** A runtime solve can OOM/SIGSEGV under a head/login
+  node's memory cap. With the committed lock, `pixi install --frozen` is a *link*, not a solve
+  (peaks at tens of MB, not GB) — safe even on a login node, and `--frozen` never solves later.
+- **One shared prefix is locked per `pixi run`.** Each call takes an exclusive lock on the env
+  prefix, so concurrent runs (and any stray `pixi install`/`pytest` in the same checkout)
+  serialize — even `cta … --help` can queue behind a heavy lock-holder. For concurrent/batch
+  use, resolve the prefix once and call the binary directly: `CTA=$(pixi run --frozen which cta)`
+  (or `-e gpu`), then `"$CTA" <command> …`.
+- **Don't mutate shared env state mid-run.** No `pixi config` changes, no `pixi install`/`pytest`
+  against a checkout with live runs — flipping a config key re-points concurrent runs and
+  re-triggers solves. Do dependency edits and testing in a separate clone.
+- **With `detached-environments`, clear stale local envs.** pixi ignores a leftover local
+  `.pixi/envs` but **re-warns every call** — delete it to silence the noise.
 
 ## Detection idioms (what `cta detect-env` checks)
 
@@ -103,7 +126,7 @@ When the confirmed profile is `scheduler`, the GPU-heavy scripts above run **som
 process can't reach directly**. This skill therefore:
 
 1. **Writes the standalone command** for each heavy step into `plan.md` (and narrates it in
-   chat) — the exact `pixi run -e gpu cta <command> …` invocation, plus its inputs/outputs
+   chat) — the exact `pixi run --frozen -e gpu cta <command> …` invocation, plus its inputs/outputs
    in the working dir — so it can be executed by whatever job-submission mechanism the
    user's environment provides.
 2. **Marks those steps "submit, don't run inline"** and pauses for the user to run them via
