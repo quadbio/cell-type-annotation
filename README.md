@@ -67,8 +67,9 @@ The skill runs as a guided, three-stage workflow (the detailed algorithm lives i
 2. **Plan.** Explore the object, gather prior knowledge for the tissue/context from the
    knowledge stack, draft the label hierarchy and per-level vocabulary, present for review.
 3. **Execute (top-down, recursive).** For each level, and within each parent group:
-   assemble candidate types + markers, panel-gate them, score (Wilcoxon + COSG markers;
-   AUCell/pyUCell signatures with a z-scored + consolidated cross-check), cross-check
+   assemble candidate types + markers, panel-gate them, score (Wilcoxon DE + a
+   `filter_rank_genes_groups` specificity pass; AUCell/pyUCell signatures with a
+   z-scored + consolidated cross-check), cross-check
    against a tissue-matched classifier / a reference mapping (CellMapper) as a
    *hypothesis*, sign off the assumptions ledger, profile ambiguous clusters before any
    `Unknown`, write per-cluster evidence cards, then assign a label — or sub-cluster and
@@ -143,7 +144,7 @@ skills/cell-type-annotation/
 │   ├── artifacts.md               # working-dir layout, run_state schema, reports
 │   ├── compute_environments.md    # the 3 compute profiles, env detection, scheduler handoff
 │   ├── tool_registry.md           # canonical step → cta command → GPU/profile map
-│   ├── marker_tools.md            # decoupler, pyUCell, COSG, snapseed
+│   ├── marker_tools.md            # decoupler, pyUCell, snapseed
 │   ├── automated_tools.md         # CellTypist, CellMapper, scANVI/scArches, Census, what to skip
 │   ├── knowledge_sources.md       # MCP coverage, CL normalization, atlases, loaders
 │   └── differential_expression.md # markers (Job A) vs condition DE (Job B)
