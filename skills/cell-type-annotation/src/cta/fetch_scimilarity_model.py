@@ -13,8 +13,9 @@ Cost, honestly:
     unless --keep-tarball), plus ~9 GB extracted → ~39 GB peak, settling to ~9 GB.
   * with --with-cellsearch: ~41 GB extracted (only if you also want cell SEARCH).
 
-The download is resumable (re-run the command to continue a partial download). On an Euler
-COMPUTE node remember to ``module load eth_proxy`` first; a LOGIN node has internet directly.
+The download is resumable (re-run the command to continue a partial download). On a firewalled
+compute node, make sure outbound internet is available first (e.g. load your site's proxy
+module); an internet-connected (login) node works directly.
 
 Usage:
   cta reference fetch-scimilarity --dest /path/to/models
@@ -67,8 +68,8 @@ def _download(url: str, tarball: Path) -> None:
     except subprocess.CalledProcessError as e:
         raise SystemExit(
             f"ERROR: download failed (exit {e.returncode}). It is resumable — re-run the "
-            "same command to continue. On an Euler COMPUTE node, `module load eth_proxy` "
-            "first (a login node has internet directly)."
+            "same command to continue. On a firewalled compute node, ensure outbound "
+            "internet/proxy is configured first (an internet-connected node works directly)."
         ) from e
 
 

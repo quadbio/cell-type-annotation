@@ -111,7 +111,7 @@ and `plan.md` in the working directory first, then continue from
 - Verify whichever MCPs are present actually respond before proceeding.
 
 **1b. Detect the compute environment (do this early — it shapes the plan).** Run
-`cta detect-env` (stdlib-only — works with any python). It reports the accelerator
+`cta detect-env` (no heavy imports — no scanpy/torch, so it's a fast cold start). It reports the accelerator
 (CUDA / Apple-Silicon MPS / none), usable RAM (clamped to cgroup/scheduler limits), any
 batch scheduler, and a **suggested profile**: `local_cpu` / `local_gpu` / `scheduler`.
 **Confirm it with the user** — and you *must* ask in the one ambiguous case the probe flags:
@@ -383,7 +383,7 @@ first, so a deep recursion never leaves the user lost.
    an L1 compartment (NPC vs Neuron), *qualify the label by compartment*
    (`Ventral telencephalic NPC` vs `… neuron`) — never reuse one label across two parents.
    Verify any time with `cta report write-back --dry-run` (runs
-   `cta_io.check_hierarchy_nesting`, refusing a non-nested hierarchy). Why the CSV is the
+   `cta.io.check_hierarchy_nesting`, refusing a non-nested hierarchy). Why the CSV is the
    source of truth, and the full card schema: `reference/methodology.md` §4.
 7. **Critic pass.** Spawn independent critic subagents (Agent tool) that read the
    exported **raw tables** (not just the card), re-derive markers, fetch ≥1 external
@@ -391,7 +391,7 @@ first, so a deep recursion never leaves the user lost.
    is the label a coherent refinement of its parent path (flag maturation/regional
    mismatches like an "IPC"/"neuron" L3 under an "NPC" L1 — the kind the deterministic
    nesting check can't catch)? Reconcile; revise or downgrade. (Structural nesting itself
-   is enforced in code — `cta_io.check_hierarchy_nesting` / `cta report write-back`.)
+   is enforced in code — `cta.io.check_hierarchy_nesting` / `cta report write-back`.)
 8. **Report, gate & descend.** Build the level's HTML report with
    `cta report build` (pass `--adata --cluster-key --viz-key`, plus
    `--embedding-key` for the similarity-ordered palette, to embed the numbered
@@ -465,7 +465,7 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `cta reference train-model` | GPU/large-memory: train (or refine) a scANVI reference model on a labeled atlas (scvi-tools). Reference side of the train-then-map workflow. |
 | `cta reference map-scarches` | GPU/large-memory: map the query onto a scANVI reference (a model you trained, or a shipped scvi-tools hub model) via scArches surgery — labels + per-cell uncertainty, in the `refmap_*` schema. |
 | `cta crosscheck scimilarity` | Optional **HUMAN-only** cross-check: zero-shot per-cell labels via SCimilarity (~16–27 GB RAM, CPU, ~9 GB annotation bundle). Foundation model → additional hypothesis only, never primary; most useful on broad/multi-tissue human queries where no CellTypist/SingleR model fits. Needs the model bundle — provision it once with `cta reference fetch-scimilarity`. |
-| `cta reference fetch-scimilarity` | One-time provisioning for `cta crosscheck scimilarity`: download + extract the SCimilarity model bundle. Annotation-only by default (~9 GB on disk; ~30 GB resumable download, skips the unused 32 GB cellsearch). Point `--model-path` at the resulting `<dest>/model_v1.1`. Needs network (`module load eth_proxy` on a compute node). |
+| `cta reference fetch-scimilarity` | One-time provisioning for `cta crosscheck scimilarity`: download + extract the SCimilarity model bundle. Annotation-only by default (~9 GB on disk; ~30 GB resumable download, skips the unused 32 GB cellsearch). Point `--model-path` at the resulting `<dest>/model_v1.1`. Needs network (ensure outbound internet on a firewalled compute node). |
 | `cta reference fetch-census` | Optional: pull a capped (or, on a large-memory profile, larger) tissue-matched reference subset from CELLxGENE Census (no full-atlas download) to feed `cta crosscheck reference-map` when the user has no atlas and no CellTypist model fits. Needs the `cellxgene-census` extra + network. |
 | `cta crosscheck obs-pred` | Cross-check from an EXISTING in-object prediction column (e.g. a previously-mapped atlas `*_pred`) — no recompute. Prefer over `cta crosscheck reference-map` when such a column exists and fits the level. |
 | `cta cluster subcluster` | Refine one/more clusters: Leiden on the anchor embedding + per-sub marker-fraction / QC / composition summary. Standardized sub-clustering (in scope). |

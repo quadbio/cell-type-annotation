@@ -272,7 +272,7 @@ hierarchy must nest, so the critic also checks each label against its **parent p
 (L1→…→L_k):
 
 - *Structural* nesting (every finer label has exactly one parent) is a deterministic
-  invariant enforced in **code** — `cta_io.check_hierarchy_nesting`, run by
+  invariant enforced in **code** — `cta.io.check_hierarchy_nesting`, run by
   `cta report write-back` (and any time via `--dry-run`). Don't rely on an LLM to never miss it;
   the critic need not re-derive it.
 - *Semantic* path-consistency is the critic's job — flag a path that **passes** the

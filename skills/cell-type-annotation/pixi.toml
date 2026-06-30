@@ -91,7 +91,7 @@ extra-index-urls = ["https://pypi.nvidia.com"]
 
 # scimilarity pulls hnswlib, but its PyPI wheel is the problem: the 0.8.0 cp312 wheel is built
 # with AVX-512 and SIGILLs `cta crosscheck scimilarity` when SCimilarity loads its prebuilt
-# hnswlib kNN index on AVX2-only CPUs (verified crashing on Euler's AMD EPYC 7763 / Intel Xeon
+# hnswlib kNN index on AVX2-only CPUs (verified crashing on AMD EPYC 7763 / Intel Xeon
 # E3-1284L v4 — neither has AVX-512). The fix is to source hnswlib from conda-forge instead:
 # conda-forge builds it portably (baseline microarch, no `-march=native`), so the same 0.8.0
 # runs on any CPU (verified: the conda-forge .so has zero AVX-512/AVX2 ops and the full
@@ -104,7 +104,7 @@ hnswlib = ">=0.8"
 # `rank_genes_groups`) are built against CUDA 13 and link `libcudart.so.13`, but the rest of the
 # GPU stack is CUDA 12 (cuml-cu12 / cupy-cuda12x / torch-cu12, which load libcudart.so.12). Without
 # a CUDA-13 runtime present the kernel .so fails to load, rapids-singlecell sets it to None, and the
-# GPU DE path silently falls back to scanpy (verified on Euler). Ship the CUDA-13 cudart runtime from
+# GPU DE path silently falls back to scanpy (verified in practice). Ship the CUDA-13 cudart runtime from
 # conda-forge so libcudart.so.13 lands in $ENV/lib alongside .so.12 — the two majors coexist (the
 # driver supports both) and the kernel loads. This is the actual enabler of issue #38's GPU path.
 cuda-cudart = "13.*"
@@ -128,7 +128,7 @@ cudf-cu12 = "*"
 # profile (atlas-scale ranking in seconds vs ~minutes on scanpy/CPU). Drop-in — same wilcoxon
 # method, same `uns['rank_genes_groups']` output the CPU path writes; scanpy stays the CPU default.
 # The `rapids-cu12` extra pulls the FULL RAPIDS stack it imports at load (cudf/cuml/cugraph/cuvs);
-# the bare cuml-cu12/cudf-cu12 above (for CellMapper's kNN) are not enough — verified on Euler that
+# the bare cuml-cu12/cudf-cu12 above (for CellMapper's kNN) are not enough — verified in practice that
 # `import rapids_singlecell` needs cuvs too.
 rapids-singlecell = { version = "*", extras = ["rapids-cu12"] }
 # rapids-singlecell 0.15.2 also imports `dask.array` at module load (rapids_singlecell/_compat.py)
