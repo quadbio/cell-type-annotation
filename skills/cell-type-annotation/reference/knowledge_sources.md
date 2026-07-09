@@ -13,6 +13,14 @@ fall back to the Europe PMC literature tools below, don't stop the run.
 transcriptomic taxonomy exists, e.g. PCL — the provisional cell ontology — for
 neuronal subtypes).
 
+**Validate every `cl_id` before write-back — semantic check is yours (MCP), not the CLI's.**
+`cta report write-back` only checks `cl_id` *syntax* (`CL:0000679` / `PCL:0000123`; it blocks a
+malformed id). Whether the term actually **exists**, is **not obsolete**, and its official name
+is **consistent with the label** you assigned needs an ontology lookup, which the standalone
+`cta` commands can't do. So before the final write-back (SKILL.md Stage 3.6), call
+`bc_get_term_details` on each `cl_id` and reconcile any mismatch with the user — this is the same
+MCP you used to normalize the label in the first place, closing the loop on it.
+
 ## Already covered by `knowledgebase-mcp` (verified working)
 
 - **PanglaoDB** — `bc_get_panglaodb_marker_genes` / `bc_get_panglaodb_options`

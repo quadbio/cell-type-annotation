@@ -480,11 +480,22 @@ def _looks_like_symbols(var_names) -> bool:
 
 
 def read_markers_json(path: str) -> dict[str, list[str]]:
-    """Marker sets as {cell_type: [genes]} from a JSON file."""
+    """POSITIVE marker sets as {cell_type: [genes]} from a JSON file.
+
+    Tolerates both marker-JSON shapes the toolkit uses: the flat ``{type: [genes]}`` and the
+    signed ``{type: {"pos": [...], "neg": [...]}}`` (see profile_markers / score_signatures).
+    For the signed shape it returns the POSITIVE genes only — this helper backs consumers that
+    want a defining gene panel (e.g. `cta cluster subcluster`); negative markers are handled
+    sign-aware by the tools that reason about them (profile / score), not flattened here.
+    """
     data = json.loads(Path(path).expanduser().read_text())
     if not isinstance(data, dict):
         raise SystemExit("ERROR: markers JSON must be an object {type: [genes]}")
-    return {str(k): list(map(str, v)) for k, v in data.items()}
+    out: dict[str, list[str]] = {}
+    for k, v in data.items():
+        genes = v.get("pos", []) if isinstance(v, dict) else v
+        out[str(k)] = [str(g) for g in genes]
+    return out
 
 
 def aggregate_predictions(clusters, labels, conf, method: str) -> pd.DataFrame:

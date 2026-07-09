@@ -298,7 +298,10 @@ first, so a deep recursion never leaves the user lost.
 
 1. **Assemble priors** → candidate types + markers for this level/context. Optionally
    seed the marker JSON with `cta markers assemble` (from a CellTypist model
-   and/or a reference's `rank_genes_groups`), then curate.
+   and/or a reference's `rank_genes_groups`), then curate. The JSON is **signed** —
+   `{type: {"pos": [...], "neg": [...]}}`; `assemble` fills `pos` and leaves an empty `neg`
+   slot for you to add **negative markers** (genes whose *presence* argues against the type,
+   e.g. `DCX` for an NPC), which the scoring/profiling steps then use as refutation evidence.
 2. **Panel-gate** every marker set against `adata.var_names`; record dropped genes.
 3. **Score** — two complementary views:
    - *bottom-up (what defines each cluster):* `cta markers compute`
@@ -311,7 +314,10 @@ first, so a deep recursion never leaves the user lost.
      matrices (`panel_pct_<level>.csv` / `panel_mean_<level>.csv`) and a dot plot. This is the
      workhorse you reason from cluster-by-cluster ("is marker X on in cluster Y?") and it
      feeds the cards directly via `cta report scaffold-cards --evidence panel_pct_<level>.csv`. Run it
-     once per level on the level's marker JSON.
+     once per level on the level's marker JSON. If the panel carries **negative markers**, it also
+     writes `panel_neg_flags_<level>.csv` — flagging any negative marker *expressed* in a cluster
+     (evidence against that cluster's candidate call); `scaffold-cards` auto-embeds this as an
+     "Expected-absent markers" block, so a violated negative shows as a ⚠ on the card.
 
    On targeted panels read `crosscheck`/`scores_aucell_z`, not raw AUCell — filtered-marker
    specificity + the reference cross-check are primary (`reference/marker_tools.md`).
@@ -414,9 +420,14 @@ first, so a deep recursion never leaves the user lost.
    more than ~half its clusters in `Unknown`, stop and consult the user
    (`reference/methodology.md`). On approval, recurse at the next level.
 
-**At the end (after the last level): write-back.** Run `cta report write-back --dry-run`
-first and **show the user its output and the hierarchy-nesting verdict** — that is what
-they're approving. Pass `--embedding-key` (the anchor embedding) so the saved labels get
+**At the end (after the last level): validate CL IDs, then write-back.** Before the write,
+**semantically validate every `cl_id`** you assigned: call the knowledgebase MCP
+`bc_get_term_details` on each to confirm the term **exists**, is **not obsolete**, and its
+official name is **consistent with the label** you gave the cluster — reconcile any mismatch with
+the user. (This is the semantic half the CLI can't do; `cta report write-back` itself only checks
+`cl_id` *syntax* and blocks a malformed accession, `--allow-bad-cl-id` to override.) Then run
+`cta report write-back --dry-run` first and **show the user its output and the
+hierarchy-nesting + cl_id verdict** — that is what they're approving. Pass `--embedding-key` (the anchor embedding) so the saved labels get
 the **same similarity-ordered category order and colour palette the reports used**: the
 script writes `adata.uns['<col>_colors']`, so a later `sc.pl.umap(color="cta_L1")` shows
 the colours the user signed off on rather than fresh arbitrary ones. The real write adds
@@ -456,9 +467,9 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `cta data inspect` | Stage 1: verify keys/layers, gene-ID convention, `.raw`, normalization fingerprint; prints the structured report (and writes `<workdir>/inspect_report.json` with `--workdir`). You author `context.md`/`run_state.json` from it — `inspect` doesn't. |
 | `cta data canonicalize` | Stage 1 (default): write the one canonical sidecar every downstream step reads — symbol `var_names` (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, a precomputed `layers['lognorm_cp10k']` (log1p-CP10k for CellTypist), slimmed embeddings/obs. Applies a small upfront absolute gene filter (`min_cells=5`) so every step shares one clean gene set. Also avoids reloading the huge file. |
 | `cta data qc` | Stage 1: compute (only when absent) standard QC into the sidecar obs — depth/mito metrics + cell-cycle `S_score`/`G2M_score`/`phase` — so low-quality / cycling clusters are detectable (read-only; no doublet detection, normalization, or filtering). |
-| `cta markers assemble` | Optional: seed `markers_<level>.json` from a CellTypist model and/or a reference's `rank_genes_groups`. |
+| `cta markers assemble` | Optional: seed `markers_<level>.json` (signed `{type:{pos,neg}}`, positives filled, empty `neg` slot to curate) from a CellTypist model and/or a reference's `rank_genes_groups`. |
 | `cta markers compute` | `rank_genes_groups` (wilcoxon) + `filter_rank_genes_groups` specificity → `markers_<level>.csv` + `markers_filtered_<level>.csv` (bottom-up: what defines each cluster). |
-| `cta markers profile` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. |
+| `cta markers profile` | Top-down complement: score a CURATED gene panel across clusters → per-cluster pct + mean matrices + dot plot. The workhorse you reason from; feeds the cards via `--evidence`. With negative markers in the panel, also writes `panel_neg_flags_<level>.csv` (negatives expressed where they should be absent → evidence against the call), auto-embedded in the cards. |
 | `cta markers score` | decoupler `aucell` + pyUCell + DE-overlap; writes z-scored AUCell + a consolidated `crosscheck`. |
 | `cta crosscheck celltypist` | `list` the remote model index (tissue-gated, no downloads); `predict`/`markers` for a matched model only. |
 | `cta crosscheck reference-map` | CellMapper kNN label transfer from a reference (joint CCA/PCA; CPU pynndescent, or GPU `--knn-method rapids` via cuml) — cross-check when no in-object prediction fits. |
@@ -473,4 +484,4 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `cta cluster confidence` | Advisory: per-cluster confidence proxy from filtered-marker logFC margin + cross-check agreement — calibrate hand-set confidences against it. |
 | `cta report scaffold-cards` | Render per-cluster evidence cards FROM the labels CSV (`rationale`/`rejected`/`label`/`confidence` columns = single source of truth, so re-scaffold never wipes reasoning); `--evidence <tables>` embeds the ACTUAL numbers behind the call. Sanitizes `/` in ids. |
 | `cta report build` | Per-level HTML report from tables + cards; (re)generates the numbered cell-map + marker dotplot + one composition panel per `--split-by` covariate **only with `--adata`**, but always embeds whatever PNGs are in `plots/` (so a no-`--adata` rebuild keeps the figures). `--strict` = the level-completeness gate (labels + filled rationale + signed assumptions gate) before descending; add `--check-only` to re-evaluate the gate read-only (no render, no write) after a sign-off. |
-| `cta report write-back` | Final step (gated): write the per-level labels into `obs` in-place (`--dry-run` first). |
+| `cta report write-back` | Final step (gated): write the per-level labels into `obs` in-place (`--dry-run` first). Blocks on a non-nested hierarchy (`--allow-non-nested`) or a malformed `cl_id` accession (`--allow-bad-cl-id`); semantic CL-term validation is done separately in-chat via the knowledgebase MCP. |

@@ -199,6 +199,44 @@ def _wilcoxon_section(rows: pd.DataFrame) -> str:
     return "\n".join(out)
 
 
+def _is_truthy(val) -> bool:
+    """Parse a CSV-round-tripped boolean (bool, 'True'/'False', 1/0) — a pandas-read
+    `violation` cell may be a Python bool or the string 'True'/'False'."""
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ("true", "1", "1.0")
+
+
+def _negative_marker_section(rows: pd.DataFrame) -> str:
+    """Render this cluster's expected-absent (negative) markers, flagging any that ARE expressed.
+
+    Reads rows of `panel_neg_flags_<level>.csv` (cluster, gene, group, pct, violation). A
+    violation — a negative marker on in more than the threshold fraction of cells — is concrete
+    evidence AGAINST the call, so it is surfaced with a ⚠ for the annotator and critic to weigh.
+    """
+    if rows is None or rows.empty:
+        return "- (none profiled for this cluster)"
+    out, n_viol = [], 0
+    for _, r in rows.iterrows():
+        gene = r.get("gene", "?")
+        try:
+            pct = float(r.get("pct"))
+        except (TypeError, ValueError):
+            pct = float("nan")
+        pct_s = f"{pct * 100:.0f}%" if pct == pct else "?"
+        group = str(r.get("group", "")).strip()
+        grp = f" _(neg for {group})_" if group and group.lower() != "panel" else ""
+        if _is_truthy(r.get("violation")):
+            n_viol += 1
+            out.append(
+                f"- ⚠ **{gene}** expressed in {pct_s} of cells{grp} — evidence AGAINST this call"
+            )
+        else:
+            out.append(f"- {gene} off ({pct_s}){grp}")
+    footer = "\n\n_all expected-absent markers confirmed off._" if n_viol == 0 else ""
+    return "\n".join(out) + footer
+
+
 # One concise line per source type (these tables repeat in every card, so keep terse).
 _CC_LEGEND = {
     "crosscheck": "_Cluster scored against the candidate marker sets (`markers_<level>.json`) by "
@@ -330,6 +368,11 @@ def cli(
     if pg is not None:
         crosscheck_sources.append((f"panel_gating_{level}", pg))
 
+    # Negative-marker violations (written by `cta markers profile` when the panel has negatives).
+    # Rendered as a dedicated block in "## Marker evidence", not via the generic --evidence path,
+    # since it is a per-cluster×gene long table, not a one-row-per-cluster summary.
+    neg_flags = _read_csv(tables / f"panel_neg_flags_{level}.csv")
+
     # User-designated evidence tables — the actual numbers behind the call.
     evidence_sources: list[tuple[str, pd.DataFrame]] = []
     for name in split_csv(evidence):
@@ -388,6 +431,13 @@ def cli(
 
         ev = _evidence_section(evidence_sources, str(cid))
         ev_block = f"## Evidence used\n\n{ev}\n\n" if ev else ""
+        # Expected-absent (negative) markers — only when the panel carried negatives.
+        neg_block = ""
+        if neg_flags is not None:
+            neg_block = (
+                f"**Expected-absent (negative) markers:**\n\n"
+                f"{_negative_marker_section(_rows_for(neg_flags, str(cid)))}\n\n"
+            )
         card = (
             f"# Cluster {cid}{size_str}\n\n"
             f"{call_line}"
@@ -401,6 +451,7 @@ def cli(
             f"{_specificity_section(_rows_for(specific, str(cid)))}\n\n"
             f"**Top Wilcoxon (rank_genes_groups):**\n\n"
             f"{_wilcoxon_section(_rows_for(markers, str(cid)))}\n\n"
+            f"{neg_block}"
             f"{ev_block}"
             f"## Automated cross-check\n\n"
             f"{_crosscheck_section(crosscheck_sources, str(cid))}\n\n"
