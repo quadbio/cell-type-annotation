@@ -24,6 +24,10 @@ never inside this plugin repo. Record the chosen path in `run_state.json`.
 │   ├── markers_<level>.csv          # rank_genes_groups (wilcoxon) + pts
 │   ├── markers_filtered_<level>.csv # filter_rank_genes_groups survivors (cluster-specific markers, ranked by log2FC)
 │   ├── panel_gating_<level>.csv     # on-panel vs dropped (off-panel) markers
+│   ├── panel_pct_<level>.csv        # markers profile: curated panel, % of cells expressing (clusters × genes)
+│   ├── panel_mean_<level>.csv       # markers profile: curated panel, mean log-norm expression
+│   ├── panel_sign_<level>.csv       # markers profile: pos/neg role, one row per (candidate type, gene) — a gene may be pos for one type, neg for another
+│   ├── panel_neg_flags_<level>.csv  # markers profile: per (cluster, type, neg-marker) — violation = marker expressed where that type's call says it should be absent
 │   ├── scores_overlap_<level>.csv   # per-cluster top-DE ∩ marker-set overlap
 │   ├── scores_aucell_<level>.csv    # decoupler aucell, per-cell → cluster mean
 │   ├── scores_aucell_z_<level>.csv  # aucell z-scored across clusters (relative enrichment)
@@ -55,6 +59,12 @@ downstream scripts break. Required: **`cluster`**, **`label`**. Recommended:
 - `cta report build` reads `cluster,label,state,cl_id,confidence,status,note`; `cta report write-back`
   hard-requires `cluster`+`label` and also writes `state`/`cl_id`/`confidence` as companion
   obs columns (`<prefix>_<level>_state`, …) if present.
+- **`cl_id` is syntax-validated at write-back** (not just recommended): any non-blank value
+  must be a well-formed accession `CL:0000679` / `PCL:0000123` — `cta report write-back` blocks
+  on a malformed id (override `--allow-bad-cl-id`). This is a SYNTAX check only; that the term
+  *exists*, is current, and matches its label is verified in-chat via the knowledgebase MCP
+  (`bc_get_term_details`) before write-back — see `knowledge_sources.md`. Blank is fine
+  (`cl_id` stays optional; Unknown / low-quality clusters need none).
 - **`status` MUST be lowercase**, one of `{assigned, unknown, needs_subcluster, refuted}`
   — the report keys flagging off these exact lowercase strings. Write the *label* as
   `Unknown` (display) but the *status* column as `unknown`. A capitalized `status`

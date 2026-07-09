@@ -24,6 +24,8 @@ Scope — what is and isn't here:
 
 from __future__ import annotations
 
+import re
+
 # --- Callability gate (panel-dependent) ---------------------------------------------
 # A candidate type needs at least this many of its positive markers ON the panel to be
 # scored at all; below it the type is UNCALLABLE on this panel (a contributor to Unknown,
@@ -41,6 +43,25 @@ MIN_ON_PANEL_MARKERS = 2
 # survive. A global per-gene cell-count filter is bounded by the SMALLEST cluster you want to
 # annotate, which is small — so keep it low and absolute. Enforced by `cta data canonicalize`.
 GENE_FILTER_MIN_CELLS = 5
+
+# --- Negative-marker violation threshold (panel-dependent) --------------------------
+# A curated NEGATIVE marker is one whose expression is EXPECTED to be absent in a candidate
+# type (e.g. DCX for an NPC, MS4A1 for a T cell). `cta markers profile` flags a violation when
+# a negative marker is detected in more than this fraction of a cluster's cells — i.e. it is
+# "on" where the call says it should be off, which is evidence AGAINST that call for the critic
+# pass to weigh. An off-panel negative marker is UNMEASURED, never "confirmed absent", so it is
+# reported, not scored here. Enforced by: `cta markers profile` (writes panel_neg_flags_<level>.csv).
+#
+# Calibrated on 5 real atlases (Immune Cell Atlas, GTEx v9, mouse pancreas, HypoMap, HNOCA — via
+# celltype-anno-bench): genuine positive markers are expressed in ~50–68% of their home type's
+# cells (10th pct 0.52), while a truly-absent marker's cross-type background (ambient + shared
+# developmental programs) reaches ~10–20% in the noisiest data. So the two are well separated and
+# the threshold has headroom: 0.20 clears ZERO genuine positives on all 5 datasets while cutting
+# the false-violation rate on true negatives from ~18% (at 0.10) to ~5% mean — and, crucially for
+# developmental/organoid data, from 43% to 10% on HNOCA. 0.10 cried wolf; 0.20 is a trustworthy
+# flag. Raise toward 0.25 for very continuous/developmental data; lower only on clean, discrete,
+# low-ambient data where you want maximum sensitivity.
+NEG_MARKER_MAX_PCT = 0.20
 
 # --- Reference-mapping gate (panel-dependent) ---------------------------------------
 # Minimum genes shared between query and reference before a label transfer is trusted;
@@ -72,3 +93,18 @@ CONFIDENCE_BANDS = ((3.0, 5, 0.9), (2.0, 3, 0.8), (1.0, 1, 0.7), (0.5, 0, 0.6))
 CONFIDENCE_BASE = 0.45
 CONFIDENCE_AGREEMENT_BOOST = 0.05
 CONFIDENCE_CAP = 0.95
+
+# --- Cell Ontology id syntax (write-back gate) --------------------------------------
+# `cta report write-back` SYNTACTICALLY validates any non-blank `cl_id` in the labels CSV
+# before mutating the user's AnnData: it must be a real ontology accession of the form
+# PREFIX:0000000. We accept the Cell Ontology (CL) and the Provisional Cell Ontology (PCL,
+# used for fine neuronal subtypes that CL does not yet carry) — both use 7-digit numeric ids,
+# matching the Cell Annotation Schema's `cell_ontology_term_id` rule. This is a CHEAP,
+# OFFLINE, deterministic check that catches typos (`CL:000681`), wrong casing (`cl:0000681`),
+# and free-text leaking into the id column. It does NOT confirm the term EXISTS, is not
+# obsolete, or matches its label — that SEMANTIC check is done in-chat via the knowledgebase
+# MCP (`bc_get_term_details`), because `cta` commands have no MCP access. See SKILL.md
+# Stage 3.6 and reference/knowledge_sources.md. Extend the prefixes for other CL-extending
+# ontologies (e.g. FBbt) if a run needs them.
+CL_ID_ALLOWED_PREFIXES = ("CL", "PCL")
+CL_ID_PATTERN = re.compile(r"^(?:" + "|".join(CL_ID_ALLOWED_PREFIXES) + r"):\d{7}$")

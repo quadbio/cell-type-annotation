@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 """Assemble a candidate marker prior from data-driven sources — a STARTING POINT.
 
-Writes markers_<level>.json as {label: [genes]} by pulling marker sets from one or
-more sources and merging them. This spares the annotator hand-typing an entire prior,
-but the output is NOT final: it must still be curated (drop implausible genes, rename
-labels to your hierarchy) and panel-gated against the query before use.
+Writes markers_<level>.json as {label: {"pos": [genes], "neg": []}} by pulling marker sets
+from one or more sources and merging them. Only POSITIVE markers are data-derivable here
+(CellTypist / reference DE surface defining genes, not expected-absent ones), so `neg` is
+emitted EMPTY — an explicit slot for the annotator to fill with negative markers (genes that
+should be OFF in the type), which `cta markers profile` / `cta markers score` then use.
+This spares the annotator hand-typing an entire prior, but the output is NOT final: it must
+still be curated (drop implausible genes, add negatives, rename labels to your hierarchy) and
+panel-gated against the query before use.
 
 Sources (combinable; at least one required) — nothing dataset-specific is hardcoded,
 every label and gene comes from a source you point at:
@@ -33,6 +37,16 @@ import typer
 
 from cta.canonicalize import align_var_names_to_symbols
 from cta.io import eprint, load_adata, panel_gate
+
+
+def _as_signed(markers: dict[str, list[str]]) -> dict[str, dict[str, list[str]]]:
+    """Wrap positive marker sets in the signed schema with an empty negatives slot.
+
+    Sources here yield POSITIVE markers only, so `neg` is emitted empty — an explicit place
+    for the annotator to add expected-absent markers during curation. Downstream tools
+    (`cta markers profile` / `cta markers score`) read this signed shape directly.
+    """
+    return {label: {"pos": genes, "neg": []} for label, genes in markers.items()}
 
 
 def from_celltypist(model_name: str, n_genes: int) -> dict[str, list[str]]:
@@ -165,8 +179,8 @@ def cli(
 
     out_path = Path(out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(merged, indent=2))
-    eprint(f"   wrote {out_path}")
+    out_path.write_text(json.dumps(_as_signed(merged), indent=2))
+    eprint(f'   wrote {out_path}  (each label as {{"pos": [...], "neg": []}} — add negatives)')
 
     if adata:
         adata_obj = load_adata(adata)
@@ -181,7 +195,7 @@ def cli(
             for label, genes in uncallable.items():
                 eprint(f"   {label}: {len(genes)} on-panel -> {genes}")
         gated_path = out_path.with_name(out_path.stem + "_gated" + out_path.suffix)
-        gated_path.write_text(json.dumps(kept, indent=2))
+        gated_path.write_text(json.dumps(_as_signed(kept), indent=2))
         eprint(f"   wrote {gated_path}")
         summarize(kept, "gated (on-panel)")
 

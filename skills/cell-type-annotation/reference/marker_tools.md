@@ -65,7 +65,24 @@ over the evidence is the arbiter.
   `sc.pl.dotplot(adata, markers_dict, groupby=cluster_key, standard_scale="var")`
   — dot size = fraction expressing, color = mean expression. A `{type: [genes]}`
   dict draws labeled blocks. Cap extremes with `vmax`/p99.
-- **Negative markers:** scanpy has no native support → use pyUCell (pos/neg sets) or
+- **Negative markers are first-class in the `cta` marker JSON.** Write a set as
+  `{"T cell": {"pos": ["CD3D","CD3E"], "neg": ["MS4A1"]}}` (the flat `{type: [genes]}` still
+  works and means all-positive). Both `cta markers score` (pyUCell pos/neg) and
+  `cta markers profile` read this shape. `assemble` seeds every label with an empty `"neg": []`
+  slot for you to fill — sources yield positives only. **Negatives are curated by you**, not
+  auto-derived: a good negative marker is one whose *presence* argues against the type
+  (`DCX` for an NPC, `MS4A1` for a T cell, `FCGR3A` for a classical monocyte).
+- **How `cta markers profile` uses negatives:** it profiles them alongside positives (you want
+  to *see* a negative marker is off, not assume it) and writes `panel_neg_flags_<level>.csv` —
+  a **violation** is a negative marker expressed in more than `NEG_MARKER_MAX_PCT` (default 0.20,
+  `constants.py` — calibrated on real atlases: genuine positives sit at ~50–68% expressing, so
+  0.20 never clears a real marker while keeping false alarms low; raise toward 0.25 for very
+  continuous/developmental data) of a cluster's cells, i.e. on where the call says off → concrete
+  evidence *against* that call, surfaced in the evidence card and for the critic pass to weigh. **Panel
+  caveat:** an off-panel negative marker is **unmeasured**, never "confirmed absent" — profile
+  reports it as dropped and excludes it from the flags (matters doubly on targeted panels, where
+  a negative may simply be off-panel).
+- scanpy has no native negative-marker support → the above is built on pyUCell (pos/neg sets) or
   a signed decoupler network.
 - **Cluster → label mapping:**
   `adata.obs["ct"] = adata.obs[cluster_key].map(mapping_dict).astype("category")`.
