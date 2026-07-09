@@ -49,10 +49,15 @@ def test_write_back_blocks_bad_cl_id_then_passes(tiny_h5ad, tmp_path):
         ["0,T cell,CL:0000084", "1,B cell,CL:0000236", "2,Monocyte,BADID"],
     )
     base = [
-        "cta", "report", "write-back",
-        "--adata", str(tiny_h5ad),
-        "--workdir", str(workdir),
-        "--cluster-key", "leiden",
+        "cta",
+        "report",
+        "write-back",
+        "--adata",
+        str(tiny_h5ad),
+        "--workdir",
+        str(workdir),
+        "--cluster-key",
+        "leiden",
         "--dry-run",
     ]
 

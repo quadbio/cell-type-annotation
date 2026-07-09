@@ -190,9 +190,7 @@ def cli(
     # call of that type says it should be off, i.e. evidence AGAINST calling that cluster that type.
     # A gene that is negative for several types is checked once per type (and may be a positive
     # marker of yet another type — the norm), so nothing is lost to a single per-gene sign.
-    neg_pairs = [
-        (ct, g) for ct, gs in kept.items() for g in gs if g in neg_by_group.get(ct, set())
-    ]
+    neg_pairs = [(ct, g) for ct, gs in kept.items() for g in gs if g in neg_by_group.get(ct, set())]
     if neg_pairs:
         neg_rows = []
         # NB: `clu`, not `cl` — `cl` holds the per-cell cluster array the dot plot reuses below.

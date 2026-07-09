@@ -71,12 +71,19 @@ def test_profile_flags_negative_marker_violation(tmp_path):
 
     r = subprocess.run(
         [
-            "cta", "markers", "profile",
-            "--adata", str(h5),
-            "--cluster-key", "leiden",
-            "--markers", str(mj),
-            "--workdir", str(workdir),
-            "--level", "L1",
+            "cta",
+            "markers",
+            "profile",
+            "--adata",
+            str(h5),
+            "--cluster-key",
+            "leiden",
+            "--markers",
+            str(mj),
+            "--workdir",
+            str(workdir),
+            "--level",
+            "L1",
             "--dotplot",  # exercise the pos/neg-split dot plot path too
         ],
         capture_output=True,
@@ -84,7 +91,9 @@ def test_profile_flags_negative_marker_violation(tmp_path):
     )
     assert r.returncode == 0, r.stderr
     # the dot plot (with its negative "(−)" block) must render, not silently warn-and-skip
-    assert (workdir / "plots" / "dotplot_L1.png").exists(), f"dot plot not written; stderr:\n{r.stderr}"
+    assert (workdir / "plots" / "dotplot_L1.png").exists(), (
+        f"dot plot not written; stderr:\n{r.stderr}"
+    )
     assert "dot plot failed" not in r.stderr
 
     # sign map: MS4A1 negative, CD3D positive
@@ -124,12 +133,19 @@ def test_negative_role_preserved_when_gene_is_positive_elsewhere(tmp_path):
 
     r = subprocess.run(
         [
-            "cta", "markers", "profile",
-            "--adata", str(h5),
-            "--cluster-key", "leiden",
-            "--markers", str(mj),
-            "--workdir", str(workdir),
-            "--level", "L1",
+            "cta",
+            "markers",
+            "profile",
+            "--adata",
+            str(h5),
+            "--cluster-key",
+            "leiden",
+            "--markers",
+            str(mj),
+            "--workdir",
+            str(workdir),
+            "--level",
+            "L1",
         ],
         capture_output=True,
         text=True,
@@ -147,7 +163,9 @@ def test_negative_role_preserved_when_gene_is_positive_elsewhere(tmp_path):
     nf = pd.read_csv(workdir / "tables" / "panel_neg_flags_L1.csv")
     nf["cluster"] = nf["cluster"].astype(str)
     bcell = nf[(nf["group"] == "Bcell") & (nf["gene"] == "CD3D")]
-    assert not bcell.empty, "Bcell's negative marker CD3D was dropped (per-gene collapse regression)"
+    assert not bcell.empty, (
+        "Bcell's negative marker CD3D was dropped (per-gene collapse regression)"
+    )
     v = dict(zip(bcell["cluster"], bcell["violation"].astype(bool), strict=True))
     assert v["0"] is True and v["1"] is False
 

@@ -180,7 +180,7 @@ def cli(
     out_path = Path(out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(_as_signed(merged), indent=2))
-    eprint(f"   wrote {out_path}  (each label as {{\"pos\": [...], \"neg\": []}} — add negatives)")
+    eprint(f'   wrote {out_path}  (each label as {{"pos": [...], "neg": []}} — add negatives)')
 
     if adata:
         adata_obj = load_adata(adata)
