@@ -27,13 +27,12 @@ Usage:
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import typer
 
-from cta.io import eprint
+from cta.io import download_file, eprint, have_tool
 
 ZENODO_RECORD = "10685499"
 MODEL_NAME = "model_v1.1"
@@ -45,32 +44,13 @@ _CELLSEARCH = "cellsearch"  # the 32 GB TileDB the annotation path never loads
 
 
 def _have(tool: str) -> bool:
-    return shutil.which(tool) is not None
+    return have_tool(tool)
 
 
 def _download(url: str, tarball: Path) -> None:
-    """Resumably download `url` to `tarball` via curl (preferred) or wget."""
-    if _have("curl"):
-        # -L follow redirects, --fail error on HTTP >=400, -C - resume a partial file.
-        cmd = ["curl", "-L", "--fail", "-C", "-", "-o", str(tarball), url]
-    elif _have("wget"):
-        cmd = ["wget", "-c", "-O", str(tarball), url]  # -c continue
-    else:
-        raise SystemExit(
-            "ERROR: need `curl` or `wget` to download the model bundle, neither found on "
-            f"PATH. Install one, or download {url} manually to {tarball} and re-run with "
-            "--keep-tarball (the command picks up an existing tarball and just extracts)."
-        )
+    """Resumably download `url` to `tarball` (shared helper; see cta.io.download_file)."""
     eprint(f">> downloading {MODEL_NAME}.tar.gz (~30 GB, resumable) from Zenodo")
-    eprint("   $ " + " ".join(cmd))
-    try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as e:
-        raise SystemExit(
-            f"ERROR: download failed (exit {e.returncode}). It is resumable — re-run the "
-            "same command to continue. On a firewalled compute node, ensure outbound "
-            "internet/proxy is configured first (an internet-connected node works directly)."
-        ) from e
+    download_file(url, tarball, what="model bundle")
 
 
 def _extract(tarball: Path, dest: Path, with_cellsearch: bool) -> None:

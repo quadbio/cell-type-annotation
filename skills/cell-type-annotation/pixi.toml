@@ -145,5 +145,39 @@ scimilarity = "*"
 [feature.gpu.pypi-dependencies]
 huggingface-hub = ">=1.20.1, <2"
 
+# --- azimuth env: pan-human Azimuth (panhumanpy), the HUMAN organism-scale classifier. -----
+# Its own environment, but NOT isolated from `default`: it layers panhumanpy on top of the
+# CPU core, so `cta crosscheck azimuth` has the same `cta` toolset as every other cross-check.
+# Kept out of `default` because panhumanpy drags in TensorFlow (~600 MB) plus jupyter,
+# umap-learn, xarray and plotly for one OPTIONAL cross-check — the CPU default is meant to
+# stay lean (same reason scvi-tools lives in `gpu`). CPU only; a GPU buys nothing below ~10M
+# cells, so there is no CUDA variant.
+#
+# Build it like any other env:  pixi install --frozen -e azimuth
+[feature.azimuth.pypi-options]
+# panhumanpy declares `tensorflow==2.17` and `scikit-learn==1.6.0` as EXACT pins. TF 2.17 in
+# turn pins numpy<2.0, which would be a hard conflict with this workspace's numpy>=2 — and
+# TF 2.17 has no cp313 wheels either. The pins are not actually load-bearing: verified on
+# celltype-anno-bench/pbmc3k (2,700 cells) that the shipped v1 model loads and produces
+# 100% IDENTICAL azimuth_broad/medium/fine and final_level_labels under BOTH
+#   TF 2.17.0 / numpy 1.26.4 / scikit-learn 1.6.0   (the pinned stack), and
+#   TF 2.21.0 / numpy 2.4.6  / scikit-learn 1.9.0   (this override),
+# with final_level_confidence differing by at most 3.6e-06 (float noise). The model files are
+# Keras-3 `.keras`, which load forward across Keras 3.x. Upstream issue to relax the pins:
+# https://github.com/satijalab/panhumanpy/issues/48 documents the same install pain.
+# Revisit this override whenever panhumanpy is bumped — re-run that equivalence check first.
+dependency-overrides = { tensorflow = ">=2.17,<3", scikit-learn = ">=1.6" }
+
+[feature.azimuth.dependencies]
+# panhumanpy pulls umap-learn -> numba, and numba lags the newest numpy by a release or two
+# (numba <=0.63.1 requires numpy<2.5). Without this bound the conda solve grabs the newest
+# numpy and the pypi solve then fails on numba. Scoped to this feature so `default`/`gpu` keep
+# their unbounded `numpy = ">=2"`; raise the ceiling once numba catches up.
+numpy = ">=2,<2.5"
+
+[feature.azimuth.pypi-dependencies]
+panhumanpy = "==1.0.0"
+
 [environments]
 gpu = ["gpu"]
+azimuth = ["azimuth"]

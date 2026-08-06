@@ -24,6 +24,7 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | Step (stage) | Tool / script | GPU | Profile | Method / notes |
 | --- | --- | --- | --- | --- |
 | Detect environment (1b) | `cta detect-env` | none | all | stdlib probe of `torch`/`nvidia-smi`/`psutil`/scheduler. Detection only. |
+| Choose the cross-check (3.4) | `cta route` | none | all | the routing tree over species / stage / state / technology / reference availability / compute → the ONE primary cross-check, plus why each higher-ranked option was skipped or refused. Decision table only — runs nothing, touches no data. Defined in `src/cta/routing.py`; rendered for humans into `reference/method_selection.md`. |
 | Bootstrap env (1c) | `pixi install --frozen [-e gpu]` | none | all | pixi env from the committed lock, no solve: `default` (CPU) or `-e gpu` (adds the GPU stack); run tools as `pixi run --frozen cta …`. Not a `cta` command. |
 | Inspect object (1e) | `cta data inspect` | none | all | keys/layers/norm-fingerprint/panel flag/gene-ID convention/`.raw` → `context.md`. |
 | Canonicalize (1e) | `cta data canonicalize` | none | all | **Standard Stage-1 step** (not optional): write the one canonical sidecar every step reads — symbol var_names (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, slim embeddings/obs. Also applies the **upfront absolute gene filter** (`sc.pp.filter_genes(min_cells=GENE_FILTER_MIN_CELLS=5)`) so every downstream step sees one clean, consistent gene set. Replaces the old slim-cache step. |
@@ -37,7 +38,9 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 | Cross-check — CellTypist (3.4) | `cta crosscheck celltypist` | none | all | tissue-gated pretrained LR classifier; `list` (no download) then `predict` only if a model fits. |
 | Cross-check — reference model (3.4) | `cta reference map-scarches` | preferred | local_gpu / scheduler | scArches surgery onto a scANVI model (trained, or a scvi-hub shipped model). Labels + per-cell uncertainty. |
 | Train reference model (3.4 prep) | `cta reference train-model` | preferred | local_gpu / scheduler | scVI→scANVI on a labeled atlas (scvi-tools). Reference side of train-then-map. |
-| Cross-check — foundation model (3.4, opt.) | `cta crosscheck scimilarity` | none · **RAM ~16–27 GB, CPU** | all (HUMAN-only) | SCimilarity zero-shot kNN. Additional hypothesis only, never primary. Human-only; best where no CellTypist/SingleR model fits. |
+| Cross-check — organism-scale model (3.4) | `cta crosscheck azimuth` | none · **RAM ~2× the matrix** | all (HUMAN-only; **`azimuth` pixi env**) | pan-human Azimuth (panhumanpy): a SUPERVISED NN over a fixed 5,055-gene panel, ~9.7M cells / 23 human tissues. Three granularities in one model (`--granularity broad`=13 / `medium`=85 / `fine`=291), a **calibrated** per-cell confidence, a native CL crosswalk, and trained `Unassigned` / `Doublet like cell` classes → also writes `azimuth_state_<level>.csv` for the `state` axis. ~50–60k cells/min CPU; 84 MB model. **Adult/postnatal human only** (not developmental, not tumour); **refuses on targeted panels** (`--min-panel-overlap`, default 20%). Cannot be tissue-constrained. |
+| Provision Azimuth model (before azimuth) | `cta reference fetch-azimuth` | none | all | download the 84 MB Zenodo `.keras` into `~/.cache/panhumanpy/<version>/inference_model/` so the annotation run needs no network. Runs in the `default` env (it does not import panhumanpy). Needs network. |
+| Cross-check — foundation model (3.4, opt.) | `cta crosscheck scimilarity` | none · **RAM ~16–27 GB, CPU** | all (HUMAN-only) | SCimilarity zero-shot kNN. Additional hypothesis only, never primary. Human-only; best where no CellTypist/SingleR model fits. Largely superseded by `cta crosscheck azimuth` on adult human data — keep as a tie-break. |
 | Provision SCimilarity model (before scimilarity) | `cta reference fetch-scimilarity` | none | all (HUMAN-only) | download + extract the model bundle for `cta crosscheck scimilarity`. Annotation-only by default (~9 GB on disk; ~30 GB resumable download, skips the 32 GB cellsearch). Needs network. |
 | Fetch reference (3.4 fallback) | `cta reference fetch-census` | none | all (larger slices on large-mem) | capped, tissue-matched CELLxGENE Census slice → feeds `cta crosscheck reference-map`. Needs network. |
 | Investigate before Unknown (3.7) | `cta cluster profile` | none | all | QC medians + categorical crosstabs + optional spatial. |
@@ -59,3 +62,13 @@ A separate **RAM** note flags steps whose real cost is memory, not GPU.
 - **`cta crosscheck scimilarity` needs moderate RAM, not a GPU** — ~16–27 GB peak (measured;
   fits a 32 GB machine, CPU-only, a few minutes), so it is NOT large-memory-gated as once assumed.
   HUMAN-only (the v1.1 model has a fixed human gene order) — skip it for non-human queries.
+- **`cta crosscheck azimuth` lives in its OWN pixi environment** — `pixi install --frozen -e azimuth`.
+  Not because of a conflict (panhumanpy's `tensorflow==2.17` / `scikit-learn==1.6.0` pins are
+  overridden in `pixi.toml`, verified label-identical on newer versions) but because it drags
+  TensorFlow into what is otherwise a lean CPU env, for one optional cross-check. It is a plain
+  CPU tool; a GPU only matters above ~10M cells.
+- **`mean_conf` does not mean the same thing in every `refmap_*` table.** All cross-checks emit
+  the column, but it is a scArches posterior for `map-scarches`, a CellMapper confidence for
+  `reference-map`, a within-query min-distance inversion for `scimilarity` (so not comparable
+  across runs), and a **temperature-scaled probability** for `azimuth` — the only one you can
+  read as an actual probability. Don't compare the numbers across methods.

@@ -224,6 +224,22 @@ The evidence for `state` comes from `cta data qc` (read-only QC + cell-cycle wri
 canonical working copy, never the user's original) surfaced per-cluster by `cta cluster profile`.
 This is detection, not correction — the skill still never normalizes, filters, or removes doublets.
 
+**A second, independent source of state evidence (human adult only): `cta crosscheck azimuth`.**
+When it runs, it also writes `tables/azimuth_state_<level>.csv`. Fold those columns in via
+`cta report scaffold-cards --evidence azimuth_state_<level>.csv`:
+
+| column | what it corroborates | why it is legitimate evidence |
+| --- | --- | --- |
+| `frac_unassigned` | `state=low-quality` **or** a mixture | `Unassigned` is a *trained* class: pan-human Azimuth was fitted on ~145k deliberate negatives — real empty droplets/debris **and** simulated high-UMI mixture profiles. It is a genuine detector, not a "model didn't know" bucket. But it does **not** distinguish the two causes: read it against `qc_deviation_<level>.csv` (depth/mito → low-quality) vs mutually-exclusive marker co-expression (→ mixture, sub-cluster first). |
+| `frac_doublet_like` | the sub-cluster-first route above | Also a trained class. This is materially new: until now the only in-object doublet corroboration was a pre-existing Scrublet/scDblFinder column. It adds a second independent opinion **without** bringing doublet *detection* into scope — a cross-check observing a doublet is still detection, not correction. |
+| `frac_inconsistent_hierarchy` | **Gate B**, and a general out-of-distribution alarm | The model's own flag that a cell's 8 hierarchical heads did not agree on a self-consistent path — a *hierarchy-level* conflict, exactly the kind that must not be resolved by fiat. It rises sharply on queries outside the model's training distribution, so a high value means **do not let the cross-check drive a fine call here**, whatever the axes said. |
+| `mean_conf` | calibrating your hand-set `confidence` | Temperature-scaled, so unlike every other cross-check's `mean_conf` this is an actual probability (`reference/tool_registry.md`). |
+
+**These corroborate a state; they never set one.** Every automated call is a hypothesis
+(`reference/automated_tools.md`) — that does not weaken just because the hypothesis is about
+state rather than type. A cluster is `low-quality` because its QC says so and you judged the
+type unsupportable, not because a classifier said `Unassigned`.
+
 Reach for `Unknown` (the **type** axis) when: no candidate scores above the noise floor; or two
 incompatible identities are equally supported and one split does not separate them
 (§5); or the only fitting candidate is **uncallable** because its defining markers are

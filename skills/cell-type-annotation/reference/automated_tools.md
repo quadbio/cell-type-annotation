@@ -7,6 +7,11 @@ no from-scratch training, no multi-GB atlas downloads. On a GPU / large-memory p
 scArches mapping, GPU kNN, large atlas / Census, and an optional foundation-model
 cross-check.
 
+**WHICH one to run is not decided here.** This file explains *why each method behaves as it
+does* — its caveats, its input needs, what to skip. The **choice** between them has one home:
+`reference/method_selection.md` (generated from `src/cta/routing.py`; run `cta route` for the
+answer on a specific query). Cost/GPU/profile per tool: `reference/tool_registry.md`.
+
 **Core principle (does NOT change with the hardware): every automated call is a HYPOTHESIS,
 not a verdict.** (This is the single-cell best-practices consensus.) Claude's marker
 reasoning is the arbiter — a bigger model earns one more independent opinion to weigh, not
@@ -18,7 +23,10 @@ ambiguous progenitor / transitional states that are biologically real and import
 
 - **CellTypist** (`pip install celltypist`) — logistic-regression classifier,
   per-cell with optional `majority_voting` over clusters. ~60 pretrained models, each a
-  few MB. **Tissue-gate it — don't download blind:**
+  few MB. **Tissue- AND stage-gate it — don't download blind.** Stage matters as much as
+  tissue: an adult-cortex model applied to a developing organoid does not degrade gracefully,
+  it collapses — dumping a large share of cells onto one type. A mismatched CellTypist is
+  worse than no CellTypist, which is why the rule is *omit it* rather than *force one*.
   - The model index (name + `details` + `No_celltypes` + `source`) is available WITHOUT
     downloading via `celltypist.models.get_models_index(force_update=True)` (the JSON at
     `celltypist.cog.sanger.ac.uk/models/models.json`). Use `cta crosscheck celltypist list
@@ -70,9 +78,12 @@ ambiguous progenitor / transitional states that are biologically real and import
   with plurality vote per cluster.
   - *Caveat:* ships cp313 wheels (not cp314); densify the test matrix before scoring
     (a sparse transpose mis-annotates).
-- **Hand-rolled mini-consensus** — run 2–3 light methods and flag where they disagree
-  for a certainty / "needs-review" signal. (A full consensus engine like popV is overkill
-  for this skill's single-cross-check design — see "Skip" below.)
+- **A second method — TO BREAK A TIE ONLY.** The rule is **exactly one** primary cross-check
+  per level (SKILL.md Stage 3 step 4). When two identities are genuinely equally supported, a
+  second light method is a legitimate tie-break and its disagreement is a "needs-review" signal
+  worth recording. It is **not** a routine consensus step: running 2–3 methods by default
+  multiplies cost, dilutes the marker evidence's role as arbiter, and invites averaging away a
+  real conflict. (A full consensus engine like popV is overkill here — see "Skip" below.)
 - **`scanpy.tl.ingest`** — zero-dependency kNN baseline transfer when you have a
   reference `AnnData`.
 
@@ -111,18 +122,43 @@ Each is still a HYPOTHESIS, held to the same bar as the CPU cross-check.
 - **Large reference atlases / Census slices** — with the memory headroom, lift the
   `cta reference fetch-census --max-cells` cap and prefer a full curated atlas (or a shipped
   hub model) over the laptop-scale slice (`reference/knowledge_sources.md`).
-- **Foundation models — OPTIONAL, additional cross-check only.** 2026 benchmarks repeatedly
-  show single-cell foundation models (scGPT, Geneformer, UCE, scFoundation) **rarely beat
-  scANVI or even simple baselines for annotation**, and degrade out-of-distribution on small
-  targeted panels — so they are never the primary annotator here. The two that fit a local,
-  data-stays-put design and emit a usable per-cell label are **SCimilarity**
-  (`cta crosscheck scimilarity`; HUMAN-only zero-shot kNN against a ~7M-cell reference, ~16–27 GB
-  RAM, CPU, ~9 GB annotation bundle provisioned once via `cta reference fetch-scimilarity`) and
-  **scPRINT** (CPU-capable, emits ontology IDs) — wire either
-  in only as one more independent opinion to reconcile. SCimilarity's niche (validated on
-  celltype-anno-bench): broad / multi-tissue **human** queries where CellTypist/SingleR have no
-  tissue-matched model and collapse — there it is the strongest automated option; on tissue-matched
-  data it only matches CellTypist, and on mouse it is weak (skip non-human).
+## Pan-body human models (ALL profiles — not a GPU tier)
+
+These are CPU tools that happen to be large. They belong to no compute tier: `cta route` reaches
+them on a laptop. What actually gates them is **biology** — species, developmental stage, tumour
+content — and the gene panel.
+
+**The disqualifier that applies to both, and is easy to miss: a targeted imaging panel.** A
+pan-transcriptome model expects thousands of genes and silently **zero-fills** the ones it can't
+find. A 300-plex MERSCOPE/Xenium/CosMx panel covers ~5% of the input space, and the model still
+returns confident labels — a failure mode with no visible symptom. On a targeted panel use
+`cta crosscheck reference-map` (CellMapper's cross-modality CCA), which is built for it.
+`cta crosscheck azimuth` refuses below `--min-panel-overlap` (default 20%) rather than let this
+happen quietly.
+
+- **pan-human Azimuth** (`cta crosscheck azimuth`) — a **supervised** classifier, not a
+  foundation model: ~9.7M curated cells across 23 human tissues, 8 chained hierarchical heads,
+  a fixed 5,055-gene panel. CPU, ~50–60k cells/min, 84 MB model. Alone among the cross-checks it
+  returns three nested granularities, a **calibrated** confidence, a **Cell Ontology id** per
+  cluster, and trained `Unassigned` / `Doublet like cell` classes that feed the `state` axis.
+  *Scope, from the authors:* not designed for developmental stages, disease-specific states, or
+  cancer — non-cancer disease usually still maps onto the nearest healthy identity. Human only.
+  *Two things to hold in mind when weighing its labels.* It **cannot be constrained to a
+  tissue** — it always predicts over the full pan-body space, so on a single-organ query it can
+  return a type from a different organ. And its fine labels are marker-prefixed and often
+  **finer than a typical author annotation**, which makes them look like disagreements when they
+  are refinements; compare at the granularity your hierarchy actually uses. Out of distribution
+  it does not fail silently: `frac_inconsistent_hierarchy` and `Unassigned` both rise sharply
+  (see `reference/method_selection.md`).
+- **SCimilarity** (`cta crosscheck scimilarity`) — HUMAN-only zero-shot kNN against a ~7M-cell
+  reference; ~16–27 GB RAM, CPU, ~9 GB annotation bundle via `cta reference fetch-scimilarity`.
+  Its niche is broad / multi-tissue human queries where CellTypist/SingleR have no matched model
+  and collapse. Flat label space — no ontology ids, no calibrated confidence, no state signals.
+- **True foundation models** (scGPT, Geneformer, UCE, scFoundation) stay out. 2026 benchmarks
+  show they **rarely beat a well-matched scANVI or CellTypist**, and degrade out-of-distribution
+  on targeted panels. The right reading is not "foundation models are bad" but "they are the
+  fallback for when no matched model exists, never the default". **scPRINT** (CPU-capable, emits
+  ontology IDs) is the one that could earn a place on that basis; it is not wired in.
 
 ## Skip regardless of profile
 

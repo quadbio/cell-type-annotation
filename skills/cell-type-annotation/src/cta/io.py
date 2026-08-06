@@ -32,6 +32,45 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
+def have_tool(tool: str) -> bool:
+    """True if `tool` is on PATH."""
+    import shutil
+
+    return shutil.which(tool) is not None
+
+
+def download_file(url: str, dest: Path, what: str = "file") -> None:
+    """Resumably download `url` to `dest` via curl (preferred) or wget.
+
+    Shared by the model-provisioning commands (`cta reference fetch-scimilarity`,
+    `cta reference fetch-azimuth`) so they behave identically: resume a partial file,
+    fail loudly with the retry instruction, and say what to do on a firewalled node.
+    Deliberately shells out rather than using urllib — curl/wget give resume and a
+    progress meter for free, which matters for multi-GB bundles.
+    """
+    import subprocess
+
+    if have_tool("curl"):
+        # -L follow redirects, --fail error on HTTP >=400, -C - resume a partial file.
+        cmd = ["curl", "-L", "--fail", "-C", "-", "-o", str(dest), url]
+    elif have_tool("wget"):
+        cmd = ["wget", "-c", "-O", str(dest), url]  # -c continue
+    else:
+        raise SystemExit(
+            f"ERROR: need `curl` or `wget` to download the {what}, neither found on PATH. "
+            f"Install one, or download {url} manually to {dest}."
+        )
+    eprint("   $ " + " ".join(cmd))
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(
+            f"ERROR: {what} download failed (exit {e.returncode}). It is resumable — re-run "
+            "the same command to continue. On a firewalled compute node, ensure outbound "
+            "internet/proxy is configured first (an internet-connected node works directly)."
+        ) from e
+
+
 # Exact messages of third-party warnings we have DIAGNOSED as benign-and-unfixable-here,
 # so callers can silence them by the tightest possible scope (one `with` around the one
 # offending call) instead of muting a whole command. Never use these to hide a warning we
