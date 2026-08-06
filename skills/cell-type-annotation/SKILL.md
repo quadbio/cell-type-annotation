@@ -321,32 +321,32 @@ first, so a deep recursion never leaves the user lost.
 
    On targeted panels read `crosscheck`/`scores_aucell_z`, not raw AUCell — filtered-marker
    specificity + the reference cross-check are primary (`reference/marker_tools.md`).
-4. **Cross-check** — run **exactly one** primary automated hypothesis (the second only to
-   break a tie); flag agreement/disagreement, never overwrite (`reference/automated_tools.md`):
-   - **In-object prediction (preferred when one exists):** if `obs` already carries a
-     label-transfer / classifier prediction that fits the level (e.g. a previously-mapped
-     atlas `*_pred`, a CellTypist `predicted_labels`), use `cta crosscheck obs-pred`
-     — free, already reconciled with the object, no recompute.
-   - else **Reference-model mapping (GPU profiles — scANVI/scArches):** when on
-     `local_gpu`/`scheduler` and a reference model fits the level — a **shipped** scANVI model
-     pulled from the scvi-tools hub (`cta reference map-scarches --hf-repo …`) or one you trained
-     on the user's atlas (`cta reference train-model` → `cta reference map-scarches --model-dir …`).
-     scArches surgery transfers labels **with per-cell uncertainty**; prefer this when a
-     well-matched model exists. (`reference/compute_environments.md`.)
-   - else **kNN reference mapping:** `cta crosscheck reference-map` (CellMapper; CCA cross-modality,
-     PCA same-modality; builds its own joint embedding). On a GPU profile add
-     `--knn-method rapids` (needs cuml-cu12) to scale to millions of cells.
-   - else **CellTypist (tissue-gated):** `cta crosscheck celltypist list` → `predict` only if a
-     model fits; **omit if none does** (don't force an ill-fitting model). CellTypist wants
-     log1p-CP10k input specifically; `predict` rebuilds that from the canonical
-     `layers['counts']` automatically (the canonical `X` log-norm isn't necessarily CP10k),
-     so on a canonicalized object you need pass nothing extra.
-   - else **Census reference (fallback):** if the user has no atlas and no CellTypist
-     model fits, `cta reference fetch-census` pulls a capped, tissue-matched
-     subset from CELLxGENE Census (optional `cellxgene-census` extra; network-dependent)
-     to feed `cta crosscheck reference-map` — so every tissue still gets a reference cross-check.
-     Census labels are author-supplied and heterogeneous, so weight it as corroborating
-     signal, not ground truth (`reference/automated_tools.md`).
+4. **Cross-check — run `cta route` to decide which one.** Exactly **one** primary automated
+   hypothesis per level (a second only to break a tie); flag agreement/disagreement, never
+   overwrite. The choice depends on six things — species, developmental stage, cell state,
+   technology (dissociated vs targeted panel), which references/models you actually have, and
+   the compute profile — so **do not choose from memory**: describe the query and let the
+   routing table answer.
+
+   ```
+   cta route --species <human|mouse|other> --stage <adult|developmental|organoid> \
+             --state <normal|disease|tumor> --technology <dissociated|spatial_wt|spatial_panel> \
+             --profile <local_cpu|local_gpu|scheduler> --ram-gb <N> \
+             [--has-obs-pred] [--has-atlas] [--has-scanvi-model] [--has-celltypist-model]
+   ```
+
+   It prints the primary cross-check, **why every higher-ranked option was skipped or refused**,
+   and a caveat to carry into the evidence cards. Check `--has-celltypist-model` only after
+   `cta crosscheck celltypist list --contains <tissue>` shows a **tissue- and stage-matched**
+   model — if none matches, omit CellTypist rather than force one.
+
+   **Stage and state have no data probe** — you must have established them with the user in
+   Stage 1. `cta route` warns if either is still `unknown`; treat that as a question to ask, not
+   a default to accept.
+
+   Rationale, the full disqualifier list, and the benchmark evidence behind the gates:
+   **`reference/method_selection.md`**. Routing is defined once, in `src/cta/routing.py`, and
+   that doc is generated from it — so this file deliberately does not restate the branches.
 5. **Gate A — assumptions ledger (living).** Before any labels at this level, extend
    `assumptions.md` with the level's marker→type mappings, priors, and panel caveats.
    **First** sign-off (before any labels exist) is **blocking** — render the ledger, and
@@ -371,7 +371,12 @@ first, so a deep recursion never leaves the user lost.
    still has a real type — keep the type `label` and set `state=cycling` rather than letting
    cell-cycle genes mask it. Read the QC evidence from `cta data qc` via `cta cluster
    profile` (`qc_deviation_<level>.csv` flags clusters off-population on depth/mito/cell-cycle;
-   add `--cat-cols phase` to crosstab cell-cycle phase). For a cluster you can't call cleanly:
+   add `--cat-cols phase` to crosstab cell-cycle phase). If `cta crosscheck azimuth` ran, it also
+   wrote `azimuth_state_<level>.csv` — a second, independent source of state evidence
+   (`frac_unassigned` = low-quality **or** mixture, `frac_doublet_like`,
+   `frac_inconsistent_hierarchy`, calibrated `mean_conf`); embed it with
+   `scaffold-cards --evidence`. It **corroborates** a state you assign from markers + QC; it
+   never sets one (`reference/methodology.md` §6). For a cluster you can't call cleanly:
    on mutually-exclusive marker co-expression **sub-cluster and recurse** (`cta cluster
    subcluster` — Leiden on the anchor embedding + per-sub marker/QC/composition summary) —
    this is also the canonical route for a suspected **doublet** (a cluster mixing 2+ types);
@@ -446,7 +451,8 @@ pseudobulk + PyDESeq2 with a replication requirement, never per-cell. See
 | `reference/methodology.md` | The *why* behind Stage 3: the two gates, evidence-card & critic design, sub-cluster decision, panel rules, termination/failure handling. (The executable loop is Stage 3 here.) Read at the start of Stage 3 (Execute). |
 | `reference/artifacts.md` | Working-dir layout, `context.md`/`run_state.json` schemas, report format. Read in Stage 1. |
 | `reference/compute_environments.md` | The three compute profiles, environment detection, the scheduler-handoff convention, GPU caveats. Read in Stage 1 (after `cta detect-env`). |
-| `reference/tool_registry.md` | **Canonical** step→tool→GPU-requirement→profile table. Consult when choosing which tool to run for a step, or whether it needs a GPU. |
+| `reference/method_selection.md` | **Which cross-check to run** — the routing tree over species / stage / state / technology / reference availability / compute, its disqualifiers, and the benchmark evidence behind them. Generated from `src/cta/routing.py`; `cta route` is the executable form. Read in Stage 2 when writing the plan, and at Stage 3 step 4. |
+| `reference/tool_registry.md` | **Canonical** step→tool→GPU-requirement→profile table — what each tool *costs*. (What to *choose* is `method_selection.md`.) Consult when you need a tool's GPU/RAM/profile. |
 | `reference/marker_tools.md` | decoupler 2.x, pyUCell, snapseed; scanpy annotation idioms. |
 | `reference/differential_expression.md` | Job A (markers) vs Job B (conditions); exact `rank_genes_groups` call. |
 | `reference/automated_tools.md` | CellTypist, CellMapper, SingleR; what to skip and why. |
@@ -464,6 +470,7 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | --- | --- |
 | `pixi install --frozen [-e gpu]` | Bootstrap the env (Stage 1c) from the committed lock, no solve: `default` = CPU scVerse core; `-e gpu` adds the GPU stack. (Not a `cta` command — pixi builds the env.) |
 | `cta detect-env` | Stage 1: detect the compute environment (CUDA/MPS, RAM, scheduler) → suggested profile. Detection only; no jobs, no installs. |
+| `cta route` | Stage 3 step 4: given species / stage / state / technology / references / compute profile, name the ONE primary cross-check and why each higher-ranked option was skipped or refused. The single source of truth for method selection (`src/cta/routing.py`, rendered into `reference/method_selection.md`). Decision table only — runs nothing. |
 | `cta data inspect` | Stage 1: verify keys/layers, gene-ID convention, `.raw`, normalization fingerprint; prints the structured report (and writes `<workdir>/inspect_report.json` with `--workdir`). You author `context.md`/`run_state.json` from it — `inspect` doesn't. |
 | `cta data canonicalize` | Stage 1 (default): write the one canonical sidecar every downstream step reads — symbol `var_names` (+ kept Ensembl map), counts in `layers['counts']` (from a layer or `.raw`), log-norm `X`, a precomputed `layers['lognorm_cp10k']` (log1p-CP10k for CellTypist), slimmed embeddings/obs. Applies a small upfront absolute gene filter (`min_cells=5`) so every step shares one clean gene set. Also avoids reloading the huge file. |
 | `cta data qc` | Stage 1: compute (only when absent) standard QC into the sidecar obs — depth/mito metrics + cell-cycle `S_score`/`G2M_score`/`phase` — so low-quality / cycling clusters are detectable (read-only; no doublet detection, normalization, or filtering). |
@@ -475,6 +482,8 @@ and **whether it needs a GPU**, `reference/tool_registry.md` is the canonical ma
 | `cta crosscheck reference-map` | CellMapper kNN label transfer from a reference (joint CCA/PCA; CPU pynndescent, or GPU `--knn-method rapids` via cuml) — cross-check when no in-object prediction fits. |
 | `cta reference train-model` | GPU/large-memory: train (or refine) a scANVI reference model on a labeled atlas (scvi-tools). Reference side of the train-then-map workflow. |
 | `cta reference map-scarches` | GPU/large-memory: map the query onto a scANVI reference (a model you trained, or a shipped scvi-tools hub model) via scArches surgery — labels + per-cell uncertainty, in the `refmap_*` schema. |
+| `cta crosscheck azimuth` | **HUMAN, adult/postnatal** cross-check: pan-human Azimuth (a supervised NN over a fixed 5,055-gene panel; ~9.7M cells, 23 tissues). `--granularity broad\|medium\|fine` (13/85/291 classes) from one model, with a **calibrated** confidence and a native CL id per cluster. Also writes `azimuth_state_<level>.csv` (`frac_unassigned` / `frac_doublet_like` / `frac_inconsistent_hierarchy`) as corroboration for the `state` axis. CPU, ~50–60k cells/min. Refuses on targeted panels; not for developmental/organoid or tumour data; needs the `azimuth` pixi env + `cta reference fetch-azimuth`. |
+| `cta reference fetch-azimuth` | One-time provisioning for `cta crosscheck azimuth`: download the 84 MB pan-human Azimuth model into `~/.cache/panhumanpy/`. Runs in the `default` env; needs network (do it before a firewalled compute run). |
 | `cta crosscheck scimilarity` | Optional **HUMAN-only** cross-check: zero-shot per-cell labels via SCimilarity (~16–27 GB RAM, CPU, ~9 GB annotation bundle). Foundation model → additional hypothesis only, never primary; most useful on broad/multi-tissue human queries where no CellTypist/SingleR model fits. Needs the model bundle — provision it once with `cta reference fetch-scimilarity`. |
 | `cta reference fetch-scimilarity` | One-time provisioning for `cta crosscheck scimilarity`: download + extract the SCimilarity model bundle. Annotation-only by default (~9 GB on disk; ~30 GB resumable download, skips the unused 32 GB cellsearch). Point `--model-path` at the resulting `<dest>/model_v1.1`. Needs network (ensure outbound internet on a firewalled compute node). |
 | `cta reference fetch-census` | Optional: pull a capped (or, on a large-memory profile, larger) tissue-matched reference subset from CELLxGENE Census (no full-atlas download) to feed `cta crosscheck reference-map` when the user has no atlas and no CellTypist model fits. Needs the `cellxgene-census` extra + network. |

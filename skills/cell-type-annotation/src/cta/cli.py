@@ -23,6 +23,7 @@ from cta import (
     compute_markers,
     crosscheck_obs_pred,
     detect_env,
+    fetch_azimuth_model,
     fetch_census_reference,
     fetch_scimilarity_model,
     inspect_adata,
@@ -31,6 +32,8 @@ from cta import (
     profile_markers,
     qc,
     reference_map,
+    route_cmd,
+    run_azimuth,
     run_celltypist,
     run_scimilarity,
     scaffold_cards,
@@ -43,7 +46,7 @@ from cta import (
 # group -> {command name: leaf command}. group None = top-level. A leaf is either a `cli`
 # function or a nested Typer app (celltypist's list/predict/markers).
 GROUPS: dict[str | None, dict[str, object]] = {
-    None: {"detect-env": detect_env.cli},
+    None: {"detect-env": detect_env.cli, "route": route_cmd.cli},
     "data": {"inspect": inspect_adata.cli, "canonicalize": canonicalize.cli, "qc": qc.cli},
     "markers": {
         "assemble": assemble_markers.cli,
@@ -55,9 +58,11 @@ GROUPS: dict[str | None, dict[str, object]] = {
         "obs-pred": crosscheck_obs_pred.cli,
         "reference-map": reference_map.cli,
         "celltypist": run_celltypist.app,
+        "azimuth": run_azimuth.cli,
         "scimilarity": run_scimilarity.cli,
     },
     "reference": {
+        "fetch-azimuth": fetch_azimuth_model.cli,
         "fetch-census": fetch_census_reference.cli,
         "fetch-scimilarity": fetch_scimilarity_model.cli,
         "train-model": train_reference_model.cli,
