@@ -163,6 +163,8 @@ def negative_marker_flags(
     label reused at two levels apart.
     """
     negatives = markers.loc[(markers["sign"] == "neg") & markers["gene"].isin(pct.columns), ["level", "node", "gene"]]
+    if pct[negatives["gene"].unique()].isna().any().any():
+        raise ValueError("`pct` has missing detection values: every NaN would read as 'not expressed'")
     rows = [
         {
             "cluster": str(cluster),

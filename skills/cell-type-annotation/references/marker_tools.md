@@ -45,7 +45,7 @@ gate = panel_gate(markers, adata.var_names)        # off-panel genes, and uncall
 genes = sorted(set(markers.gene) & set(adata.var_names))
 agg = sc.get.aggregate(adata[:, genes], by=cluster_key, func=["count_nonzero", "mean"])
 pct = pd.DataFrame(agg.layers["count_nonzero"], index=agg.obs_names, columns=genes).div(
-    adata.obs[cluster_key].value_counts().reindex(agg.obs_names), axis=0
+    agg.obs["n_obs_aggregated"].to_numpy(), axis=0
 )
 neg = negative_marker_flags(pct, markers)          # violation: a negative detected in > 20% of the cluster
 ```

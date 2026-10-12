@@ -82,6 +82,8 @@ def test_negative_marker_flags_per_candidate(markers):
     ]
     assert flags["violation"].tolist() == [True, True]
     assert not negative_marker_flags(pct, markers, max_pct=0.5)["violation"].iloc[0]
+    with pytest.raises(ValueError, match="missing detection"):
+        negative_marker_flags(pct.assign(MS4A1=np.nan), markers)
 
 
 def test_validate_cl_ids():
