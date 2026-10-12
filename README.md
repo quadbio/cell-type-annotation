@@ -108,8 +108,8 @@ editable into the pixi env, so code edits need no reinstall). Changes to the SKI
 
 ```bash
 # one-time, per machine
-claude plugin marketplace add quadbio/cell-type-annotation
-claude plugin install cell-type-annotation@quadbio-cell-type-annotation
+claude plugin marketplace add quadbio/claude-plugins
+claude plugin install cell-type-annotation@quadbio
 ```
 
 ## Requirements
