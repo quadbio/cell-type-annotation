@@ -59,14 +59,21 @@ def normalization_fingerprint(X, *, n_cells: int = 2000, seed: int = 0) -> dict:
     """
     rows = np.random.default_rng(seed).choice(X.shape[0], size=min(n_cells, X.shape[0]), replace=False)
     sample = X[np.sort(rows)]
-    dense = sample.toarray() if sp.issparse(sample) else np.asarray(sample, dtype=float)
+    if sp.issparse(sample):  # stays sparse: densifying 2,000 cells x 30,000 genes costs ~0.5 GB
+        sample = sp.csr_matrix(sample, dtype=float)
+        nonzero = sample.data[sample.data != 0]
+        exp = sample.copy()
+        exp.data = np.expm1(exp.data)
+        totals = np.asarray(exp.sum(axis=1)).ravel()
+    else:
+        sample = np.asarray(sample, dtype=float)
+        nonzero = sample[sample != 0]
+        totals = np.expm1(sample).sum(axis=1)
+    xmin, xmax = float(sample.min()), float(sample.max())
 
-    nonzero = dense[dense != 0]
     integer_valued = bool(nonzero.size and np.allclose(nonzero, np.round(nonzero)))
-    totals = np.expm1(dense).sum(axis=1)
     totals = totals[np.isfinite(totals) & (totals > 0)]
     cv = float(totals.std() / totals.mean()) if totals.size else float("nan")
-    xmin, xmax = float(dense.min()), float(dense.max())
 
     if xmin < 0:
         verdict = "scaled (z-scored): not usable as log-normalized data"
@@ -151,21 +158,23 @@ def negative_marker_flags(
 
     Returns
     -------
-    One row per ``(cluster, node, gene)``: ``pct`` and ``violation``.
+    One row per ``(cluster, level, node, gene)``: ``pct`` and ``violation``. ``level`` keeps a
+    label reused at two levels apart.
     """
-    negatives = markers.loc[(markers["sign"] == "neg") & markers["gene"].isin(pct.columns), ["node", "gene"]]
+    negatives = markers.loc[(markers["sign"] == "neg") & markers["gene"].isin(pct.columns), ["level", "node", "gene"]]
     rows = [
         {
             "cluster": str(cluster),
+            "level": level,
             "node": node,
             "gene": gene,
             "pct": round(float(pct.at[cluster, gene]), 4),
             "violation": bool(pct.at[cluster, gene] > max_pct),
         }
         for cluster in pct.index
-        for node, gene in negatives.itertuples(index=False)
+        for level, node, gene in negatives.itertuples(index=False)
     ]
-    return pd.DataFrame(rows, columns=["cluster", "node", "gene", "pct", "violation"])
+    return pd.DataFrame(rows, columns=["cluster", "level", "node", "gene", "pct", "violation"])
 
 
 def validate_cl_ids(cl_ids: Mapping[str, object] | pd.Series) -> list[str]:

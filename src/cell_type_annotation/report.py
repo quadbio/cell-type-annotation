@@ -63,6 +63,9 @@ def check_level(labels: pd.DataFrame, clusters: Iterable) -> list[str]:
     bad_status = labels.loc[~labels["status"].map(_blank) & ~labels["status"].isin(STATUSES), "cluster"]
     if len(bad_status):
         problems.append(f"status must be one of {list(STATUSES)}: cluster(s) {', '.join(map(str, bad_status))}")
+    refuted = labels.loc[labels["status"] == "refuted", "cluster"].astype(str).tolist()
+    if refuted:
+        problems.append(f"refuted call(s) still open, revise or mark Unknown: cluster(s) {', '.join(refuted)}")
     confidence = pd.to_numeric(labels["confidence"], errors="coerce")
     bad_conf = labels.loc[confidence.isna() | ~confidence.between(0, 1), "cluster"].astype(str).tolist()
     if bad_conf:

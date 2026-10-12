@@ -37,6 +37,11 @@ class TestNormalizationFingerprint:
         result = normalization_fingerprint(sp.csr_matrix(lognorm))
         assert result["ok"]
 
+    def test_sparse_and_dense_agree(self, counts):
+        lognorm = np.log1p(counts / counts.sum(1, keepdims=True) * 1e4)
+        assert normalization_fingerprint(sp.csr_matrix(lognorm)) == normalization_fingerprint(lognorm)
+        assert normalization_fingerprint(sp.csr_matrix(counts)) == normalization_fingerprint(counts)
+
     def test_scaled(self, counts):
         lognorm = np.log1p(counts / counts.sum(1, keepdims=True) * 1e4)
         assert "scaled" in normalization_fingerprint(lognorm - lognorm.mean(0))["verdict"]
@@ -66,7 +71,10 @@ def test_panel_gate_marks_uncallable_candidates(markers):
 def test_negative_marker_flags_per_candidate(markers):
     pct = pd.DataFrame({"CD3E": [0.9, 0.0], "MS4A1": [0.3, 0.8]}, index=["0", "1"])
     flags = negative_marker_flags(pct, markers)
-    assert flags[["cluster", "node", "gene"]].values.tolist() == [["0", "T cell", "MS4A1"], ["1", "T cell", "MS4A1"]]
+    assert flags[["cluster", "level", "node", "gene"]].values.tolist() == [
+        ["0", "L1", "T cell", "MS4A1"],
+        ["1", "L1", "T cell", "MS4A1"],
+    ]
     assert flags["violation"].tolist() == [True, True]
     assert not negative_marker_flags(pct, markers, max_pct=0.5)["violation"].iloc[0]
 

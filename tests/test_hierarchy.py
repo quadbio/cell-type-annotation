@@ -65,6 +65,10 @@ class TestBuildHierarchy:
         assert hierarchy.all_levels == ("level_1", "level_2", "level_3")
         assert len(hierarchy.leaf_order) == 6
 
+    def test_intermediate_leaf_level_raises(self, adata_hierarchy):
+        with pytest.raises(ValueError, match="finest level"):
+            build_hierarchy(adata_hierarchy, LEVELS, leaf_level="level_2")
+
     def test_non_nested_labels_raise(self, adata_hierarchy):
         adata = adata_hierarchy.copy()
         level_1 = adata.obs["level_1"].astype(str)

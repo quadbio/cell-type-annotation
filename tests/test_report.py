@@ -39,6 +39,7 @@ def test_omitted_and_unexpected_clusters_are_problems(labels):
         ("status", "done", "status must be one of"),
         ("confidence", 1.5, "confidence must be"),
         ("cl_id", "CL:12", "not of the form"),
+        ("status", "refuted", "refuted call(s) still open"),
     ],
 )
 def test_check_level_finds_problems(labels, column, value, message):

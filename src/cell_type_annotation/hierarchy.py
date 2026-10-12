@@ -201,6 +201,8 @@ def build_hierarchy(
         raise ValueError("`levels` must name at least one obs column")
 
     leaf_level = levels[-1] if leaf_level is None else leaf_level
+    if leaf_level in levels[:-1]:
+        raise ValueError(f"`leaf_level` {leaf_level!r} must be the finest level or a column beyond `levels`")
     all_levels = levels if leaf_level in levels else [*levels, leaf_level]
 
     missing = [c for c in all_levels if c not in adata.obs]
