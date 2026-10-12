@@ -157,29 +157,6 @@ ROUTES: tuple[Route, ...] = (
         caveat="On a targeted spatial panel this is the preferred route (cross-modality CCA).",
     ),
     Route(
-        method="azimuth",
-        name="pan-human Azimuth",
-        when="human, adult/postnatal, non-tumour, whole-transcriptome, and no matched reference above",
-        applies=_human_adult_normal,
-        disqualifiers=_PAN_BODY_DISQUALIFIERS,
-        why=(
-            "One supervised model spanning 23 human tissues, so a single reference covers a broad "
-            "or multi-tissue query that no tissue-specific model does. It is also the only "
-            "cross-check here that returns a Cell Ontology id per cluster, a calibrated confidence, "
-            "and trained `Unassigned` / `Doublet like cell` classes that feed the `state` axis. "
-            "CPU-only and cheap (~50-60k cells/min, 84 MB model)."
-        ),
-        caveat=(
-            "Two structural limits. (1) It cannot be constrained to a tissue: it predicts over the "
-            "full pan-body space, so on a single-organ query it can return a type from another "
-            "organ; check the winning label against the tissue. (2) For lymph node and spleen its "
-            "training labels came from the CellTypist organ atlases, so on immune tissue it is not "
-            "independent of CellTypist. Where a tissue- and stage-matched CellTypist or scANVI model "
-            "exists, treat that as the stronger reference and the tie-break. Its CL ids, calibrated "
-            "confidence and state signals are useful however you weigh its labels."
-        ),
-    ),
-    Route(
         method="celltypist",
         name="CellTypist",
         when="a tissue- AND stage-matched pretrained model exists",
@@ -194,9 +171,32 @@ ROUTES: tuple[Route, ...] = (
         ),
         why=(
             "A genuinely matched model is a strong, nearly free cross-check trained on exactly this "
-            "tissue. The gate is the whole point: stage matters as much as tissue."
+            "tissue and stage, so it outranks a pan-body model. The gate is the whole point: stage "
+            "matters as much as tissue."
         ),
         caveat="Scale-sensitive: feed it log1p of counts normalized to 10,000 per cell.",
+    ),
+    Route(
+        method="azimuth",
+        name="pan-human Azimuth",
+        when="human, adult/postnatal, non-tumour, whole-transcriptome, and no matched reference or model above",
+        applies=_human_adult_normal,
+        disqualifiers=_PAN_BODY_DISQUALIFIERS,
+        why=(
+            "One supervised model spanning 23 human tissues, so a single reference covers a broad "
+            "or multi-tissue query that no tissue-specific model does. It is also the only "
+            "cross-check here that returns a Cell Ontology id per cluster, a calibrated confidence, "
+            "and trained `Unassigned` / `Doublet like cell` classes that feed the `state` axis. "
+            "CPU-only and cheap (~50-60k cells/min, 84 MB model)."
+        ),
+        caveat=(
+            "Two structural limits. (1) It cannot be constrained to a tissue: it predicts over the "
+            "full pan-body space, so on a single-organ query it can return a type from another "
+            "organ; check the winning label against the tissue. (2) For lymph node and spleen its "
+            "training labels came from the CellTypist organ atlases, so on immune tissue it is not "
+            "independent of CellTypist. Its CL ids, calibrated confidence and state signals are useful "
+            "however you weigh its labels, which also makes it a good tie-break below a matched model."
+        ),
     ),
     Route(
         method="scimilarity",

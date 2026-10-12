@@ -46,6 +46,7 @@ def test_ranking():
     assert _primary(species="mouse", stage="adult", profile="gpu", scanvi_model=True, atlas=True) == "scarches"
     assert _primary(species="mouse", stage="adult", profile="cpu", scanvi_model=True, atlas=True) == "reference_map"
     assert _primary(species="human", stage="adult", state="normal") == "azimuth"
+    assert _primary(species="human", stage="adult", state="normal", celltypist_model=True) == "celltypist"
     assert _primary(species="human", stage="organoid", celltypist_model=True) == "celltypist"
     assert _primary(species="mouse", stage="developmental") == "census"
 
