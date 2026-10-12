@@ -61,8 +61,8 @@ false is the primary cross-check. A disqualifier beats rank.
 | `scarches` | no CUDA GPU reachable |
 | `reference_map` | fewer than 30 genes shared with the query after symbol alignment |
 | `celltypist` | no tissue- and stage-matched model: omit CellTypist rather than force an ill-fitting one (a mismatched model collapses, it does not degrade gracefully); targeted imaging panel (most model genes missing) |
-| `azimuth` | species not human, or not established (the model has a fixed human gene space); developmental / organoid query (trained on adult tissue; not designed for developmental stages); tumour expected (malignant cells were excluded from training); targeted imaging panel (missing panel genes are zero-filled, producing confident garbage) |
-| `scimilarity` | species not human, or not established (the model has a fixed human gene space); developmental / organoid query (trained on adult tissue; not designed for developmental stages); tumour expected (malignant cells were excluded from training); targeted imaging panel (missing panel genes are zero-filled, producing confident garbage); under ~27 GB of usable RAM |
+| `azimuth` | species not human, or not established (the model has a fixed human gene space); developmental / organoid query (trained on adult tissue; not designed for developmental stages); tumour expected (malignant cells were excluded from training); stage or state not established (no data probe for either: ask before routing); targeted imaging panel (missing panel genes are zero-filled, producing confident garbage) |
+| `scimilarity` | species not human, or not established (the model has a fixed human gene space); developmental / organoid query (trained on adult tissue; not designed for developmental stages); tumour expected (malignant cells were excluded from training); stage or state not established (no data probe for either: ask before routing); targeted imaging panel (missing panel genes are zero-filled, producing confident garbage); under ~27 GB of usable RAM |
 | `census` | offline (Census is a remote TileDB store) |
 
 ### Caveats that travel with the result

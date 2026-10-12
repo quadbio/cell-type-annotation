@@ -84,7 +84,8 @@ When the evidence is irreconcilable, the label is `Unknown`, documented and flag
 `cluster, label, state, cl_id, confidence, status, rationale, rejected` (`LABEL_COLUMNS`). Filling it *is* the
 assignment. `status` is lowercase, one of `assigned`, `unknown`, `needs_subcluster`, `refuted`; cluster ids stay
 verbatim. `render_level` turns the table plus the evidence tables into `reports/<level>.md`, one card per cluster,
-so re-rendering never loses reasoning, and `check_level` reports what still keeps the level from being complete.
+so re-rendering never loses reasoning, and `check_level(labels, clusters)` reports what still keeps the level from
+being complete, including a cluster with no row or with two.
 
 A card shows:
 - cluster, size, parent;

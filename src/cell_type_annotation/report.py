@@ -6,7 +6,7 @@ tables, so re-rendering never loses reasoning, and a level is not finished while
 :func:`check_level` reports problems.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -25,10 +25,10 @@ def _blank(value) -> bool:
     return pd.isna(value) or not str(value).strip()
 
 
-def check_level(labels: pd.DataFrame) -> list[str]:
+def check_level(labels: pd.DataFrame, clusters: Iterable) -> list[str]:
     """What still stops a level from being complete.
 
-    A level is complete when every cluster has exactly one row, with a label, a status, a
+    A level is complete when each of its clusters has exactly one row, with a label, a status, a
     rationale, a confidence in [0, 1] and a well-formed (or blank) ``cl_id``. Descend only on an
     empty list, and only after the level's assumptions are signed off.
 
@@ -36,6 +36,8 @@ def check_level(labels: pd.DataFrame) -> list[str]:
     ----------
     labels
         The level's labels table.
+    clusters
+        The clusters the level must cover, e.g. the categories of its cluster key.
 
     Returns
     -------
@@ -45,10 +47,15 @@ def check_level(labels: pd.DataFrame) -> list[str]:
     if missing:
         return [f"labels table is missing columns {missing}"]
     problems = []
-    clusters = labels["cluster"].astype(str).str.strip()
-    duplicated = sorted(set(clusters[clusters.duplicated()]))
-    if duplicated:
-        problems.append(f"cluster(s) listed more than once: {', '.join(duplicated)}")
+    listed = labels["cluster"].astype(str).str.strip()
+    expected = [str(c).strip() for c in clusters]
+    for what, ids in (
+        ("without a row", [c for c in expected if c not in set(listed)]),
+        ("not in this level", sorted(set(listed) - set(expected))),
+        ("listed more than once", sorted(set(listed[listed.duplicated()]))),
+    ):
+        if ids:
+            problems.append(f"cluster(s) {what}: {', '.join(ids)}")
     for column in ("label", "status", "rationale"):
         blank = labels.loc[labels[column].map(_blank), "cluster"].astype(str).tolist()
         if blank:
@@ -132,8 +139,8 @@ def render_level(
     level: str,
     labels: pd.DataFrame,
     *,
+    sizes: Mapping[str, int],
     evidence: Mapping[str, pd.DataFrame] | None = None,
-    sizes: Mapping[str, int] | None = None,
     figures: Sequence[str] = (),
     max_rows: int = 8,
 ) -> str:
@@ -145,12 +152,13 @@ def render_level(
         Level name, e.g. ``"L2 within Neuron"``.
     labels
         The level's labels table.
+    sizes
+        Cells per cluster, for every cluster of the level (e.g. ``obs[cluster_key].value_counts()``);
+        also the clusters the completeness check expects.
     evidence
         Evidence tables by title, each tidy with a ``cluster`` column, already sorted and filtered
         to what a reader should see (e.g. top filtered markers, the curated panel's detection,
         negative-marker violations, the cross-check's top labels, QC deviation, the confidence proxy).
-    sizes
-        Cells per cluster.
     figures
         Paths of the level's figures, relative to the report.
     max_rows
@@ -161,10 +169,10 @@ def render_level(
     The report as Markdown, flagged clusters first.
     """
     evidence = dict(evidence or {})
-    sizes = {str(k): int(v) for k, v in (sizes or {}).items()}
+    sizes = {str(k): int(v) for k, v in dict(sizes).items()}
     labels = labels.assign(cluster=labels["cluster"].astype(str))
     flagged = labels.apply(_flagged, axis=1)
-    problems = check_level(labels)
+    problems = check_level(labels, sizes)
 
     lines = [f"# Level {level}", ""]
     n_cells = sum(sizes.get(c, 0) for c in labels["cluster"])

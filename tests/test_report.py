@@ -16,8 +16,19 @@ def labels():
     )
 
 
+CLUSTERS = ["0", "1", "2"]
+SIZES = {"0": 500, "1": 300, "2": 20}
+
+
 def test_a_complete_level_has_no_problems(labels):
-    assert check_level(labels) == []
+    assert check_level(labels, CLUSTERS) == []
+
+
+def test_omitted_and_unexpected_clusters_are_problems(labels):
+    problems = check_level(labels.iloc[:2], CLUSTERS + ["3"])
+    assert any("without a row: 2, 3" in p for p in problems)
+    assert any("not in this level: 2" in p for p in check_level(labels, ["0", "1"]))
+    assert check_level(labels.iloc[:0], CLUSTERS)  # an empty table is never complete
 
 
 @pytest.mark.parametrize(
@@ -32,16 +43,16 @@ def test_a_complete_level_has_no_problems(labels):
 )
 def test_check_level_finds_problems(labels, column, value, message):
     labels.loc[0, column] = value
-    assert any(message in p for p in check_level(labels))
+    assert any(message in p for p in check_level(labels, CLUSTERS))
 
 
 def test_duplicate_clusters_are_problems(labels):
     duplicated = pd.concat([labels, labels.iloc[[0]].assign(label="NK cell")], ignore_index=True)
-    assert any("more than once: 0" in p for p in check_level(duplicated))
+    assert any("more than once: 0" in p for p in check_level(duplicated, CLUSTERS))
 
 
 def test_missing_columns(labels):
-    assert "missing columns" in check_level(labels.drop(columns="rejected"))[0]
+    assert "missing columns" in check_level(labels.drop(columns="rejected"), CLUSTERS)[0]
 
 
 def test_render_level(labels):
@@ -50,7 +61,7 @@ def test_render_level(labels):
             {"cluster": ["0", "0", "1"], "gene": ["CD3E", "CD3D", "MS4A1"], "lfc": [3.1, 2.9, 4]}
         )
     }
-    text = render_level("L1", labels, evidence=evidence, sizes={"0": 500, "1": 300, "2": 20}, figures=["umap_L1.png"])
+    text = render_level("L1", labels, evidence=evidence, sizes=SIZES, figures=["umap_L1.png"])
 
     assert text.startswith("# Level L1")
     assert "820 cells" in text and "1 flagged" in text
@@ -70,6 +81,6 @@ def test_prediction_summary():
 
 def test_render_lists_problems(labels):
     labels.loc[1, "rationale"] = ""
-    text = render_level("L1", labels)
+    text = render_level("L1", labels, sizes=SIZES)
     assert "without a rationale: 1" in text
     assert "_missing_" in text

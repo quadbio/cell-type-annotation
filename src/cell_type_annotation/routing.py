@@ -83,7 +83,7 @@ class Route:
 
 
 def _human_adult_normal(c: dict) -> bool:
-    return c["species"] == "human" and c["stage"] == "adult" and c["state"] != "tumor"
+    return c["species"] == "human" and c["stage"] == "adult" and c["state"] in ("normal", "disease")
 
 
 #: Shared by Azimuth and SCimilarity, so the two pan-body human models cannot drift apart.
@@ -97,6 +97,10 @@ _PAN_BODY_DISQUALIFIERS: tuple[tuple[str, Callable[[dict], bool]], ...] = (
         lambda c: c["stage"] in ("developmental", "organoid"),
     ),
     ("tumour expected (malignant cells were excluded from training)", lambda c: c["state"] == "tumor"),
+    (
+        "stage or state not established (no data probe for either: ask before routing)",
+        lambda c: "unknown" in (c["stage"], c["state"]),
+    ),
     (
         "targeted imaging panel (missing panel genes are zero-filled, producing confident garbage)",
         lambda c: c["technology"] == "spatial_panel",

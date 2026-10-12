@@ -36,7 +36,7 @@ def test_exactly_one_primary_and_gates_hold():
         method = _primary(**ctx)
         if method in PAN_BODY:
             assert ctx["species"] == "human" and ctx["stage"] == "adult", ctx
-            assert ctx["state"] != "tumor" and ctx["technology"] != "spatial_panel", ctx
+            assert ctx["state"] in ("normal", "disease") and ctx["technology"] != "spatial_panel", ctx
         if ctx["technology"] == "spatial_panel":
             assert method not in {*PAN_BODY, "celltypist"}, ctx
 
@@ -54,6 +54,13 @@ def test_ranking():
 def test_unknown_species_is_not_reported_as_non_human():
     azimuth = next(r for r in evaluate(stage="adult") if r["method"] == "azimuth")
     assert azimuth["status"] == "disqualified" and "not established" in azimuth["reason"]
+
+
+def test_unknown_state_disqualifies_pan_body_models():
+    results = {r["method"]: r for r in evaluate(species="human", stage="adult")}
+    for method in PAN_BODY:
+        assert results[method]["status"] == "disqualified"
+        assert "stage or state not established" in results[method]["reason"]
 
 
 def test_bad_inputs_raise():

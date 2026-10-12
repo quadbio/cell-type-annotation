@@ -24,8 +24,13 @@ class TestReadMarkers:
             _table([("L1", "T cell", "CD3E", "yes")])
 
     def test_rejects_a_gene_with_both_signs(self):
-        with pytest.raises(ValueError, match="both positive and negative"):
+        with pytest.raises(ValueError, match="both signs"):
             _table([("L1", "T cell", "CD3E", "pos"), ("L1", "T cell", "CD3E", "neg")])
+
+    def test_rejects_a_repeated_gene(self):
+        """Two citation rows for one gene would count as two markers in the panel gate."""
+        with pytest.raises(ValueError, match="more than once"):
+            _table([("L1", "T cell", "CD3E", "pos"), ("L1", "T cell", "CD3E", "pos")])
 
     def test_a_gene_may_be_positive_for_one_node_and_negative_for_another(self):
         table = _table([("L1", "Neuron", "DCX", "pos"), ("L1", "NPC", "DCX", "neg")])

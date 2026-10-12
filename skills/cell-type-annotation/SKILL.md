@@ -122,9 +122,9 @@ report."
 6. **Critics:** independent subagents read the raw tables, re-derive the markers, fetch an external competing
    hypothesis, and check the label against its parent path. Reconcile; take conflicts you cannot resolve to the user
    (`references/methodology.md` §7).
-7. **Report:** `render_level(...)` to `reports/<level>.md`; `check_level` must return nothing. Make quick scanpy
-   plots of the level. Present the flagged clusters and pause: the user approves descending, and into which groups.
-   If more than half the clusters are `Unknown`, consult the user first.
+7. **Report:** `render_level(...)` to `reports/<level>.md`; `check_level(labels, clusters)` must return nothing.
+   Make quick scanpy plots of the level. Present the flagged clusters and pause: the user approves descending, and
+   into which groups. If more than half the clusters are `Unknown`, consult the user first.
 
 ### 4. Finish
 1. **CL ids:** run `bc_get_term_details` on every `cl_id`: it exists, is current, and fits the label. Reconcile with

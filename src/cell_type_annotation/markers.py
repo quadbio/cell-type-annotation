@@ -44,8 +44,8 @@ def read_markers(source: str | PathLike | pd.DataFrame) -> pd.DataFrame:
     Raises
     ------
     ValueError
-        If a required column is missing, a sign is not ``pos``/``neg``, or a gene is both a
-        positive and a negative marker of the same node.
+        If a required column is missing, a sign is not ``pos``/``neg``, or a gene appears more
+        than once for the same node.
     """
     df = source.copy() if isinstance(source, pd.DataFrame) else pd.read_csv(source, dtype=str, keep_default_na=False)
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
@@ -57,10 +57,13 @@ def read_markers(source: str | PathLike | pd.DataFrame) -> pd.DataFrame:
     bad = sorted(set(df["sign"]) - {"pos", "neg"})
     if bad:
         raise ValueError(f"`sign` must be 'pos' or 'neg', got {bad}")
-    both = df.groupby(["level", "node", "gene"])["sign"].nunique()
-    both = both[both > 1]
-    if not both.empty:
-        raise ValueError(f"Genes listed as both positive and negative for one node: {list(both.index)}")
+    repeated = df[df.duplicated(["level", "node", "gene"], keep=False)]
+    if not repeated.empty:
+        keys = sorted(set(map(tuple, repeated[["level", "node", "gene"]].to_numpy())))
+        raise ValueError(
+            f"Genes listed more than once for one node, or with both signs: {keys}. "
+            "List each gene once per node and join several sources with ';'."
+        )
     return df[[*MARKER_COLUMNS, *(c for c in df.columns if c not in MARKER_COLUMNS)]]
 
 
