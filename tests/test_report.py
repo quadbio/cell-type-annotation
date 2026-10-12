@@ -35,6 +35,11 @@ def test_check_level_finds_problems(labels, column, value, message):
     assert any(message in p for p in check_level(labels))
 
 
+def test_duplicate_clusters_are_problems(labels):
+    duplicated = pd.concat([labels, labels.iloc[[0]].assign(label="NK cell")], ignore_index=True)
+    assert any("more than once: 0" in p for p in check_level(duplicated))
+
+
 def test_missing_columns(labels):
     assert "missing columns" in check_level(labels.drop(columns="rejected"))[0]
 

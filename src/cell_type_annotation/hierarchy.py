@@ -120,6 +120,7 @@ def _ordered_categories(
     identically, however different their cell counts are.
     """
     counts = series.value_counts()
+    counts = counts[counts > 0]  # a categorical also lists its unobserved categories
     if order == "size":
         base = list(counts.index)
     elif order == "name":
@@ -206,8 +207,17 @@ def build_hierarchy(
     if missing:
         raise ValueError(f"Columns not found in `adata.obs`: {missing}")
 
-    obs = adata.obs[all_levels].astype(str)
+    # Labels as strings, keeping a categorical's declared order for `child_order="category"`.
     # `.astype(str)` turns NaN into the literal 'nan', so find the missing values beforehand.
+    obs = pd.DataFrame(
+        {
+            level: adata.obs[level].cat.rename_categories(str)
+            if isinstance(adata.obs[level].dtype, pd.CategoricalDtype)
+            else adata.obs[level].astype(str)
+            for level in all_levels
+        },
+        index=adata.obs_names,
+    )
     na = adata.obs[all_levels].isna().any(axis=1)
     if na.any():
         if not dropna:
@@ -457,7 +467,9 @@ def hierarchy_markers(
         raise ValueError("No genes to score")
 
     leaf_order = list(hierarchy.leaf_order)
-    leaf_labels = adata.obs[hierarchy.leaf_level].astype(str)
+    # Only the cells the hierarchy kept: a cell missing a label at any level was dropped from it.
+    kept = adata.obs[list(hierarchy.all_levels)].notna().all(axis=1)
+    leaf_labels = adata.obs[hierarchy.leaf_level].astype(str).where(kept)
     hits, n_cells = _detection_counts(adata, leaf_labels, leaf_order, gene_names, layer, threshold)
     leaf_pos = {leaf: i for i, leaf in enumerate(leaf_order)}
 

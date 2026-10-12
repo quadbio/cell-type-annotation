@@ -41,6 +41,23 @@ class TestBuildHierarchy:
         assert hierarchy.nodes("level_1") == ["root_c", "root_b", "root_a"]
         assert hierarchy.leaf_order[0] == "c1x"
 
+    def test_declared_category_order_is_kept(self, adata_hierarchy):
+        adata = adata_hierarchy.copy()
+        adata.obs["level_1"] = adata.obs["level_1"].cat.reorder_categories(["root_c", "root_a", "root_b"])
+        adata.obs["level_2"] = adata.obs["level_2"].cat.reorder_categories(
+            ["mid_a2", "mid_a1", "mid_b2", "mid_b1", "mid_c1"]
+        )
+        hierarchy = build_hierarchy(adata, LEVELS, child_order="category")
+        assert hierarchy.nodes("level_1") == ["root_c", "root_a", "root_b"]
+        assert hierarchy.children_of("level_1", "root_a") == ["mid_a2", "mid_a1"]
+
+    def test_unobserved_categories_are_not_nodes(self, adata_hierarchy):
+        adata = adata_hierarchy.copy()
+        adata.obs["level_2"] = adata.obs["level_2"].cat.add_categories(["never_seen"])
+        hierarchy = build_hierarchy(adata, LEVELS, child_order="category")
+        assert "never_seen" not in hierarchy.nodes("level_2")
+        assert hierarchy.children_of("level_1", "root_a") == ["mid_a1", "mid_a2"]
+
     def test_leaf_level_beyond_drawn_levels(self, adata_hierarchy):
         hierarchy = build_hierarchy(adata_hierarchy, ["level_1", "level_2"], leaf_level="level_3")
 
@@ -98,6 +115,18 @@ class TestHierarchyMarkers:
         assert strict["det_in"] == pytest.approx(0.0)
         assert loose["det_in"] > 0.0
         assert strict["score"] < loose["score"]
+
+    def test_cells_dropped_from_the_hierarchy_are_not_counted(self, adata_hierarchy):
+        """A root_a cell without a level_1 label must not count toward its leaf's detection."""
+        adata = adata_hierarchy.copy()
+        outsider = np.flatnonzero(adata.obs["level_3"] == "a2x")[0]
+        adata.X[outsider, list(adata.var_names).index("mark_a1")] = 5.0  # a2x otherwise never detects it
+        adata.obs["level_1"] = adata.obs["level_1"].astype(object)
+        adata.obs.iloc[outsider, adata.obs.columns.get_loc("level_1")] = np.nan
+
+        markers = hierarchy_markers(adata, LEVELS, genes=["mark_a1"], n_top=1)
+        row = markers[(markers.node == "mid_a2") & (markers.gene == "mark_a1")].iloc[0]
+        assert row["det_in"] == pytest.approx(0.0)
 
     def test_sibling_less_nodes_are_skipped(self, adata_hierarchy):
         markers = hierarchy_markers(adata_hierarchy, LEVELS)

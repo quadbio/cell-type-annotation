@@ -28,9 +28,9 @@ def _blank(value) -> bool:
 def check_level(labels: pd.DataFrame) -> list[str]:
     """What still stops a level from being complete.
 
-    A level is complete when every cluster has a label, a status, a rationale, a confidence in
-    [0, 1] and a well-formed (or blank) ``cl_id``. Descend only on an empty list, and only after
-    the level's assumptions are signed off.
+    A level is complete when every cluster has exactly one row, with a label, a status, a
+    rationale, a confidence in [0, 1] and a well-formed (or blank) ``cl_id``. Descend only on an
+    empty list, and only after the level's assumptions are signed off.
 
     Parameters
     ----------
@@ -45,6 +45,10 @@ def check_level(labels: pd.DataFrame) -> list[str]:
     if missing:
         return [f"labels table is missing columns {missing}"]
     problems = []
+    clusters = labels["cluster"].astype(str).str.strip()
+    duplicated = sorted(set(clusters[clusters.duplicated()]))
+    if duplicated:
+        problems.append(f"cluster(s) listed more than once: {', '.join(duplicated)}")
     for column in ("label", "status", "rationale"):
         blank = labels.loc[labels[column].map(_blank), "cluster"].astype(str).tolist()
         if blank:
