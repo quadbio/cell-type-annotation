@@ -104,9 +104,10 @@ A card shows:
 ## 5. The sub-cluster decision
 
 A cluster co-expressing markers of mutually exclusive types is a real mixed or transitional state, a doublet, or
-under-clustered. Before concluding, sub-cluster it on the agreed embedding (`sc.tl.leiden(adata,
-restrict_to=(key, [cluster]), key_added=...)`) and re-score the competing positive and negative sets per
-sub-cluster. A purity measure (e.g. ROGUE) can corroborate a split. Split at most once, and only into sub-clusters
+under-clustered. Before concluding, sub-cluster it on the agreed embedding and re-score the competing positive and
+negative sets per sub-cluster. `restrict_to` reuses an existing graph, so build that graph from the embedding first:
+`sc.pp.neighbors(adata, use_rep=embedding_key, key_added="annot")`, then
+`sc.tl.leiden(adata, restrict_to=(key, [cluster]), neighbors_key="annot", key_added=...)`. A purity measure (e.g. ROGUE) can corroborate a split. Split at most once, and only into sub-clusters
 large enough to test.
 
 **Doublets.** Doublet *detection* (Scrublet, scDblFinder) stays out of scope. Here a doublet means a cluster mixing

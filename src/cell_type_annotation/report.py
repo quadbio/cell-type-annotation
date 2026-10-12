@@ -95,6 +95,9 @@ def prediction_summary(clusters, labels, confidence=None) -> pd.DataFrame:
     One row per cluster: ``top1``, ``frac1``, ``top2``, ``frac2``, ``mean_conf``. Cells without a
     prediction count as ``(no prediction)``, so the fractions stay over all of a cluster's cells.
     """
+    if isinstance(clusters, pd.Series):  # align indexed inputs on cells, never by position
+        labels = labels.reindex(clusters.index) if isinstance(labels, pd.Series) else labels
+        confidence = confidence.reindex(clusters.index) if isinstance(confidence, pd.Series) else confidence
     labels = pd.Series(np.asarray(labels, dtype=object))
     cells = pd.DataFrame(
         {

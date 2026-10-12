@@ -81,6 +81,13 @@ def test_prediction_summary():
     assert prediction_summary(["a"], ["T"])["mean_conf"].isna().all()
 
 
+def test_indexed_predictions_align_on_cells():
+    clusters = pd.Series(["a", "b"], index=["cell1", "cell2"])
+    labels = pd.Series(["B", "A"], index=["cell2", "cell1"])
+    summary = prediction_summary(clusters, labels, pd.Series([0.2, 0.9], index=["cell2", "cell1"])).set_index("cluster")
+    assert summary.loc["a", "top1"] == "A" and summary.loc["a", "mean_conf"] == 0.9
+
+
 def test_missing_predictions_are_not_a_label():
     summary = prediction_summary(["a"] * 4, pd.Series(["T", None, float("nan"), None])).iloc[0]
     assert (summary["top1"], summary["frac1"]) == ("(no prediction)", 0.75)

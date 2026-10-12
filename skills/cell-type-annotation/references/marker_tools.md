@@ -9,13 +9,14 @@ Marker identification compares clusters, per cell, descriptively. It is not cond
 within a type needs pseudobulk and replicates), which is out of scope here.
 
 ```python
-sc.pp.filter_genes(adata, min_cells=5)   # in memory: drops only noise; rare-cluster markers survive
-sc.tl.rank_genes_groups(adata, groupby=cluster_key, method="wilcoxon", pts=True, use_raw=False)
+adata.var["de_genes"] = sc.pp.filter_genes(adata, min_cells=5, inplace=False)[0]  # a mask: the panel stays whole
+sc.tl.rank_genes_groups(adata, groupby=cluster_key, method="wilcoxon", pts=True, use_raw=False, mask_var="de_genes")
 sc.tl.filter_rank_genes_groups(adata)    # min_in_group_fraction=0.25, max_out_group_fraction=0.5, min_fold_change=1
 specific = sc.get.rank_genes_groups_df(adata, group=None, key="rank_genes_groups_filtered").dropna(subset=["names"])
 ```
 - Set `method="wilcoxon"`: scanpy's default is a t-test. Run on log-normalized data, never raw or scaled.
 - Keep the gene floor absolute. A relative one (0.1% of 500k cells = 500) deletes the markers of a 27-cell cluster.
+  Mask rather than subset: a measured but rare gene removed from the object would read as off-panel downstream.
 - Simple methods win for markers (Wilcoxon, t-test, logreg; Pullin & McCarthy, *Genome Biology* 2024). Use
   `method="logreg"` as a multivariate cross-check for subtle states.
 - **Within the parent.** At L2 and below, rank a parent group's clusters against each other (subset to the parent),
