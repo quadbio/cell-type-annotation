@@ -57,6 +57,19 @@ def test_ranking():
     assert _primary(species="mouse", stage="developmental") == "census"
 
 
+def test_no_scarches_on_a_targeted_panel():
+    panel = {
+        "species": "human",
+        "stage": "adult",
+        "state": "normal",
+        "profile": "gpu",
+        "scanvi_model": True,
+        "atlas": True,
+    }
+    assert _primary(**panel, technology="spatial_panel") == "reference_map"
+    assert _primary(**panel, technology="dissociated") == "scarches"
+
+
 def test_no_census_for_other_species():
     results = {r["method"]: r for r in evaluate(species="other", stage="adult", state="normal")}
     assert results["census"]["status"] == "disqualified"

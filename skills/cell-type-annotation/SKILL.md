@@ -89,8 +89,9 @@ and nothing written to their object until the end.
 4. **Hard stop on normalization:** `normalization_fingerprint(X_lognorm)`. If it is not `ok`, stop: markers on
    mis-normalized data track depth, not identity. Show the verdict; the user fixes the layer or confirms a
    non-standard normalization.
-5. **Gene ids:** markers are symbols. For Ensembl `var_names`, use a symbol column (`feature_name`, ...). Without
-   one, map the marker genes via the knowledgebase MCP (`bc_get_ensembl_id_from_gene_symbol`).
+5. **Gene ids:** markers are symbols. For Ensembl `var_names`, switch them in memory to a symbol column
+   (`feature_name`, ...; `var_names_make_unique()`) before QC and markers. Without one, map the marker genes via the
+   knowledgebase MCP (`bc_get_ensembl_id_from_gene_symbol`).
 6. **QC and cell cycle**, if absent, computed in memory (`references/marker_tools.md`).
 7. Write `reports/plan.md`. For a targeted panel, add which expected identities it cannot resolve, because their
    canonical markers are off-panel.
@@ -132,6 +133,7 @@ report."
 2. **Write-back**, following analysis-workflow:
    - one categorical `obs` column per level, keyed `<stem>_L<n>_<version>`, plus `_state` and `_cl_id` companions,
      and any sub-cluster key;
+   - every level covers every cell: a group not refined at a level carries its parent's label down;
    - colours in `uns["<key>_colors"]`;
    - `build_hierarchy` over the level keys is the nesting check;
    - `commit_adata` dry run, the user's sign-off on that diff, then `yes=True`.

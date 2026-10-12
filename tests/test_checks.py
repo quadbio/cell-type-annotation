@@ -99,6 +99,13 @@ def test_qc_deviation_flags_the_outlier():
     assert (z["flat"] == 0).all()
 
 
+def test_qc_deviation_shows_a_lone_outlier_among_tied_medians():
+    """pct_counts_mt is often exactly 0 in most clusters of cleaned nuclei; MAD is 0 there."""
+    z = qc_deviation(pd.DataFrame({"pct_counts_mt": [0, 0, 0, 0, 0, 14.0]}, index=list("abcdef")))
+    assert z.loc["f", "pct_counts_mt"] > 3
+    assert (z.loc[list("abcde"), "pct_counts_mt"] == 0).all()
+
+
 class TestConfidenceProxy:
     @pytest.fixture()
     def filtered(self):
@@ -122,6 +129,8 @@ class TestConfidenceProxy:
     def test_agreement_adjusts(self, filtered):
         conf = confidence_proxy(filtered, ["1"], agree={"1": 3}).set_index("cluster")["suggested_conf"]
         assert conf["1"] == 0.8
+        as_series = confidence_proxy(filtered, ["1"], agree=pd.Series({"1": 3})).set_index("cluster")
+        assert as_series.loc["1", "suggested_conf"] == 0.8
 
 
 def test_cell_cycle_genes_match_case_insensitively():

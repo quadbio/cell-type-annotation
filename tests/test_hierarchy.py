@@ -83,6 +83,16 @@ class TestBuildHierarchy:
         with pytest.raises(ValueError, match="do not nest strictly"):
             build_hierarchy(adata, LEVELS)
 
+    def test_nesting_is_checked_within_a_partially_labelled_level(self, adata_hierarchy):
+        """A violation among refined groups is caught even when other groups have no finer label."""
+        adata = adata_hierarchy.copy()
+        level_3 = adata.obs["level_3"].astype(object)
+        level_3[adata.obs["level_1"] == "root_c"] = np.nan  # root_c was not refined
+        level_3[adata.obs["level_2"] == "mid_b1"] = "a1x"  # a1x now sits under mid_a1 and mid_b1
+        adata.obs["level_3"] = level_3
+        with pytest.raises(ValueError, match="'a1x' \\(2 parents\\)"):
+            build_hierarchy(adata, LEVELS)
+
     def test_sub_cluster_ids_are_checked(self, adata_hierarchy):
         """A finer level on sub-cluster ids is checked per cell, not silently skipped."""
         adata = adata_hierarchy.copy()
@@ -158,6 +168,17 @@ class TestHierarchyMarkers:
 
         assert detected[detected.node == "root_a"]["det_in"].max() == pytest.approx(100.0)
         assert undetected["det_in"].max() == pytest.approx(0.0)
+
+    def test_default_detection_is_nonzero_not_a_lognorm_cutoff(self, adata_hierarchy):
+        """One transcript in a deep cell is a small log-normalized value; it must still count."""
+        adata = adata_hierarchy.copy()
+        a2x = (adata.obs["level_3"] == "a2x").to_numpy()
+        adata.X[a2x, list(adata.var_names).index("mark_a1")] = 0.3
+        default = hierarchy_markers(adata, LEVELS, genes=["mark_a1"], n_top=1)
+        cutoff = hierarchy_markers(adata, LEVELS, genes=["mark_a1"], n_top=1, threshold=1.0)
+        row = lambda df: df[(df.node == "mid_a2") & (df.gene == "mark_a1")].iloc[0]  # noqa: E731
+        assert row(default)["det_in"] == pytest.approx(100.0)
+        assert row(cutoff)["det_in"] == pytest.approx(0.0)
 
     def test_zero_threshold_on_sparse_input_raises(self, adata_hierarchy):
         import scipy.sparse as sp

@@ -208,7 +208,9 @@ def qc_deviation(medians: pd.DataFrame) -> pd.DataFrame:
 
     ``(median - median over clusters) / (1.4826 * MAD)``, per column, so a cluster that is off
     the population on depth, mitochondrial fraction or a cell-cycle score stands out whatever the
-    metric. Columns without spread give 0. Meaningful from three clusters on.
+    metric. Where most clusters share one value the MAD is 0, and the scale falls back to
+    ``1.2533 * mean absolute deviation`` so a lone outlier still shows. Columns without any spread
+    give 0. Meaningful from three clusters on.
 
     Parameters
     ----------
@@ -220,9 +222,10 @@ def qc_deviation(medians: pd.DataFrame) -> pd.DataFrame:
     Clusters x metrics robust z, rounded to 2 decimals.
     """
     center = medians.median()
-    mad = (medians - center).abs().median() * 1.4826
-    spread = mad > 0
-    z = (medians - center).divide(mad.where(spread))
+    deviation = (medians - center).abs()
+    scale = (deviation.median() * 1.4826).where(lambda s: s > 0, deviation.mean() * 1.2533)
+    spread = scale > 0
+    z = (medians - center).divide(scale.where(spread))
     z.loc[:, ~spread] = 0.0
     return z.round(2)
 
@@ -255,6 +258,7 @@ def confidence_proxy(
     -------
     One row per cluster: ``lfc_top1``, ``lfc_margin``, ``n_strong``, ``suggested_conf``.
     """
+    agree = {str(k): v for k, v in dict(agree if agree is not None else {}).items()}
     key = "group" if "group" in filtered_markers.columns else "cluster"
     # filter_rank_genes_groups blanks the names of rejected genes rather than dropping their rows
     kept = filtered_markers.dropna(subset=["names"]) if "names" in filtered_markers.columns else filtered_markers
@@ -269,7 +273,7 @@ def confidence_proxy(
         top2 = lfc[1] if len(lfc) > 1 else 0.0
         n_strong = sum(v >= strong for v in lfc)
         conf = next((c for t, n, c in CONFIDENCE_BANDS if lfc and top1 >= t and n_strong >= n), CONFIDENCE_BASE)
-        if agree and pd.notna(agree.get(cluster)):
+        if pd.notna(agree.get(cluster)):
             conf = min(0.95, conf + 0.05 * (agree[cluster] - 1))
         rows.append(
             {

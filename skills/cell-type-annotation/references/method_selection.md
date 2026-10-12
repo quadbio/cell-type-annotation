@@ -61,7 +61,7 @@ false is the primary cross-check. A disqualifier beats rank.
 | Method | Refused when |
 | --- | --- |
 | `obs_pred` | the column's provenance is unknown, or the method that produced it is itself disqualified here (species / stage / tissue / panel) |
-| `scarches` | no CUDA GPU reachable |
+| `scarches` | no CUDA GPU reachable; targeted imaging panel (query preparation zero-pads the reference genes the panel lacks) |
 | `reference_map` | fewer than 30 genes shared with the query after symbol alignment |
 | `celltypist` | no tissue- and stage-matched model: omit CellTypist rather than force an ill-fitting one (a mismatched model collapses, it does not degrade gracefully); targeted imaging panel (most model genes missing) |
 | `azimuth` | species not human, or not established (the model has a fixed human gene space); developmental / organoid query (trained on adult tissue; not designed for developmental stages); tumour expected (malignant cells were excluded from training); stage or state not established (no data probe for either: ask before routing); targeted imaging panel (missing panel genes are zero-filled, producing confident garbage) |

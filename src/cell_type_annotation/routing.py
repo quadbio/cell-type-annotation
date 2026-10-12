@@ -134,7 +134,13 @@ ROUTES: tuple[Route, ...] = (
         name="scANVI / scArches mapping",
         when="a GPU AND a well-matched scANVI reference model (trained or from the hub)",
         applies=lambda c: c["profile"] == "gpu" and c["refs"].get("scanvi_model", False),
-        disqualifiers=(("no CUDA GPU reachable", lambda c: c["profile"] == "cpu"),),
+        disqualifiers=(
+            ("no CUDA GPU reachable", lambda c: c["profile"] == "cpu"),
+            (
+                "targeted imaging panel (query preparation zero-pads the reference genes the panel lacks)",
+                lambda c: c["technology"] == "spatial_panel",
+            ),
+        ),
         why=(
             "The strongest option when it fits: labels with calibrated per-cell uncertainty, in a "
             "reference latent space built for this tissue. A well-matched, curated reference beats "

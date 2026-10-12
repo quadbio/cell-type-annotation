@@ -220,19 +220,12 @@ def build_hierarchy(
         },
         index=adata.obs_names,
     )
-    na = adata.obs[all_levels].isna().any(axis=1)
-    if na.any():
-        if not dropna:
-            raise ValueError(f"{int(na.sum())} cells have a missing label; pass `dropna=True` to drop them")
-        logger.info("Dropping %s cells with a missing label in %s", f"{int(na.sum()):,}", all_levels)
-        obs = obs.loc[~na]
-
-    if obs.empty:
-        raise ValueError("No cells left after dropping missing labels")
-
     # --- strict nesting: every child label must have exactly one parent ---
+    # Checked per pair of levels on the cells labelled at both, before any cells are dropped, so a
+    # violation inside a partially labelled level is still caught.
     for parent_col, child_col in zip(all_levels[:-1], all_levels[1:], strict=False):
-        n_parents = obs.groupby(child_col, observed=True)[parent_col].nunique()
+        labelled = obs.loc[adata.obs[[parent_col, child_col]].notna().all(axis=1).to_numpy()]
+        n_parents = labelled.groupby(child_col, observed=True)[parent_col].nunique()
         violations = n_parents[n_parents > 1]
         if not violations.empty:
             detail = ", ".join(f"{label!r} ({n} parents)" for label, n in violations.items())
@@ -240,6 +233,21 @@ def build_hierarchy(
                 f"Labels in '{child_col}' do not nest strictly within '{parent_col}': {detail}. "
                 "Every child label must occur under exactly one parent label."
             )
+
+    na = adata.obs[all_levels].isna().any(axis=1)
+    if na.any():
+        if not dropna:
+            raise ValueError(f"{int(na.sum())} cells have a missing label; pass `dropna=True` to drop them")
+        logger.warning(
+            "Dropping %s cells with a missing label in %s; carry a parent label down into groups that were not "
+            "refined to keep them",
+            f"{int(na.sum()):,}",
+            all_levels,
+        )
+        obs = obs.loc[~na]
+
+    if obs.empty:
+        raise ValueError("No cells left after dropping missing labels")
 
     counts = {level: obs[level].value_counts() for level in all_levels}
 
@@ -344,9 +352,9 @@ def _detection_counts(
     leaf_order: Sequence[str],
     genes: Sequence[str],
     layer: str | None,
-    threshold: float,
+    threshold: float | None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Count, per leaf and gene, how many cells reach ``threshold``.
+    """Count, per leaf and gene, how many cells detect it: nonzero, or at least ``threshold``.
 
     Returns the ``n_leaves x n_genes`` hit counts and the per-leaf cell counts. Sparse input is
     kept sparse: the full matrix is never densified.
@@ -358,7 +366,7 @@ def _detection_counts(
         raise ValueError(f"Genes not found in `adata.var_names`: {missing}")
     matrix = matrix[:, gene_idx]
 
-    if sp.issparse(matrix) and threshold <= 0:
+    if threshold is not None and sp.issparse(matrix) and threshold <= 0:
         raise ValueError(
             f"`threshold={threshold}` on a sparse matrix would mark every zero as detected. Use a threshold above 0."
         )
@@ -371,7 +379,7 @@ def _detection_counts(
         n_cells[i] = int(mask.sum())
         if n_cells[i] == 0:
             continue
-        detected = matrix[mask] >= threshold
+        detected = matrix[mask] > 0 if threshold is None else matrix[mask] >= threshold
         hits[i] = np.asarray(detected.sum(axis=0)).ravel()
     return hits, n_cells
 
@@ -392,7 +400,7 @@ def hierarchy_markers(
     genes: Sequence[str] | None = None,
     include_genes: Sequence[str] | None = None,
     layer: str | None = None,
-    threshold: float = 1.0,
+    threshold: float | None = None,
     aggregate: Aggregate = "pooled",
     n_top: int = 3,
     hierarchy: LabelHierarchy | None = None,
@@ -436,9 +444,10 @@ def hierarchy_markers(
     layer
         Layer to read expression from. ``None`` reads ``adata.X``
     threshold
-        A cell counts as detecting a gene when its value is ``>= threshold`` in the chosen matrix.
-        On a log1p-normalised ``X`` a threshold of ``1.0`` is not "one transcript", it is
-        normalised expression of 1.0. Pass ``layer='counts'`` for a genuine transcript count
+        A cell detects a gene when its value is nonzero (``None``, the default, as
+        ``sc.get.aggregate(func="count_nonzero")`` counts it) or ``>= threshold``. Avoid a positive
+        threshold on log-normalized data: ``log1p(CP10k) >= 1`` counts one transcript only in cells
+        under ~5,800 counts, so detection would track depth. Use ``layer="counts"`` for a count threshold
     aggregate
         ``'pooled'`` to pool cells on both sides, ``'leaf_min'`` for the strict min/max over leaves
     n_top

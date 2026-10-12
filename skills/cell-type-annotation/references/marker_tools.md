@@ -67,13 +67,14 @@ cards.
 
 ## QC and cell cycle
 
-When `obs` lacks them, compute in memory, never into the user's object:
+When `obs` lacks them, compute in memory, never into the user's object, with symbol `var_names` (SKILL step 5;
+on Ensembl ids both lookups silently find nothing):
 ```python
 adata.var["mt"] = adata.var_names.str.upper().str.startswith("MT-")
 sc.pp.calculate_qc_metrics(adata, layer=counts_layer, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True)
 s, g2m = cell_cycle_genes(adata.var_names)         # Tirosh lists, case-insensitive, so mouse resolves too
-if len(s) >= 2 and len(g2m) >= 2:
-    sc.tl.score_genes_cell_cycle(adata, s_genes=s, g2m_genes=g2m)
+if len(s) >= 2 and len(g2m) >= 2:                  # on the log-normalized X; .raw is often counts
+    sc.tl.score_genes_cell_cycle(adata, s_genes=s, g2m_genes=g2m, use_raw=False)
 ```
 On a targeted panel the cell-cycle genes may be off-panel. Say so: the absence of a score is not "not cycling".
 `qc_deviation(obs.groupby(cluster_key)[metrics].median())` flags clusters off the population, from three clusters
