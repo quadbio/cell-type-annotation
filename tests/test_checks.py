@@ -42,6 +42,12 @@ class TestNormalizationFingerprint:
         assert normalization_fingerprint(sp.csr_matrix(lognorm)) == normalization_fingerprint(lognorm)
         assert normalization_fingerprint(sp.csr_matrix(counts)) == normalization_fingerprint(counts)
 
+    def test_non_finite_values_are_refused(self, counts):
+        lognorm = np.log1p(counts / counts.sum(1, keepdims=True) * 1e4)
+        lognorm[:, :5] = np.nan  # genes missing from part of an outer-joined object
+        result = normalization_fingerprint(lognorm)
+        assert not result["ok"] and "non-finite" in result["verdict"]
+
     def test_scaled(self, counts):
         lognorm = np.log1p(counts / counts.sum(1, keepdims=True) * 1e4)
         assert "scaled" in normalization_fingerprint(lognorm - lognorm.mean(0))["verdict"]
@@ -104,6 +110,11 @@ def test_qc_deviation_shows_a_lone_outlier_among_tied_medians():
     z = qc_deviation(pd.DataFrame({"pct_counts_mt": [0, 0, 0, 0, 0, 14.0]}, index=list("abcdef")))
     assert z.loc["f", "pct_counts_mt"] > 3
     assert (z.loc[list("abcde"), "pct_counts_mt"] == 0).all()
+
+
+def test_qc_deviation_keeps_missing_medians_missing():
+    z = qc_deviation(pd.DataFrame({"m": [0.0, 0.0, np.nan], "absent": [np.nan] * 3}, index=list("abc")))
+    assert np.isnan(z.loc["c", "m"]) and z["absent"].isna().all()
 
 
 class TestConfidenceProxy:

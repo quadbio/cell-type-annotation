@@ -83,8 +83,9 @@ on.
 ## Figures
 
 Intermediate figures are for reading, not for the paper: plain scanpy into `figures/`, e.g.
-`sc.pl.dotplot(adata, panel, groupby=cluster_key, standard_scale="var")`, `sc.pl.umap(adata, color=...)`. Reuse
-`uns["<key>_colors"]` where present.
+`sc.pl.dotplot(adata, panel, groupby=cluster_key, standard_scale="var", use_raw=False)` (scanpy otherwise plots
+`.raw`, often counts or still Ensembl-indexed), `sc.pl.umap(adata, color=...)`. Reuse `uns["<key>_colors"]` where
+present.
 
 The one paper figure of a run is the annotation hierarchy, made at the end with the sci-figures skill:
 ```python

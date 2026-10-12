@@ -61,21 +61,27 @@ def normalization_fingerprint(X, *, n_cells: int = 2000, seed: int = 0) -> dict:
     sample = X[np.sort(rows)]
     if sp.issparse(sample):  # stays sparse: densifying 2,000 cells x 30,000 genes costs ~0.5 GB
         sample = sp.csr_matrix(sample, dtype=float)
-        nonzero = sample.data[sample.data != 0]
+        stored = sample.data
         exp = sample.copy()
         exp.data = np.expm1(exp.data)
         totals = np.asarray(exp.sum(axis=1)).ravel()
     else:
         sample = np.asarray(sample, dtype=float)
-        nonzero = sample[sample != 0]
+        stored = sample.ravel()
         totals = np.expm1(sample).sum(axis=1)
-    xmin, xmax = float(sample.min()), float(sample.max())
+    finite = bool(np.isfinite(stored).all())
+    nonzero = stored[(stored != 0) & np.isfinite(stored)]
+    xmin, xmax = (float(np.nanmin(stored)), float(np.nanmax(stored))) if stored.size else (0.0, 0.0)
+    if sp.issparse(sample) and sample.nnz < np.prod(sample.shape):
+        xmin, xmax = min(xmin, 0.0), max(xmax, 0.0)
 
     integer_valued = bool(nonzero.size and np.allclose(nonzero, np.round(nonzero)))
     totals = totals[np.isfinite(totals) & (totals > 0)]
     cv = float(totals.std() / totals.mean()) if totals.size else float("nan")
 
-    if xmin < 0:
+    if not finite:
+        verdict = "non-finite values (NaN or inf, e.g. genes missing from part of a joined object)"
+    elif xmin < 0:
         verdict = "scaled (z-scored): not usable as log-normalized data"
     elif integer_valued:
         verdict = "raw counts (integer-valued): not log-normalized"
@@ -210,7 +216,7 @@ def qc_deviation(medians: pd.DataFrame) -> pd.DataFrame:
     the population on depth, mitochondrial fraction or a cell-cycle score stands out whatever the
     metric. Where most clusters share one value the MAD is 0, and the scale falls back to
     ``1.2533 * mean absolute deviation`` so a lone outlier still shows. Columns without any spread
-    give 0. Meaningful from three clusters on.
+    give 0; a missing median stays missing. Meaningful from three clusters on.
 
     Parameters
     ----------
@@ -227,7 +233,7 @@ def qc_deviation(medians: pd.DataFrame) -> pd.DataFrame:
     spread = scale > 0
     z = (medians - center).divide(scale.where(spread))
     z.loc[:, ~spread] = 0.0
-    return z.round(2)
+    return z.mask(medians.isna()).round(2)  # missing evidence stays missing, never "normal"
 
 
 def confidence_proxy(

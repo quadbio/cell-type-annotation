@@ -66,7 +66,9 @@ assumptions (a filled `plan.md`/`assumptions.md`, or an unambiguous brief). Then
 ### Gate B: honest `Unknown`
 
 When the evidence is irreconcilable, the label is `Unknown`, documented and flagged, not a forced guess. A justified
-`Unknown` is a success: it shows where the data or the panel cannot support a call.
+`Unknown` is a success: it shows where the data or the panel cannot support a call. Below the top level, qualify it by
+its parent (`Unknown T cell`, `Unknown B cell`) so the hierarchy still nests; keep the `Unknown` prefix, which is what
+the reports and the figure recognize.
 
 ## 3. Termination
 
