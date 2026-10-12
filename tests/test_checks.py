@@ -68,6 +68,11 @@ def test_panel_gate_marks_uncallable_candidates(markers):
     assert gate.loc["B cell", "off_panel_neg"] == "OFF2"
 
 
+def test_panel_gate_keeps_its_columns_when_empty(markers):
+    gate = panel_gate(markers.iloc[:0], ["CD3E"])
+    assert gate.empty and "uncallable" in gate.columns
+
+
 def test_negative_marker_flags_per_candidate(markers):
     pct = pd.DataFrame({"CD3E": [0.9, 0.0], "MS4A1": [0.3, 0.8]}, index=["0", "1"])
     flags = negative_marker_flags(pct, markers)

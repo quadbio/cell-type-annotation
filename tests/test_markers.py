@@ -81,6 +81,14 @@ class TestDisplayMarkers:
         _, flags = display_markers(scores, hierarchy, _table([]), adata.var_names)
         assert flags.set_index("node").loc["Unknown", "symbol"] == "∅"
 
+    def test_an_unknown_only_child_is_flagged(self, adata_hierarchy):
+        adata = adata_hierarchy.copy()
+        adata.obs["level_2"] = adata.obs["level_2"].cat.rename_categories({"mid_c1": "Unknown"})
+        hierarchy = build_hierarchy(adata, LEVELS)
+        scores = hierarchy_markers(adata, LEVELS, hierarchy=hierarchy)
+        _, flags = display_markers(scores, hierarchy, _table([]), adata.var_names)
+        assert flags.set_index("node").loc["Unknown", "symbol"] == "∅"
+
     def test_a_sibling_detecting_it_more_widely_blocks_it(self, adata_hierarchy):
         """flat has margin 0 everywhere, so even a low threshold must not show it."""
         markers = _table([("level_1", "root_a", "flat", "pos")])

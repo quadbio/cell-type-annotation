@@ -31,9 +31,15 @@ def test_page_matches_the_code(tmp_path):
     assert not update_page(copy), f"{PAGE} is stale: regenerate with routing.update_page"
 
 
-def test_exactly_one_primary_and_gates_hold():
+def test_at_most_one_primary_and_gates_hold():
     for ctx in _contexts():
-        method = _primary(**ctx)
+        primaries = [r["method"] for r in evaluate(**ctx) if r["status"] == "primary"]
+        assert len(primaries) <= 1, ctx
+        if ctx["species"] in ("human", "mouse"):
+            assert primaries, ctx  # Census keeps a reference cross-check alive for these
+        if not primaries:
+            continue
+        method = primaries[0]
         if method in PAN_BODY:
             assert ctx["species"] == "human" and ctx["stage"] == "adult", ctx
             assert ctx["state"] in ("normal", "disease") and ctx["technology"] != "spatial_panel", ctx
@@ -49,6 +55,13 @@ def test_ranking():
     assert _primary(species="human", stage="adult", state="normal", celltypist_model=True) == "celltypist"
     assert _primary(species="human", stage="organoid", celltypist_model=True) == "celltypist"
     assert _primary(species="mouse", stage="developmental") == "census"
+
+
+def test_no_census_for_other_species():
+    results = {r["method"]: r for r in evaluate(species="other", stage="adult", state="normal")}
+    assert results["census"]["status"] == "disqualified"
+    assert not [r for r in results.values() if r["status"] == "primary"]
+    assert _primary(species="other", stage="adult", atlas=True) == "reference_map"
 
 
 def test_unknown_species_is_not_reported_as_non_human():

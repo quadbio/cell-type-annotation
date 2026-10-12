@@ -17,7 +17,10 @@ for r in evaluate(species="human", stage="adult", state="normal", technology="di
     print(r["rank"], r["method"], r["status"], r["reason"])
 ```
 
-It does not decide whether to cross-check (always), whether the answer is right (the markers, then the critics), the
+If no route is primary (e.g. a non-human, non-mouse query with no reference of the user's), say so and annotate on
+the markers alone; never force a disqualified method.
+
+It does not decide whether to cross-check (always, when a route applies), whether the answer is right (the markers, then the critics), the
 vocabulary (the Stage 1 contract), or a cluster's `state` (QC; a cross-check only corroborates one).
 
 **Stage** and **state** have no data probe and gate the pan-body human models: establish them with the user in
@@ -51,7 +54,7 @@ false is the primary cross-check. A disqualifier beats rank.
 | 4 | `celltypist`: CellTypist | a tissue- AND stage-matched pretrained model exists | A genuinely matched model is a strong, nearly free cross-check trained on exactly this tissue and stage, so it outranks a pan-body model. The gate is the whole point: stage matters as much as tissue. |
 | 5 | `azimuth`: pan-human Azimuth | human, adult/postnatal, non-tumour, whole-transcriptome, and no matched reference or model above | One supervised model spanning 23 human tissues, so a single reference covers a broad or multi-tissue query that no tissue-specific model does. It is also the only cross-check here that returns a Cell Ontology id per cluster, a calibrated confidence, and trained `Unassigned` / `Doublet like cell` classes that feed the `state` axis. CPU-only and cheap (~50-60k cells/min, 84 MB model). |
 | 6 | `scimilarity`: SCimilarity | broad / multi-tissue human adult query with no matched reference or model | An option for broad / multi-tissue human queries where no tissue-matched model exists. Ranked below Azimuth because it costs far more (9 GB bundle, 16-27 GB RAM) and returns a flat label space with no ontology ids, no calibrated confidence and no state signals. |
-| 7 | `census`: Census slice, then CellMapper | nothing above fits: build a reference instead of going without one | Keeps a reference cross-check alive for any species and tissue, so no level goes unchecked. |
+| 7 | `census`: Census slice, then CellMapper | nothing above fits: build a reference instead of going without one | Keeps a reference cross-check alive for any human or mouse tissue, so no level goes unchecked. |
 
 ### Disqualifiers
 
@@ -63,7 +66,7 @@ false is the primary cross-check. A disqualifier beats rank.
 | `celltypist` | no tissue- and stage-matched model: omit CellTypist rather than force an ill-fitting one (a mismatched model collapses, it does not degrade gracefully); targeted imaging panel (most model genes missing) |
 | `azimuth` | species not human, or not established (the model has a fixed human gene space); developmental / organoid query (trained on adult tissue; not designed for developmental stages); tumour expected (malignant cells were excluded from training); stage or state not established (no data probe for either: ask before routing); targeted imaging panel (missing panel genes are zero-filled, producing confident garbage) |
 | `scimilarity` | species not human, or not established (the model has a fixed human gene space); developmental / organoid query (trained on adult tissue; not designed for developmental stages); tumour expected (malignant cells were excluded from training); stage or state not established (no data probe for either: ask before routing); targeted imaging panel (missing panel genes are zero-filled, producing confident garbage); under ~27 GB of usable RAM |
-| `census` | offline (Census is a remote TileDB store) |
+| `census` | species not human or mouse, or not established (Census holds those two); offline (Census is a remote TileDB store) |
 
 ### Caveats that travel with the result
 

@@ -134,7 +134,8 @@ def panel_gate(
                 "off_panel_neg": ";".join(neg[~neg.isin(present)]),
             }
         )
-    return pd.DataFrame(rows)
+    columns = ["level", "node", "n_pos", "n_pos_on_panel", "uncallable", "off_panel_pos", "off_panel_neg"]
+    return pd.DataFrame(rows, columns=columns)
 
 
 def negative_marker_flags(

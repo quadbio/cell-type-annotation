@@ -128,14 +128,14 @@ def display_markers(
 
     shown, flags = [], []
     for level, node in hierarchy.iter_nodes(levels=hierarchy.levels):
+        if _is_unknown(node):  # before the sibling test: an Unknown is often an only child
+            flags.append((level, node, "∅", "unassigned"))
+            continue
         siblings = hierarchy.siblings_of(level, node)
         if not siblings:
             continue
         canonical = positives[(positives["level"] == level) & (positives["node"] == node)]
         measured = canonical[canonical["gene"].isin(present)]
-        if _is_unknown(node):
-            flags.append((level, node, "∅", "unassigned"))
-            continue
         if canonical.empty:
             flags.append((level, node, "−", "no canonical marker curated"))
             continue

@@ -221,8 +221,14 @@ ROUTES: tuple[Route, ...] = (
         name="Census slice, then CellMapper",
         when="nothing above fits: build a reference instead of going without one",
         applies=lambda c: True,
-        disqualifiers=(("offline (Census is a remote TileDB store)", lambda c: False),),
-        why="Keeps a reference cross-check alive for any species and tissue, so no level goes unchecked.",
+        disqualifiers=(
+            (
+                "species not human or mouse, or not established (Census holds those two)",
+                lambda c: c["species"] not in ("human", "mouse"),
+            ),
+            ("offline (Census is a remote TileDB store)", lambda c: False),
+        ),
+        why="Keeps a reference cross-check alive for any human or mouse tissue, so no level goes unchecked.",
         caveat=(
             "Census `cell_type` is author-supplied and heterogeneous across datasets, so a "
             "transferred label is a coarser, noisier hypothesis than one from a curated atlas."
