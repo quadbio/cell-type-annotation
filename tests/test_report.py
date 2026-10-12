@@ -80,6 +80,12 @@ def test_prediction_summary():
     assert prediction_summary(["a"], ["T"])["mean_conf"].isna().all()
 
 
+def test_missing_predictions_are_not_a_label():
+    summary = prediction_summary(["a"] * 4, pd.Series(["T", None, float("nan"), None])).iloc[0]
+    assert (summary["top1"], summary["frac1"]) == ("(no prediction)", 0.75)
+    assert summary["top2"] == "T"
+
+
 def test_render_lists_problems(labels):
     labels.loc[1, "rationale"] = ""
     text = render_level("L1", labels, sizes=SIZES)

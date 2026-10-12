@@ -19,6 +19,8 @@ LABEL_COLUMNS = ("cluster", "label", "state", "cl_id", "confidence", "status", "
 STATUSES = ("assigned", "unknown", "needs_subcluster", "refuted")
 #: Calls below this confidence are flagged for review.
 LOW_CONFIDENCE = 0.6
+#: What a cell without a cross-check prediction counts as.
+NO_PREDICTION = "(no prediction)"
 
 
 def _blank(value) -> bool:
@@ -89,12 +91,14 @@ def prediction_summary(clusters, labels, confidence=None) -> pd.DataFrame:
 
     Returns
     -------
-    One row per cluster: ``top1``, ``frac1``, ``top2``, ``frac2``, ``mean_conf``.
+    One row per cluster: ``top1``, ``frac1``, ``top2``, ``frac2``, ``mean_conf``. Cells without a
+    prediction count as ``(no prediction)``, so the fractions stay over all of a cluster's cells.
     """
+    labels = pd.Series(np.asarray(labels, dtype=object))
     cells = pd.DataFrame(
         {
             "cluster": np.asarray(clusters).astype(str),
-            "label": np.asarray(labels).astype(str),
+            "label": labels.where(labels.notna(), NO_PREDICTION).astype(str).to_numpy(),
             "conf": np.nan if confidence is None else np.asarray(confidence, dtype=float),
         }
     )
