@@ -103,7 +103,8 @@ column first; it inherits that method's disqualifiers.
 ```python
 from cellmapper import CellMapper
 cmap = CellMapper(query, ref)                         # both on shared symbols, log1p of CP10k
-cmap.compute_fast_cca(n_comps=50, key_added="X_joint")   # compute_joint_pca for same-modality
+n_comps = min(50, query.n_vars - 1, query.n_obs - 1, ref.n_obs - 1)  # small parent groups need fewer
+cmap.compute_fast_cca(n_comps=n_comps, key_added="X_joint")   # compute_joint_pca for same-modality
 cmap.compute_neighbors(use_rep="X_joint", knn_method="pynndescent", random_state=0)  # "rapids" on a GPU (cuml)
 cmap.compute_mapping_matrix()
 cmap.map_obs(label_col, prediction_postfix="_pred", confidence_postfix="_conf")

@@ -21,7 +21,9 @@ specific = sc.get.rank_genes_groups_df(adata, group=None, key="rank_genes_groups
   `method="logreg"` as a multivariate cross-check for subtle states.
 - **Within the parent.** At L2 and below, rank a parent group's clusters against each other (subset to the parent),
   not against the whole object.
-- **Pairwise.** To separate two candidate siblings, use `groups=[a], reference=b`.
+- **Pairwise.** To separate two candidate siblings, subset to those two clusters and rank there
+  (`groups=[a], reference=b`): `filter_rank_genes_groups` recomputes its fractions against every other cell in the
+  object, not against the reference.
 - **Sibling margins.** `hierarchy_markers(adata, [parent_key, cluster_key], genes=panel)` scores each cluster's
   detection against its siblings within the parent, a fraction-of-cells statistic independent of cluster size.
   `FOXG1` is a poor telencephalic marker against everything, but an excellent one at the telencephalic branch point.
