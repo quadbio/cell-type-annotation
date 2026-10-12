@@ -10,7 +10,14 @@ standard scVerse scoring/DE tools, reasons cluster-by-cluster down a label
 hierarchy, exposes its assumptions for your sign-off, and lets adversarial critic
 subagents try to refute every call before it is written down.
 
-## What it does
+| Part | What it does |
+| --- | --- |
+| `skills/cell-type-annotation/` | The skill: the three-stage workflow in `SKILL.md`, method detail in `reference/`, loaded as needed. |
+| `skills/cell-type-annotation/src/cta/` | The `cta` CLI for the heavy compute, run in the skill's own pixi environment. |
+
+## Use
+
+Ask Claude to annotate the clusters of an AnnData: "annotate my h5ad", "what are these clusters?".
 
 - **Input:** an `AnnData` (`.h5ad`) with pre-existing Leiden/Louvain clusters and a
   user-provided embedding (used consistently for scoring, neighbors, sub-clustering,
@@ -28,27 +35,7 @@ Works for both dissociated and spatial data, including limited targeted panels
 (e.g. MERSCOPE/Xenium/CosMx), where it treats panel-absent genes as *unmeasured*,
 never as negative evidence.
 
-## Design principles
-
-- **Compute-environment aware, scVerse-first.** Runs on CPU / Apple-Silicon by
-  default — no GPU required. When a GPU or large memory is detected (and you confirm
-  it), the skill can *additionally* train/refine a reference model and map the query
-  onto it (scANVI/scArches), use a GPU kNN backend, pull larger reference atlases, and
-  add a foundation-model cross-check. It never submits jobs or installs the GPU stack
-  unasked, and a bigger model only ever earns one more opinion to weigh — never more
-  authority.
-- **Claude is the annotator.** Automated classifiers (CellTypist, SingleR,
-  CellMapper, scANVI) produce *hypotheses*, not verdicts; disagreement is flagged,
-  never silently overwritten.
-- **Two hard gates:** (1) an assumptions ledger you sign off on before any labels
-  are produced; (2) honest `Unknown` as a first-class label for irreconcilable
-  evidence.
-- **Artifact-centric.** Heavy compute runs as standalone `cta` CLI commands that
-  write durable tables/plots; Claude reads the artifacts and reasons. This is what
-  makes runs resumable and lets critic subagents (which can't see the chat or the
-  in-memory `AnnData`) review only exported evidence.
-
-## How it works — the three stages
+### How it works
 
 The skill runs as a guided, three-stage workflow (the detailed algorithm lives in
 `skills/cell-type-annotation/SKILL.md` and `reference/`):
@@ -78,9 +65,49 @@ The skill runs as a guided, three-stage workflow (the detailed algorithm lives i
    and the run is checkpointed before descending. After the last level, the labels are
    written back into the AnnData `obs` (gated on explicit confirmation).
 
-## Installation
+### Design principles
 
-### For development (live-editing the skill)
+- **Compute-environment aware, scVerse-first.** Runs on CPU / Apple-Silicon by
+  default — no GPU required. When a GPU or large memory is detected (and you confirm
+  it), the skill can *additionally* train/refine a reference model and map the query
+  onto it (scANVI/scArches), use a GPU kNN backend, pull larger reference atlases, and
+  add a foundation-model cross-check. It never submits jobs or installs the GPU stack
+  unasked, and a bigger model only ever earns one more opinion to weigh — never more
+  authority.
+- **Claude is the annotator.** Automated classifiers (CellTypist, SingleR,
+  CellMapper, scANVI) produce *hypotheses*, not verdicts; disagreement is flagged,
+  never silently overwritten.
+- **Two hard gates:** (1) an assumptions ledger you sign off on before any labels
+  are produced; (2) honest `Unknown` as a first-class label for irreconcilable
+  evidence.
+- **Artifact-centric.** Heavy compute runs as standalone `cta` CLI commands that
+  write durable tables/plots; Claude reads the artifacts and reasons. This is what
+  makes runs resumable and lets critic subagents (which can't see the chat or the
+  in-memory `AnnData`) review only exported evidence.
+
+## Install
+
+Once per machine, from the [quadbio marketplace](https://github.com/quadbio/claude-plugins). It also needs:
+
+- **[Claude Code](https://docs.claude.com/en/docs/claude-code/setup)** — the host the
+  skill runs in.
+- **[`knowledgebase` MCP server](https://github.com/biocontext-ai/knowledgebase-mcp)**
+  (BioContextAI Knowledgebase) — **required**. Provides grounded marker / ontology /
+  literature evidence (PanglaoDB, Cell Ontology, Human Protein Atlas, Europe PMC,
+  STRING, Open Targets, …). The skill stops and asks you to configure it rather than
+  silently degrading to web-only evidence. See
+  [adding MCP servers to Claude Code](https://docs.claude.com/en/docs/claude-code/mcp).
+- **[`zotero` MCP server](https://github.com/54yyyu/zotero-mcp)** — strongly preferred
+  but optional. Surfaces your own curated literature; if absent, the skill notes it
+  and falls back to the knowledgebase's Europe PMC tools.
+- **[`pixi`](https://pixi.sh)** — the skill ships a `pixi.toml` and, on first run,
+  bootstraps its own isolated Python 3.12 environment inside the skill directory
+  (`.pixi/`); nothing is installed into your project environment. Tools run as
+  `pixi run cta <command> …` (CPU / Apple-Silicon default). On a Linux + CUDA host,
+  `pixi install -e gpu` then `pixi run -e gpu cta …` adds the optional GPU stack
+  (scvi-tools, cuML, SCimilarity); on other platforms the `gpu` env is a no-op.
+
+## Develop
 
 Clone the repo, then load it from your local checkout so edits are picked up without
 reinstalling.
@@ -104,35 +131,7 @@ Either way, edits to `SKILL.md`'s body and to the bundled `src/cta/` package and
 editable into the pixi env, so code edits need no reinstall). Changes to the SKILL.md **frontmatter**
 (`name`/`description`) need a `/reload-plugins` or an app restart to re-register.
 
-### As a plugin (lab / shared)
-
-```bash
-# one-time, per machine
-claude plugin marketplace add quadbio/claude-plugins
-claude plugin install cell-type-annotation@quadbio
-```
-
-## Requirements
-
-- **[Claude Code](https://docs.claude.com/en/docs/claude-code/setup)** — the host the
-  skill runs in.
-- **[`knowledgebase` MCP server](https://github.com/biocontext-ai/knowledgebase-mcp)**
-  (BioContextAI Knowledgebase) — **required**. Provides grounded marker / ontology /
-  literature evidence (PanglaoDB, Cell Ontology, Human Protein Atlas, Europe PMC,
-  STRING, Open Targets, …). The skill stops and asks you to configure it rather than
-  silently degrading to web-only evidence. See
-  [adding MCP servers to Claude Code](https://docs.claude.com/en/docs/claude-code/mcp).
-- **[`zotero` MCP server](https://github.com/54yyyu/zotero-mcp)** — strongly preferred
-  but optional. Surfaces your own curated literature; if absent, the skill notes it
-  and falls back to the knowledgebase's Europe PMC tools.
-- **[`pixi`](https://pixi.sh)** — the skill ships a `pixi.toml` and, on first run,
-  bootstraps its own isolated Python 3.12 environment inside the skill directory
-  (`.pixi/`); nothing is installed into your project environment. Tools run as
-  `pixi run cta <command> …` (CPU / Apple-Silicon default). On a Linux + CUDA host,
-  `pixi install -e gpu` then `pixi run -e gpu cta …` adds the optional GPU stack
-  (scvi-tools, cuML, SCimilarity); on other platforms the `gpu` env is a no-op.
-
-## Layout
+Layout:
 
 ```
 skills/cell-type-annotation/
@@ -157,11 +156,10 @@ skills/cell-type-annotation/
 └── tests/                         # smoke test (cta end-to-end) + CLI↔registry sync guard
 ```
 
-## Status
+## Release
 
-The annotation workflow and its tooling are complete and usable end to end. The skill
-is under active development and we welcome issues and feedback. The released version is
-tracked in `.claude-plugin/plugin.json`.
+The marketplace installs `main`, at the version in `.claude-plugin/plugin.json`. The workflow and its
+tooling are usable end to end and under active development; issues and feedback are welcome.
 
 ## License
 
