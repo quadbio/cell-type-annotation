@@ -586,7 +586,7 @@ def annotation_hierarchy(
     root_key = f"{hierarchy.all_levels[0]}_colors"
     if root_colors is None and adata is not None and root_key in adata.uns:
         categories = adata.obs[hierarchy.all_levels[0]].astype("category").cat.categories
-        root_colors = dict(zip(categories, adata.uns[root_key], strict=False))
+        root_colors = dict(zip(map(str, categories), adata.uns[root_key], strict=False))  # nodes are strings
 
     style = style or HierarchyStyle()
     drawn_levels = list(hierarchy.levels)
@@ -765,7 +765,7 @@ def annotation_hierarchy(
     badge_numbers: dict[str, int] = {}
     if badge_level is not None:
         if adata is not None and isinstance(adata.obs[badge_level].dtype, pd.CategoricalDtype):
-            badge_numbers = {c: i for i, c in enumerate(adata.obs[badge_level].cat.categories, 1)}
+            badge_numbers = {str(c): i for i, c in enumerate(adata.obs[badge_level].cat.categories, 1)}
         else:
             badge_numbers = {n: i for i, n in enumerate(hierarchy.nodes(badge_level), 1)}
 

@@ -122,6 +122,17 @@ class TestAnnotationHierarchy:
         with pytest.raises(ValueError, match="without enrichment"):
             annotation_hierarchy(adata_hierarchy, LEVELS).enrichment_mappable()
 
+    def test_integer_categories_keep_badges_and_colours(self, adata_hierarchy):
+        adata = adata_hierarchy.copy()
+        codes = {name: i for i, name in enumerate(sorted(adata.obs["level_3"].cat.categories))}
+        adata.obs["leaf_id"] = pd.Categorical(adata.obs["level_3"].map(codes).astype(int))
+        adata.obs["root_id"] = pd.Categorical(adata.obs["level_1"].map({"root_a": 1, "root_b": 2, "root_c": 3}))
+        adata.uns["root_id_colors"] = ["#ff0000", "#00ff00", "#0000ff"]
+        layout = annotation_hierarchy(adata, ["root_id", "leaf_id"], badge_level="leaf_id")
+        r, g, b = layout.colors[("root_id", "1")]  # the mean of a red family, not tab20's blue fallback
+        assert r > max(g, b) + 0.3
+        assert {"1", "6"} <= {t.get_text() for t in layout.ax.texts}
+
     def test_badges_are_drawn(self, adata_hierarchy):
         layout = annotation_hierarchy(adata_hierarchy, LEVELS, badge_level="level_3")
         assert "1" in {t.get_text() for t in layout.ax.texts}

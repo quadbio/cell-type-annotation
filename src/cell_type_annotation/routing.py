@@ -277,7 +277,8 @@ def evaluate(ctx: dict | None = None, /, **axes) -> list[dict]:
 
     Examples
     --------
-    >>> primary = next(r for r in evaluate(species="human", stage="adult", state="normal") if r["status"] == "primary")
+    >>> results = evaluate(species="human", stage="adult", state="normal", technology="dissociated", profile="cpu")
+    >>> primary = next((r for r in results if r["status"] == "primary"), None)
     """
     c = default_context() if ctx is None else {**ctx, "refs": dict(ctx["refs"])}
     refs = {k for k, _ in REFERENCES}
