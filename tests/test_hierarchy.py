@@ -41,6 +41,11 @@ class TestBuildHierarchy:
         assert hierarchy.nodes("level_1") == ["root_c", "root_b", "root_a"]
         assert hierarchy.leaf_order[0] == "c1x"
 
+    def test_repeated_root_order_entries_are_ignored(self, adata_hierarchy):
+        hierarchy = build_hierarchy(adata_hierarchy, LEVELS, root_order=["root_c", "root_c", "root_a"])
+        assert hierarchy.nodes("level_1") == ["root_c", "root_a", "root_b"]
+        assert len(hierarchy.leaf_order) == len(set(hierarchy.leaf_order))
+
     def test_declared_category_order_is_kept(self, adata_hierarchy):
         adata = adata_hierarchy.copy()
         adata.obs["level_1"] = adata.obs["level_1"].cat.reorder_categories(["root_c", "root_a", "root_b"])

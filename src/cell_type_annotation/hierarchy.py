@@ -268,7 +268,7 @@ def build_hierarchy(
         unknown = [r for r in root_order if r not in observed]
         if unknown:
             raise ValueError(f"`root_order` names labels absent from '{root_level}': {unknown}")
-        ordered_roots = [r for r in root_order if r in observed]
+        ordered_roots = [r for r in dict.fromkeys(root_order) if r in observed]
         ordered_roots += [r for r in _ordered_categories(obs[root_level], "size") if r not in set(ordered_roots)]
 
     nodes: dict[str, list[str]] = {root_level: ordered_roots}
