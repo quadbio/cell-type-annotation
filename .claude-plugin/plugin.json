@@ -7,6 +7,6 @@
   },
   "homepage": "https://github.com/quadbio/cell-type-annotation",
   "license": "MIT",
-  "dependencies": ["analysis-workflow"],
+  "dependencies": ["analysis-workflow", "sci-figures"],
   "keywords": ["single-cell", "spatial-transcriptomics", "cell-type-annotation", "cell-ontology", "scverse", "anndata"]
 }

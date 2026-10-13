@@ -38,7 +38,7 @@ It requires the [knowledgebase MCP](https://github.com/biocontext-ai/knowledgeba
 ## Install
 
 The plugin, once per machine, from the [quadbio marketplace](https://github.com/quadbio/claude-plugins); it
-installs analysis-workflow along with it.
+installs analysis-workflow and sci-figures along with it.
 
 The package, in the analysis repo's `pixi.toml` (its lock pins the commit), next to the scverse stack the task
 scripts use:
@@ -60,7 +60,7 @@ uv sync --group dev
 uv run pytest
 uv run pre-commit run --all-files
 claude plugin validate .
-claude --plugin-dir .        # try the skill from this checkout; analysis-workflow installed or loaded too
+claude --plugin-dir .        # try the skill from this checkout; its dependencies installed or loaded too
 ```
 
 The routing tables in `references/method_selection.md` are generated; after changing `routing.py`, regenerate them
