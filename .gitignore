@@ -7,3 +7,6 @@ __pycache__/
 # Data never belongs in this repo
 *.h5ad
 *.zarr/
+
+# Claude Code worktrees
+.claude/worktrees/
