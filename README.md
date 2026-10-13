@@ -16,7 +16,8 @@ state axis. Off-panel genes on targeted spatial panels are treated as unmeasured
 | `src/cell_type_annotation/` | What task scripts can't get from scanpy or decoupler: cross-check routing, normalization and panel checks, the nested label hierarchy with sibling-restricted marker scoring, the level report, and the annotation-hierarchy figure. |
 
 It runs as a task of [analysis-workflow](https://github.com/quadbio/analysis-workflow), which owns the task
-directory, the working object and write-back. The final hierarchy figure follows the `sci-figures` skill.
+directory, the working object and write-back. The final hierarchy figure follows
+[sci-figures](https://github.com/quadbio/sci-figures).
 
 ## Use
 
