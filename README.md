@@ -60,7 +60,7 @@ uv sync --group dev
 uv run pytest
 uv run pre-commit run --all-files
 claude plugin validate .
-claude --plugin-dir .        # try the skill from this checkout
+claude --plugin-dir .        # try the skill from this checkout; analysis-workflow installed or loaded too
 ```
 
 The routing tables in `references/method_selection.md` are generated; after changing `routing.py`, regenerate them
