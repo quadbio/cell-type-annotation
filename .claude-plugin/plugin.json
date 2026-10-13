@@ -1,6 +1,6 @@
 {
   "name": "cell-type-annotation",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Evidence-driven cell-type annotation of pre-clustered single-cell and spatial transcriptomics data: Claude annotates level by level, one routed cross-check per level, signed-off assumptions, critic subagents. Ships a skill and the cell_type_annotation Python package; runs as an analysis-workflow task.",
   "author": {
     "name": "quadbio"
