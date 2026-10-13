@@ -1,10 +1,5 @@
 name: Test
 
-# Runs the pytest suite via pixi on every push to main and every PR. Uses the `default`
-# (CPU, torch-free) environment only — the `gpu` environment is Linux+CUDA and not
-# installable on hosted runners. The live CELLxGENE Census test is excluded by the default
-# pytest addopts (`-m "not census"`), so this stays network-light.
-
 on:
   push:
     branches: [main]
@@ -14,21 +9,15 @@ concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: true
 
-defaults:
-  run:
-    working-directory: skills/cell-type-annotation
-
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v5
-      - uses: prefix-dev/setup-pixi@v0.9.6
+      - uses: astral-sh/setup-uv@v6
         with:
-          manifest-path: skills/cell-type-annotation/pixi.toml
-          environments: default
-          # Use the committed pixi.lock as-is so CI matches local resolves; fail if stale.
-          locked: true
-          cache: true
-      - name: Run tests
-        run: pixi run -e default test
+          python-version: ${{ matrix.python-version }}
+      - run: uv run --locked --group dev pytest

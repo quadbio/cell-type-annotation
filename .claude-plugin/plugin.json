@@ -1,19 +1,11 @@
 {
   "name": "cell-type-annotation",
-  "version": "0.1.0",
-  "description": "Evidence-driven, project-agnostic cell-type annotation of pre-clustered single-cell and spatial transcriptomics data. Compute-environment-aware (CPU/Apple-Silicon by default, GPU/large-memory reference-model mapping when available); scVerse-first; Claude is the annotator.",
+  "version": "0.4.0",
+  "description": "Evidence-driven cell-type annotation of pre-clustered single-cell and spatial transcriptomics data: Claude annotates level by level, one routed cross-check per level, signed-off assumptions, critic subagents. Ships a skill and the cell_type_annotation Python package; runs as an analysis-workflow task.",
   "author": {
     "name": "quadbio"
   },
   "homepage": "https://github.com/quadbio/cell-type-annotation",
   "license": "MIT",
-  "keywords": [
-    "single-cell",
-    "spatial-transcriptomics",
-    "cell-type-annotation",
-    "scverse",
-    "scanpy",
-    "anndata",
-    "bioinformatics"
-  ]
+  "keywords": ["single-cell", "spatial-transcriptomics", "cell-type-annotation", "cell-ontology", "scverse", "anndata"]
 }
