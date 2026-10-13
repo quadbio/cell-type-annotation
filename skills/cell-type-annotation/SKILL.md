@@ -124,7 +124,8 @@ report."
    hypothesis, and check the label against its parent path. Reconcile; take conflicts you cannot resolve to the user
    (`references/methodology.md` §7).
 7. **Report:** `render_level(...)` to `reports/<level>.md`; `check_level(labels, clusters)` must return nothing.
-   Make quick scanpy plots of the level. Present the flagged clusters and pause: the user approves descending, and
+   Make quick scanpy plots of the level. Plots beyond the skill's (a trajectory, an old-vs-new comparison) go in a
+   report of their own, never into `reports/<level>.md`. Present the flagged clusters and pause: the user approves descending, and
    into which groups. If more than half the clusters are `Unknown`, consult the user first.
 
 ### 4. Finish
