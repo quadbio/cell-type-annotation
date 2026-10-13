@@ -42,7 +42,7 @@ The package, in the analysis repo's `pixi.toml`, next to the scverse stack the t
 
 ```toml
 [pypi-dependencies]
-cell-type-annotation = { git = "https://github.com/quadbio/cell-type-annotation", tag = "v0.4.0" }
+cell-type-annotation = { git = "https://github.com/quadbio/cell-type-annotation", tag = "v0.4.1" }
 ```
 
 Cross-check tools (celltypist, cellmapper, panhumanpy, scvi-tools, scimilarity) are added as a run needs them. Their
@@ -73,9 +73,9 @@ For live package edits in an analysis repo, depend on the checkout:
 
 ## Release
 
-1. Bump `version` in both `pyproject.toml` and `.claude-plugin/plugin.json` (a test checks they agree).
-2. Tag `vX.Y.Z`.
-3. Bump the `ref` in [quadbio/claude-plugins](https://github.com/quadbio/claude-plugins).
+Bump `version` in both `pyproject.toml` and `.claude-plugin/plugin.json` (a test checks they agree).
+That is the release: the marketplace follows `main`, users update when the version changes, and the merge tags
+`vX.Y.Z`, which analysis repos pin.
 
 ## License
 

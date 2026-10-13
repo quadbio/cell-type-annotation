@@ -1,0 +1,22 @@
+name: Tag release
+
+on:
+  push:
+    branches: [main]
+    paths: [.claude-plugin/plugin.json]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tag the version in plugin.json, if new
+        run: |
+          tag="v$(jq -r .version .claude-plugin/plugin.json)"
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+            git tag "$tag"
+            git push origin "$tag"
+          fi
