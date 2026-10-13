@@ -4,7 +4,6 @@ requires = [ "hatchling" ]
 
 [project]
 name = "cell-type-annotation"
-version = "0.4.1"
 description = "Method routing, evidence checks, label hierarchies and reports for evidence-driven cell-type annotation."
 readme = "README.md"
 license = "MIT"
@@ -16,6 +15,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
 ]
+dynamic = [ "version" ]
 dependencies = [ "anndata>=0.12", "matplotlib>=3.8", "numpy>=2", "pandas>=2", "scipy" ]
 urls.Source = "https://github.com/quadbio/cell-type-annotation"
 
@@ -23,6 +23,8 @@ urls.Source = "https://github.com/quadbio/cell-type-annotation"
 dev = [ "pre-commit", "pytest" ]
 
 [tool.hatch]
+version.path = ".claude-plugin/plugin.json"
+version.pattern = '"version": "(?P<version>[^"]+)"'
 build.targets.wheel.packages = [ "src/cell_type_annotation" ]
 
 [tool.ruff]
