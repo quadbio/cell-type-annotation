@@ -37,7 +37,8 @@ It requires the [knowledgebase MCP](https://github.com/biocontext-ai/knowledgeba
 
 ## Install
 
-The plugin, once per machine, from the [quadbio marketplace](https://github.com/quadbio/claude-plugins).
+The plugin, once per machine, from the [quadbio marketplace](https://github.com/quadbio/claude-plugins); it
+installs analysis-workflow along with it.
 
 The package, in the analysis repo's `pixi.toml` (its lock pins the commit), next to the scverse stack the task
 scripts use:
