@@ -40,12 +40,12 @@ It requires the [knowledgebase MCP](https://github.com/biocontext-ai/knowledgeba
 The plugin, once per machine, from the [quadbio marketplace](https://github.com/quadbio/claude-plugins); it
 installs analysis-workflow and sci-figures along with it.
 
-The package, in the analysis repo's `pixi.toml` (its lock pins the commit), next to the scverse stack the task
+The PyPI package `cell-type-annotation`, in the analysis repo's `pixi.toml`, next to the scverse stack the task
 scripts use:
 
 ```toml
 [pypi-dependencies]
-cell-type-annotation = { git = "https://github.com/quadbio/cell-type-annotation" }
+cell-type-annotation = ">=0.4.2"
 ```
 
 Cross-check tools (celltypist, cellmapper, panhumanpy, scvi-tools, scimilarity) are added as a run needs them. Their
@@ -77,7 +77,8 @@ For live package edits in an analysis repo, depend on the checkout:
 ## Release
 
 Bump `version` in `.claude-plugin/plugin.json` and merge: the marketplace follows `main`, and users update when the
-version changes.
+version changes. On that merge, `release.yaml` publishes the package to PyPI as `cell-type-annotation`, then tags
+`v<version>` and creates a GitHub Release.
 
 ## License
 
